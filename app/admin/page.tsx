@@ -51,7 +51,9 @@ export default function AdminPage() {
   const [driverRows, setDriverRows] = useState<DriverRow[]>([])
 
   useEffect(() => {
-    void loadPage()
+    setTimeout(() => {
+      void loadPage()
+    }, 200)
   }, [])
 
   async function loadPage() {
