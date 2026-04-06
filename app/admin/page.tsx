@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabase'
 
 type Profile = {
   id: string
-  full_name: string | null
   email: string | null
   role: string | null
 }
@@ -72,7 +71,7 @@ export default function AdminPage() {
 
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role')
+      .select('id, email, role')
       .eq('id', user.id)
       .single()
 
@@ -142,7 +141,7 @@ export default function AdminPage() {
       title="Admin Dashboard"
       subtitle="Full system control for tickets, drivers, bins, and dispatch visibility."
       roleLabel="Admin"
-      userName={profile?.full_name || profile?.email || 'Admin'}
+      userName={profile?.email || 'Admin'}
       navItems={navItems}
     >
       {errorMessage ? (
