@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -12,18 +11,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const [successMessage, setSuccessMessage] = useState('')
   const [resetMode, setResetMode] = useState(false)
-
-  useEffect(() => {
-    const clearBrokenSession = async () => {
-      try {
-        await supabase.auth.signOut()
-      } catch {}
-    }
-
-    clearBrokenSession()
-  }, [])
+  const [successMessage, setSuccessMessage] = useState('')
 
   const handleLogin = async () => {
     setLoading(true)
@@ -32,8 +21,6 @@ export default function LoginPage() {
 
     const cleanEmail = email.trim().toLowerCase()
 
-    await supabase.auth.signOut()
-
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
       password,
@@ -41,6 +28,13 @@ export default function LoginPage() {
 
     if (error || !data.user) {
       setErrorMessage(error?.message || 'Login failed')
+      setLoading(false)
+      return
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (!sessionData.session) {
+      setErrorMessage('Session not created. Please try again.')
       setLoading(false)
       return
     }
@@ -64,7 +58,11 @@ export default function LoginPage() {
     } else {
       setErrorMessage('Invalid role')
       setLoading(false)
+      return
     }
+
+    router.refresh()
+    setLoading(false)
   }
 
   const handleResetPassword = async () => {
@@ -135,11 +133,7 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full bg-black text-white rounded-lg py-2 font-medium hover:opacity-90 disabled:opacity-50"
           >
-            {loading
-              ? 'Please wait...'
-              : resetMode
-              ? 'Send reset link'
-              : 'Login'}
+            {loading ? 'Please wait...' : resetMode ? 'Send reset link' : 'Login'}
           </button>
 
           <div className="text-center">
