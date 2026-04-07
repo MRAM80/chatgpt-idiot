@@ -80,6 +80,11 @@ export default function AdminPage() {
       return
     }
 
+    if (profile?.role !== 'admin') {
+      setErrorMessage('Only admin can do this.')
+      return
+    }
+
     setProfile(profileData)
 
     const [
