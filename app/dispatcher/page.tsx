@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabase'
 
 type Profile = {
   id: string
-  full_name: string | null
   email: string | null
   role: string | null
 }
@@ -56,8 +55,10 @@ export default function DispatcherPage() {
     setErrorMessage('')
 
     const {
-      data: { user },
-    } = await supabase.auth.getUser()
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    const user = session?.user
 
     if (!user) {
       router.push('/login')
@@ -174,7 +175,7 @@ export default function DispatcherPage() {
       title="Dispatch Window"
       subtitle="Live operation board for tickets, driver flow, and quick status movement."
       roleLabel={profile?.role === 'admin' ? 'Admin' : 'Dispatcher'}
-      userName={profile?.full_name || profile?.email || 'Dispatcher'}
+      userName={profile?.email || 'Dispatcher'}
       navItems={navItems}
     >
       {errorMessage ? (
