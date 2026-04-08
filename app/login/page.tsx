@@ -6,6 +6,15 @@ import { useRouter } from 'next/navigation'
 import { ArrowRight, Eye, EyeOff, KeyRound, Mail, ShieldCheck, Truck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
+type ProfileRow = {
+  id: string
+  full_name: string | null
+  email: string | null
+  role: string | null
+  company?: string | null
+  is_active?: boolean | null
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
@@ -37,25 +46,62 @@ export default function LoginPage() {
       return
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', data.user.id)
-      .single()
+    const user = data.user
 
-    if (profileError || !profile?.role) {
-      setErrorMessage('Profile not found. Check the profiles table in Supabase.')
+    const { data: existingProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, role, company, is_active')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (profileError) {
+      setErrorMessage(profileError.message)
       setLoading(false)
       return
     }
 
-    if (profile.role === 'admin') {
-      router.push('/admin')
-    } else if (profile.role === 'dispatcher') {
-      router.push('/dispatcher')
-    } else {
+    const profile = existingProfile as ProfileRow | null
+
+    const safeFullName =
+      profile?.full_name ||
+      user.user_metadata?.full_name ||
+      user.email?.split('@')[0] ||
+      'User'
+
+    const safeEmail = profile?.email || user.email || email
+    const safeRole = profile?.role || 'admin'
+    const safeCompany = profile?.company || 'SIMPLIITRASH'
+    const safeIsActive = profile?.is_active ?? true
+
+    const { error: upsertError } = await supabase.from('profiles').upsert(
+      {
+        id: user.id,
+        full_name: safeFullName,
+        email: safeEmail,
+        role: safeRole,
+        company: safeCompany,
+        is_active: safeIsActive,
+      },
+      { onConflict: 'id' }
+    )
+
+    if (upsertError) {
+      setErrorMessage(upsertError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!['admin', 'dispatcher'].includes(safeRole)) {
       setErrorMessage('This project currently supports admin and dispatcher access only.')
       await supabase.auth.signOut()
+      setLoading(false)
+      return
+    }
+
+    if (safeRole === 'admin') {
+      router.push('/admin')
+    } else {
+      router.push('/dispatcher')
     }
 
     setLoading(false)
@@ -102,8 +148,8 @@ export default function LoginPage() {
               Tickets, drivers, bins, and dispatch flow in one place.
             </h1>
             <p className="mt-5 max-w-lg text-base text-slate-300">
-              Admin controls the full system. Dispatcher focuses on the live operation,
-              creates tickets, assigns work, and keeps drivers moving.
+              Admin controls the full system. Dispatcher focuses on the live operation, creates
+              tickets, assigns work, and keeps drivers moving.
             </p>
           </div>
 
@@ -116,12 +162,16 @@ export default function LoginPage() {
             <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Role</p>
               <p className="mt-2 font-semibold">Dispatcher</p>
-              <p className="mt-1 text-sm text-slate-300">Runs operations, tickets, and assignments.</p>
+              <p className="mt-1 text-sm text-slate-300">
+                Runs operations, tickets, and assignments.
+              </p>
             </div>
             <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Focus</p>
               <p className="mt-2 font-semibold">Flow</p>
-              <p className="mt-1 text-sm text-slate-300">Live status board for delivery and pickup work.</p>
+              <p className="mt-1 text-sm text-slate-300">
+                Live status board for delivery and pickup work.
+              </p>
             </div>
           </div>
         </section>
@@ -183,7 +233,9 @@ export default function LoginPage() {
 
               {!resetMode ? (
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Password
+                  </label>
                   <div className="flex items-center rounded-2xl border border-slate-200 px-4 py-3 focus-within:border-slate-900">
                     <KeyRound className="mr-3 h-4 w-4 text-slate-400" />
                     <input
