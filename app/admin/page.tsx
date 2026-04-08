@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 
 type Profile = {
   id: string
+  full_name: string | null
   email: string | null
   role: string | null
 }
@@ -50,9 +51,7 @@ export default function AdminPage() {
   const [driverRows, setDriverRows] = useState<DriverRow[]>([])
 
   useEffect(() => {
-    setTimeout(() => {
-      void loadPage()
-    }, 200)
+    void loadPage()
   }, [])
 
   async function loadPage() {
@@ -60,9 +59,8 @@ export default function AdminPage() {
     setErrorMessage('')
 
     const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    const user = session?.user
+      data: { user },
+    } = await supabase.auth.getUser()
 
     if (!user) {
       router.push('/login')
@@ -71,17 +69,12 @@ export default function AdminPage() {
 
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, email, role')
+      .select('id, full_name, email, role')
       .eq('id', user.id)
       .single()
 
     if (profileError || !profileData || profileData.role !== 'admin') {
       router.push('/login')
-      return
-    }
-
-    if (profile?.role !== 'admin') {
-      setErrorMessage('Only admin can do this.')
       return
     }
 
@@ -146,7 +139,7 @@ export default function AdminPage() {
       title="Admin Dashboard"
       subtitle="Full system control for tickets, drivers, bins, and dispatch visibility."
       roleLabel="Admin"
-      userName={profile?.email || 'Admin'}
+      userName={profile?.full_name || profile?.email || 'Admin'}
       navItems={navItems}
     >
       {errorMessage ? (

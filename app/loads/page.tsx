@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 
 type Profile = {
   id: string
+  full_name: string | null
   email: string | null
   role: string | null
 }
@@ -79,10 +80,8 @@ export default function LoadsPage() {
     setErrorMessage('')
 
     const {
-      data: { session },
-    } = await supabase.auth.getSession ()
-    
-    const user = session?.user
+      data: { user },
+    } = await supabase.auth.getUser()
 
     if (!user) {
       router.push('/login')
@@ -245,7 +244,7 @@ export default function LoadsPage() {
       title="Ticket Desk"
       subtitle="Create and manage delivery, pickup, and dump return tickets."
       roleLabel={profile?.role === 'admin' ? 'Admin' : 'Dispatcher'}
-      userName={profile?.email || 'User'}
+      userName={profile?.full_name || profile?.email || 'User'}
       navItems={profile?.role === 'admin'
         ? [
             { href: '/admin', label: 'Dashboard' },
