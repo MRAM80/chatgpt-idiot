@@ -1,10 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { ReactNode, useMemo } from 'react'
-import { ArrowLeft, Bell, ChevronRight, LogOut, ShieldCheck, Truck } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { usePathname } from 'next/navigation'
+import { ReactNode } from 'react'
+import { LogOut } from 'lucide-react'
 
 type NavItem = {
   href: string
@@ -12,133 +11,132 @@ type NavItem = {
 }
 
 type DashboardShellProps = {
-  title: string
+  title?: string
   subtitle?: string
   roleLabel?: string
   userName?: string
   navItems?: NavItem[]
   children: ReactNode
+  onLogout?: () => void | Promise<void>
 }
 
 export default function DashboardShell({
-  title,
-  subtitle,
+  title = 'Dashboard',
+  subtitle = 'Welcome back',
   roleLabel,
   userName,
   navItems = [],
   children,
+  onLogout,
 }: DashboardShellProps) {
   const pathname = usePathname()
-  const router = useRouter()
-
-  const initials = useMemo(() => {
-    if (!userName) return 'ST'
-    return userName
-      .split(' ')
-      .map((part) => part[0])
-      .slice(0, 2)
-      .join('')
-      .toUpperCase()
-  }, [userName])
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
-        <aside className="border-b border-slate-200 bg-slate-950 text-white lg:border-b-0 lg:border-r">
-          <div className="flex items-center justify-between px-6 py-5 lg:block">
+    <div className="min-h-screen bg-gray-100">
+      {/* Desktop Sidebar */}
+      <aside className="fixed left-0 top-0 hidden h-screen w-64 flex-col border-r border-gray-200 bg-white p-5 md:flex">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">SIMPLIITRASH</h1>
+          <p className="text-xs text-gray-500">Operations System</p>
+        </div>
+
+        <nav className="flex flex-1 flex-col gap-2">
+          {navItems.map((item) => {
+            const active = pathname === item.href
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`rounded-xl px-4 py-3 text-sm font-medium transition ${
+                  active
+                    ? 'bg-black text-white'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
+        </nav>
+
+        <div className="mt-auto space-y-3">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm">
+            <div className="font-medium text-gray-900">
+              {userName || 'User'}
+            </div>
+            <div className="text-xs text-gray-500">
+              {roleLabel || 'Role'}
+            </div>
+          </div>
+
+          <button
+            onClick={onLogout}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100"
+          >
+            <LogOut size={16} />
+            Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="md:ml-64">
+        {/* Top Bar */}
+        <header className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-center justify-between">
             <div>
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-300">
-                  <Truck className="h-5 w-5" />
+              <h2 className="text-lg font-semibold text-gray-900">
+                {title}
+              </h2>
+              <p className="text-xs text-gray-500">{subtitle}</p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="hidden text-right md:block">
+                <div className="text-sm font-medium text-gray-900">
+                  {userName || 'User'}
                 </div>
-                <div>
-                  <p className="text-lg font-bold tracking-tight">SimpliiTrash</p>
-                  <p className="text-xs text-slate-400">Operations Control</p>
+                <div className="text-xs text-gray-500">
+                  {roleLabel || 'Role'}
                 </div>
               </div>
+
+              <button
+                onClick={onLogout}
+                className="rounded-xl border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 transition md:hidden"
+              >
+                Logout
+              </button>
             </div>
           </div>
+        </header>
 
-          <div className="px-4 pb-6">
-            <div className="mb-5 rounded-3xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 font-bold text-white">
-                  {initials}
-                </div>
-                <div>
-                  <p className="font-semibold text-white">{userName || 'Operations User'}</p>
-                  <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    {roleLabel || 'Operations'}
-                  </div>
-                </div>
-              </div>
-            </div>
+        {/* Page Content */}
+        <main className="p-4 md:p-6">{children}</main>
+      </div>
 
-            <nav className="space-y-1.5">
-              {navItems.map((item) => {
-                const active = pathname === item.href
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                      active
-                        ? 'bg-white text-slate-950 shadow-sm'
-                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <span>{item.label}</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </Link>
-                )
-              })}
-            </nav>
+      {/* Mobile Bottom Navigation */}
+      <div className="fixed bottom-0 left-0 z-40 w-full border-t border-gray-200 bg-white md:hidden">
+        <div className="grid grid-cols-4 text-center text-xs font-medium">
+          {navItems.map((item) => {
+            const active = pathname === item.href
 
-            <button
-              onClick={handleLogout}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
-            >
-              <LogOut className="h-4 w-4" />
-              Exit
-            </button>
-          </div>
-        </aside>
-
-        <main className="min-w-0">
-          <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
-            <div className="flex flex-col gap-4 px-4 py-5 sm:px-6 xl:flex-row xl:items-center xl:justify-between xl:px-8">
-              <div>
-                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-                  <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
-                  SimpliiTrash control center
-                </div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-950">{title}</h1>
-                {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="hidden rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-600 sm:flex sm:items-center sm:gap-2">
-                  <Bell className="h-4 w-4" />
-                  Live operations view
-                </div>
-                <button
-                  onClick={() => router.back()}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Go back
-                </button>
-              </div>
-            </div>
-          </header>
-
-          <div className="px-4 py-6 sm:px-6 xl:px-8">{children}</div>
-        </main>
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`py-3 ${
+                  active
+                    ? 'bg-black text-white'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
