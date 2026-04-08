@@ -1,81 +1,74 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import DashboardShell from '@/components/dashboard-shell'
 import { supabase } from '@/lib/supabase'
+import DashboardShell from '@/components/dashboard-shell'
 
 type Profile = {
   id: string
-  full_name: string | null
-  email: string | null
-  role: string | null
+  email: string
+  role: string
+  full_name?: string | null
 }
 
-type LoadItem = {
+type Driver = {
   id: string
-  customer_name: string | null
-  customer_phone: string | null
+  full_name: string
+}
+
+type Load = {
+  id: string
+  customer_name: string
+  material: string | null
   pickup_address: string | null
   dropoff_address: string | null
-  service_date: string | null
+  scheduled_date: string | null
   status: string | null
   driver_id: string | null
-  bin_id: string | null
-  notes: string | null
-  ticket_type: string | null
-  priority: string | null
-  created_at: string | null
+  created_at: string
 }
 
-type DriverItem = {
-  id: string
-  full_name: string | null
-}
-
-type BinItem = {
-  id: string
-  bin_number: string | null
-}
-
-const statusOptions = ['pending', 'assigned', 'in_progress', 'completed', 'cancelled']
-const typeOptions = ['delivery', 'pickup', 'dump_return']
-const priorityOptions = ['low', 'medium', 'high']
-
-const defaultForm = {
-  customer_name: '',
-  customer_phone: '',
-  pickup_address: '',
-  dropoff_address: '',
-  service_date: '',
-  status: 'pending',
-  driver_id: '',
-  bin_id: '',
-  ticket_type: 'delivery',
-  priority: 'medium',
-  notes: '',
-}
+const navItems = [
+  { href: '/admin', label: 'Dashboard' },
+  { href: '/loads', label: 'Loads' },
+  { href: '/drivers', label: 'Drivers' },
+  { href: '/bins', label: 'Bins' },
+]
 
 export default function LoadsPage() {
   const router = useRouter()
+
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [loads, setLoads] = useState<LoadItem[]>([])
-  const [drivers, setDrivers] = useState<DriverItem[]>([])
-  const [bins, setBins] = useState<BinItem[]>([])
-  const [form, setForm] = useState(defaultForm)
+  const [loads, setLoads] = useState<Load[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  const [successMessage, setSuccessMessage] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+
+  const [customerName, setCustomerName] = useState('')
+  const [material, setMaterial] = useState('')
+  const [pickupAddress, setPickupAddress] = useState('')
+  const [dropoffAddress, setDropoffAddress] = useState('')
+  const [scheduledDate, setScheduledDate] = useState('')
+  const [status, setStatus] = useState('pending')
+  const [driverId, setDriverId] = useState('')
 
   useEffect(() => {
-    void loadPageData()
+    let cleanup: (() => void) | undefined
+
+    async function init() {
+      cleanup = await loadPage()
+    }
+
+    init()
+
+    return () => {
+      if (cleanup) cleanup()
+    }
   }, [])
 
-  async function loadPageData() {
+  async function loadPage() {
     setLoading(true)
     setErrorMessage('')
 
@@ -90,24 +83,49 @@ export default function LoadsPage() {
 
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role')
+      .select('id, email, role, full_name')
       .eq('id', user.id)
       .single()
 
-    if (profileError || !profileData || !['admin', 'dispatcher'].includes(profileData.role || '')) {
+    if (
+      profileError ||
+      !profileData ||
+      !['admin', 'dispatcher'].includes(profileData.role || '')
+    ) {
       router.push('/login')
       return
     }
 
     setProfile(profileData)
-    await Promise.all([fetchLoads(), fetchDrivers(), fetchBins()])
+    await Promise.all([loadLoads(), loadDrivers()])
     setLoading(false)
+
+    return setupRealtime()
   }
 
-  async function fetchLoads() {
+  function setupRealtime() {
+    const channel = supabase
+      .channel('loads-page-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'loads' },
+        async () => {
+          await loadLoads()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }
+
+  async function loadLoads() {
     const { data, error } = await supabase
       .from('loads')
-      .select('id, customer_name, customer_phone, pickup_address, dropoff_address, service_date, status, driver_id, bin_id, notes, ticket_type, priority, created_at')
+      .select(
+        'id, customer_name, material, pickup_address, dropoff_address, scheduled_date, status, driver_id, created_at'
+      )
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -115,234 +133,304 @@ export default function LoadsPage() {
       return
     }
 
-    setLoads((data as LoadItem[]) || [])
+    setLoads(data || [])
   }
 
-  async function fetchDrivers() {
-    const { data } = await supabase.from('drivers').select('id, full_name').order('created_at', { ascending: false })
-    setDrivers((data as DriverItem[]) || [])
-  }
+  async function loadDrivers() {
+    const { data, error } = await supabase
+      .from('drivers')
+      .select('id, full_name')
+      .order('full_name', { ascending: true })
 
-  async function fetchBins() {
-    const { data } = await supabase.from('bins').select('id, bin_number').order('created_at', { ascending: false })
-    setBins((data as BinItem[]) || [])
-  }
-
-  function resetForm() {
-    setForm(defaultForm)
-    setEditingId(null)
-  }
-
-  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
-    const { name, value } = e.target
-    setForm((prev) => ({ ...prev, [name]: value }))
-  }
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault()
-    setSaving(true)
-    setErrorMessage('')
-    setSuccessMessage('')
-
-    if (!form.customer_name.trim()) {
-      setErrorMessage('Client name is required.')
-      setSaving(false)
-      return
-    }
-
-    const payload = {
-      customer_name: form.customer_name || null,
-      customer_phone: form.customer_phone || null,
-      pickup_address: form.pickup_address || null,
-      dropoff_address: form.dropoff_address || null,
-      service_date: form.service_date || null,
-      status: form.status || 'pending',
-      driver_id: form.driver_id || null,
-      bin_id: form.bin_id || null,
-      ticket_type: form.ticket_type || 'delivery',
-      priority: form.priority || 'medium',
-      notes: form.notes || null,
-      updated_at: new Date().toISOString(),
-    }
-
-    const response = editingId
-      ? await supabase.from('loads').update(payload).eq('id', editingId)
-      : await supabase.from('loads').insert([payload])
-
-    if (response.error) {
-      setErrorMessage(response.error.message)
-      setSaving(false)
-      return
-    }
-
-    setSuccessMessage(editingId ? 'Ticket updated successfully.' : 'Ticket created successfully.')
-    resetForm()
-    await fetchLoads()
-    setSaving(false)
-  }
-
-  function handleEdit(load: LoadItem) {
-    setEditingId(load.id)
-    setForm({
-      customer_name: load.customer_name || '',
-      customer_phone: load.customer_phone || '',
-      pickup_address: load.pickup_address || '',
-      dropoff_address: load.dropoff_address || '',
-      service_date: load.service_date || '',
-      status: load.status || 'pending',
-      driver_id: load.driver_id || '',
-      bin_id: load.bin_id || '',
-      ticket_type: load.ticket_type || 'delivery',
-      priority: load.priority || 'medium',
-      notes: load.notes || '',
-    })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  async function handleDelete(id: string) {
-    if (profile?.role !== 'admin') {
-      setErrorMessage('Only admin can delete tickets.')
-      return
-    }
-
-    if (!window.confirm('Delete this ticket?')) return
-
-    const { error } = await supabase.from('loads').delete().eq('id', id)
     if (error) {
       setErrorMessage(error.message)
       return
     }
 
-    setSuccessMessage('Ticket deleted successfully.')
-    await fetchLoads()
+    setDrivers(data || [])
   }
 
-  const filteredLoads = useMemo(() => {
-    return loads.filter((load) => {
-      const term = search.trim().toLowerCase()
-      const matchesSearch =
-        !term ||
-        (load.customer_name || '').toLowerCase().includes(term) ||
-        (load.customer_phone || '').toLowerCase().includes(term) ||
-        (load.pickup_address || '').toLowerCase().includes(term) ||
-        (load.dropoff_address || '').toLowerCase().includes(term) ||
-        (load.ticket_type || '').toLowerCase().includes(term)
+  async function handleAddLoad(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setErrorMessage('')
 
-      const matchesStatus = statusFilter === 'all' || (load.status || 'pending').toLowerCase() === statusFilter.toLowerCase()
-      return matchesSearch && matchesStatus
+    const cleanCustomer = customerName.trim()
+
+    if (!cleanCustomer) {
+      setErrorMessage('Customer name is required.')
+      setSaving(false)
+      return
+    }
+
+    const { error } = await supabase.from('loads').insert({
+      customer_name: cleanCustomer,
+      material: material.trim() || null,
+      pickup_address: pickupAddress.trim() || null,
+      dropoff_address: dropoffAddress.trim() || null,
+      scheduled_date: scheduledDate || null,
+      status,
+      driver_id: driverId || null,
     })
-  }, [loads, search, statusFilter])
 
-  function getDriverName(driverId: string | null) {
-    if (!driverId) return 'Unassigned'
-    const driver = drivers.find((item) => item.id === driverId)
-    return driver?.full_name || 'Unassigned'
+    if (error) {
+      setErrorMessage(error.message)
+      setSaving(false)
+      return
+    }
+
+    setCustomerName('')
+    setMaterial('')
+    setPickupAddress('')
+    setDropoffAddress('')
+    setScheduledDate('')
+    setStatus('pending')
+    setDriverId('')
+    setSaving(false)
+
+    await loadLoads()
+  }
+
+  async function handleDeleteLoad(id: string) {
+    const confirmed = window.confirm('Delete this load?')
+    if (!confirmed) return
+
+    const { error } = await supabase.from('loads').delete().eq('id', id)
+
+    if (error) {
+      setErrorMessage(error.message)
+      return
+    }
+
+    await loadLoads()
+  }
+
+  async function handleQuickUpdate(
+    id: string,
+    field: 'status' | 'driver_id',
+    value: string
+  ) {
+    const updateValue = field === 'driver_id' ? value || null : value
+
+    const { error } = await supabase
+      .from('loads')
+      .update({ [field]: updateValue })
+      .eq('id', id)
+
+    if (error) {
+      setErrorMessage(error.message)
+      return
+    }
+
+    await loadLoads()
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
   }
 
   return (
     <DashboardShell
-      title="Ticket Desk"
-      subtitle="Create and manage delivery, pickup, and dump return tickets."
-      roleLabel={profile?.role === 'admin' ? 'Admin' : 'Dispatcher'}
+      title="Loads"
+      subtitle="Track loads, scheduling, and driver assignment."
+      roleLabel={profile?.role?.toUpperCase()}
       userName={profile?.full_name || profile?.email || 'User'}
-      navItems={profile?.role === 'admin'
-        ? [
-            { href: '/admin', label: 'Dashboard' },
-            { href: '/dispatcher', label: 'Dispatch Window' },
-            { href: '/loads', label: 'Tickets' },
-            { href: '/drivers', label: 'Drivers' },
-            { href: '/bins', label: 'Bins' },
-          ]
-        : [
-            { href: '/dispatcher', label: 'Dispatch Window' },
-            { href: '/loads', label: 'Tickets' },
-            { href: '/drivers', label: 'Drivers' },
-            { href: '/bins', label: 'Bins' },
-          ]}
+      navItems={navItems}
+      onLogout={handleLogout}
     >
-      <div className="space-y-6">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-6 pb-24 md:pb-6">
+        <div className="sticky top-0 z-20 -mx-1 rounded-2xl border border-gray-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600">Operation tickets</p>
-              <h1 className="text-2xl font-bold text-slate-900">{editingId ? 'Edit Ticket' : 'Create New Ticket'}</h1>
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                Dashboard / Loads
+              </div>
+              <h1 className="text-xl font-semibold text-gray-900">
+                Load Operations
+              </h1>
+              <p className="text-sm text-gray-500">
+                Schedule jobs and assign drivers.
+              </p>
             </div>
-            {editingId ? <button onClick={resetForm} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Cancel Edit</button> : null}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => router.push('/admin')}
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+              >
+                ← Back to Dashboard
+              </button>
+            </div>
           </div>
+        </div>
 
-          {errorMessage ? <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{errorMessage}</div> : null}
-          {successMessage ? <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</div> : null}
-
-          <form onSubmit={handleSave} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <input name="customer_name" value={form.customer_name} onChange={handleChange} placeholder="Client name" className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400" />
-            <input name="customer_phone" value={form.customer_phone} onChange={handleChange} placeholder="Client phone" className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400" />
-            <input type="date" name="service_date" value={form.service_date} onChange={handleChange} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400" />
-            <select name="ticket_type" value={form.ticket_type} onChange={handleChange} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400">{typeOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-            <select name="priority" value={form.priority} onChange={handleChange} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400">{priorityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-            <select name="status" value={form.status} onChange={handleChange} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400">{statusOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-            <input name="pickup_address" value={form.pickup_address} onChange={handleChange} placeholder="Pickup address" className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400 xl:col-span-2" />
-            <input name="dropoff_address" value={form.dropoff_address} onChange={handleChange} placeholder="Dropoff address" className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400" />
-            <select name="driver_id" value={form.driver_id} onChange={handleChange} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400">
-              <option value="">Unassigned driver</option>
-              {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name || 'Unnamed Driver'}</option>)}
-            </select>
-            <select name="bin_id" value={form.bin_id} onChange={handleChange} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400">
-              <option value="">Unassigned bin</option>
-              {bins.map((bin) => <option key={bin.id} value={bin.id}>{bin.bin_number || 'Unnamed Bin'}</option>)}
-            </select>
-            <textarea name="notes" value={form.notes} onChange={handleChange} placeholder="Notes" rows={4} className="rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-slate-400 md:col-span-2 xl:col-span-3" />
-            <div className="md:col-span-2 xl:col-span-3 flex flex-col gap-3 sm:flex-row">
-              <button type="submit" disabled={saving} className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">{saving ? 'Saving...' : editingId ? 'Update Ticket' : 'Create Ticket'}</button>
-              <button type="button" onClick={resetForm} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Clear Form</button>
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          {errorMessage ? (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {errorMessage}
             </div>
-          </form>
-        </section>
+          ) : null}
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">All Tickets</h2>
-              <p className="text-sm text-slate-500">Search and manage operational tickets.</p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets..." className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400" />
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400">
-                <option value="all">All statuses</option>
-                {statusOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+          <form onSubmit={handleAddLoad} className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <input
+                type="text"
+                placeholder="Customer name"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
+              />
+
+              <input
+                type="text"
+                placeholder="Material"
+                value={material}
+                onChange={(e) => setMaterial(e.target.value)}
+                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
+              />
+
+              <input
+                type="text"
+                placeholder="Pickup address"
+                value={pickupAddress}
+                onChange={(e) => setPickupAddress(e.target.value)}
+                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
+              />
+
+              <input
+                type="text"
+                placeholder="Dropoff address"
+                value={dropoffAddress}
+                onChange={(e) => setDropoffAddress(e.target.value)}
+                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
+              />
+
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
+              />
+
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
+              >
+                <option value="pending">pending</option>
+                <option value="scheduled">scheduled</option>
+                <option value="assigned">assigned</option>
+                <option value="in progress">in progress</option>
+                <option value="completed">completed</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+
+              <select
+                value={driverId}
+                onChange={(e) => setDriverId(e.target.value)}
+                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
+              >
+                <option value="">No driver</option>
+                {drivers.map((driver) => (
+                  <option key={driver.id} value={driver.id}>
+                    {driver.full_name}
+                  </option>
+                ))}
               </select>
             </div>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? 'Saving...' : 'Add Load'}
+            </button>
+          </form>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-200 px-5 py-4">
+            <h2 className="text-xl font-semibold text-gray-900">All Loads</h2>
           </div>
 
           {loading ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">Loading tickets...</div>
+            <div className="p-5 text-sm text-gray-500">Loading loads...</div>
+          ) : loads.length === 0 ? (
+            <div className="p-5 text-sm text-gray-500">No loads found.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left">
-                <thead>
-                  <tr className="border-b border-slate-200 text-sm text-slate-500">
-                    <th className="px-3 py-3 font-semibold">Client</th>
-                    <th className="px-3 py-3 font-semibold">Type</th>
-                    <th className="px-3 py-3 font-semibold">Priority</th>
-                    <th className="px-3 py-3 font-semibold">Date</th>
-                    <th className="px-3 py-3 font-semibold">Status</th>
-                    <th className="px-3 py-3 font-semibold">Driver</th>
-                    <th className="px-3 py-3 font-semibold">Actions</th>
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 text-left text-gray-600">
+                  <tr>
+                    <th className="px-5 py-3 font-semibold">Customer</th>
+                    <th className="px-5 py-3 font-semibold">Material</th>
+                    <th className="px-5 py-3 font-semibold">Pickup</th>
+                    <th className="px-5 py-3 font-semibold">Dropoff</th>
+                    <th className="px-5 py-3 font-semibold">Date</th>
+                    <th className="px-5 py-3 font-semibold">Status</th>
+                    <th className="px-5 py-3 font-semibold">Driver</th>
+                    <th className="px-5 py-3 font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLoads.map((load) => (
-                    <tr key={load.id} className="border-b border-slate-100 text-sm">
-                      <td className="px-3 py-4 font-medium text-slate-900">{load.customer_name || 'No client'}</td>
-                      <td className="px-3 py-4 text-slate-700">{load.ticket_type || 'delivery'}</td>
-                      <td className="px-3 py-4 text-slate-700">{load.priority || 'low'}</td>
-                      <td className="px-3 py-4 text-slate-700">{load.service_date || '—'}</td>
-                      <td className="px-3 py-4 text-slate-700">{load.status || 'pending'}</td>
-                      <td className="px-3 py-4 text-slate-700">{getDriverName(load.driver_id)}</td>
-                      <td className="px-3 py-4">
-                        <div className="flex gap-2">
-                          <button onClick={() => handleEdit(load)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">Edit</button>
-                          {profile?.role === 'admin' ? <button onClick={() => handleDelete(load.id)} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-100">Delete</button> : null}
-                        </div>
+                  {loads.map((load) => (
+                    <tr key={load.id} className="border-t border-gray-100">
+                      <td className="px-5 py-4 font-medium text-gray-900">
+                        {load.customer_name}
+                      </td>
+                      <td className="px-5 py-4 text-gray-700">
+                        {load.material || '-'}
+                      </td>
+                      <td className="px-5 py-4 text-gray-700">
+                        {load.pickup_address || '-'}
+                      </td>
+                      <td className="px-5 py-4 text-gray-700">
+                        {load.dropoff_address || '-'}
+                      </td>
+                      <td className="px-5 py-4 text-gray-700">
+                        {load.scheduled_date || '-'}
+                      </td>
+                      <td className="px-5 py-4">
+                        <select
+                          value={load.status || 'pending'}
+                          onChange={(e) =>
+                            handleQuickUpdate(load.id, 'status', e.target.value)
+                          }
+                          className="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black"
+                        >
+                          <option value="pending">pending</option>
+                          <option value="scheduled">scheduled</option>
+                          <option value="assigned">assigned</option>
+                          <option value="in progress">in progress</option>
+                          <option value="completed">completed</option>
+                          <option value="cancelled">cancelled</option>
+                        </select>
+                      </td>
+                      <td className="px-5 py-4">
+                        <select
+                          value={load.driver_id || ''}
+                          onChange={(e) =>
+                            handleQuickUpdate(load.id, 'driver_id', e.target.value)
+                          }
+                          className="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black"
+                        >
+                          <option value="">No driver</option>
+                          {drivers.map((driver) => (
+                            <option key={driver.id} value={driver.id}>
+                              {driver.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-5 py-4">
+                        <button
+                          onClick={() => handleDeleteLoad(load.id)}
+                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-medium text-red-700 transition hover:bg-red-100"
+                        >
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -350,7 +438,7 @@ export default function LoadsPage() {
               </table>
             </div>
           )}
-        </section>
+        </div>
       </div>
     </DashboardShell>
   )

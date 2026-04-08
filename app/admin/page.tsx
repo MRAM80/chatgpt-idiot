@@ -1,36 +1,52 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import DashboardShell from '@/components/dashboard-shell'
 import { supabase } from '@/lib/supabase'
+import DashboardShell from '@/components/dashboard-shell'
 
 type Profile = {
   id: string
-  full_name: string | null
-  email: string | null
-  role: string | null
+  email: string
+  role: string
+  full_name?: string | null
 }
 
-type TicketRow = {
+type Bin = {
   id: string
-  customer_name: string | null
-  service_date: string | null
   status: string | null
-  driver_id: string | null
-  ticket_type: string | null
+  current_location: string | null
+  created_at: string
 }
 
-type DriverRow = {
+type Driver = {
   id: string
-  full_name: string | null
+  full_name: string
   status: string | null
+  truck_number?: string | null
+  created_at: string
+}
+
+type Load = {
+  id: string
+  status: string | null
+  created_at: string
+}
+
+type Job = {
+  id: string
+  job_number: string | null
+  job_type: string | null
+  status: string | null
+  scheduled_date: string | null
+  created_at: string
 }
 
 const navItems = [
   { href: '/admin', label: 'Dashboard' },
-  { href: '/dispatcher', label: 'Dispatch Window' },
-  { href: '/loads', label: 'Tickets' },
+  { href: '/dispatcher', label: 'Dispatch' },
+  { href: '/jobs', label: 'Jobs' },
+  { href: '/loads', label: 'Loads' },
   { href: '/drivers', label: 'Drivers' },
   { href: '/bins', label: 'Bins' },
 ]
@@ -39,159 +55,139 @@ export default function AdminPage() {
   const router = useRouter()
 
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [bins, setBins] = useState<Bin[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
+  const [loads, setLoads] = useState<Load[]>([])
+  const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
 
-  const [totalTickets, setTotalTickets] = useState(0)
-  const [openTickets, setOpenTickets] = useState(0)
-  const [inProgressTickets, setInProgressTickets] = useState(0)
-  const [completedTickets, setCompletedTickets] = useState(0)
-  const [activeDrivers, setActiveDrivers] = useState(0)
-  const [availableBins, setAvailableBins] = useState(0)
-
-  const [recentTickets, setRecentTickets] = useState<TicketRow[]>([])
-  const [driverRows, setDriverRows] = useState<DriverRow[]>([])
-
   useEffect(() => {
-    void initialize()
+    let cleanup: (() => void) | undefined
+
+    async function init() {
+      cleanup = await loadPage()
+    }
+
+    void init()
+
+    return () => {
+      if (cleanup) cleanup()
+    }
   }, [])
 
-  async function initialize() {
+  async function loadPage() {
     setLoading(true)
     setErrorMessage('')
 
     const {
       data: { user },
-      error: authError,
     } = await supabase.auth.getUser()
 
-    if (authError || !user) {
+    if (!user) {
       router.push('/login')
       return
     }
 
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, full_name, email, role')
+      .select('id, email, role, full_name')
       .eq('id', user.id)
-      .maybeSingle()
+      .single()
 
-    if (profileError || !profileData) {
+    if (
+      profileError ||
+      !profileData ||
+      !['admin', 'dispatcher'].includes(profileData.role || '')
+    ) {
       router.push('/login')
       return
     }
 
-    if (profileData.role !== 'admin') {
-      if (profileData.role === 'dispatcher') {
-        router.push('/dispatcher')
-      } else {
-        router.push('/login')
-      }
-      return
-    }
-
     setProfile(profileData)
-    await loadDashboard()
+
+    await Promise.all([loadBins(), loadDrivers(), loadLoads(), loadJobs()])
+
     setLoading(false)
+    return setupRealtime()
   }
 
-  useEffect(() => {
-    const loadsChannel = supabase
-      .channel('admin-loads')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'loads' }, () => {
-        void loadDashboard()
+  function setupRealtime() {
+    const channel = supabase
+      .channel('admin-dashboard-final')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bins' }, async () => {
+        await loadBins()
       })
-      .subscribe()
-
-    const driversChannel = supabase
-      .channel('admin-drivers')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, () => {
-        void loadDashboard()
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, async () => {
+        await loadDrivers()
       })
-      .subscribe()
-
-    const binsChannel = supabase
-      .channel('admin-bins')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bins' }, () => {
-        void loadDashboard()
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loads' }, async () => {
+        await loadLoads()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, async () => {
+        await loadJobs()
       })
       .subscribe()
 
     return () => {
-      supabase.removeChannel(loadsChannel)
-      supabase.removeChannel(driversChannel)
-      supabase.removeChannel(binsChannel)
+      supabase.removeChannel(channel)
     }
-  }, [])
+  }
 
-  async function loadDashboard() {
-    const [
-      allTicketsRes,
-      openRes,
-      progressRes,
-      completedRes,
-      activeDriversRes,
-      binsRes,
-      recentRes,
-      driversRes,
-    ] = await Promise.all([
-      supabase.from('loads').select('*', { count: 'exact', head: true }),
-      supabase
-        .from('loads')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['pending', 'assigned']),
-      supabase
-        .from('loads')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'in_progress'),
-      supabase
-        .from('loads')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'completed'),
-      supabase
-        .from('drivers')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'active'),
-      supabase
-        .from('bins')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'available'),
-      supabase
-        .from('loads')
-        .select('id, customer_name, service_date, status, driver_id, ticket_type')
-        .order('created_at', { ascending: false })
-        .limit(8),
-      supabase
-        .from('drivers')
-        .select('id, full_name, status')
-        .order('created_at', { ascending: false })
-        .limit(6),
-    ])
+  async function loadBins() {
+    const { data, error } = await supabase
+      .from('bins')
+      .select('id, status, current_location, created_at')
+      .order('created_at', { ascending: false })
 
-    const firstError =
-      allTicketsRes.error ||
-      openRes.error ||
-      progressRes.error ||
-      completedRes.error ||
-      activeDriversRes.error ||
-      binsRes.error ||
-      recentRes.error ||
-      driversRes.error
-
-    if (firstError) {
-      setErrorMessage(firstError.message)
-    } else {
-      setErrorMessage('')
+    if (error) {
+      setErrorMessage(error.message)
+      return
     }
 
-    setTotalTickets(allTicketsRes.count || 0)
-    setOpenTickets(openRes.count || 0)
-    setInProgressTickets(progressRes.count || 0)
-    setCompletedTickets(completedRes.count || 0)
-    setActiveDrivers(activeDriversRes.count || 0)
-    setAvailableBins(binsRes.count || 0)
-    setRecentTickets((recentRes.data as TicketRow[]) || [])
-    setDriverRows((driversRes.data as DriverRow[]) || [])
+    setBins(data || [])
+  }
+
+  async function loadDrivers() {
+    const { data, error } = await supabase
+      .from('drivers')
+      .select('id, full_name, status, truck_number, created_at')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      setErrorMessage(error.message)
+      return
+    }
+
+    setDrivers(data || [])
+  }
+
+  async function loadLoads() {
+    const { data, error } = await supabase
+      .from('loads')
+      .select('id, status, created_at')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      setErrorMessage(error.message)
+      return
+    }
+
+    setLoads(data || [])
+  }
+
+  async function loadJobs() {
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id, job_number, job_type, status, scheduled_date, created_at')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      setErrorMessage(error.message)
+      return
+    }
+
+    setJobs(data || [])
   }
 
   async function handleLogout() {
@@ -199,223 +195,287 @@ export default function AdminPage() {
     router.push('/login')
   }
 
-  function getStatusClasses(status: string | null) {
-    switch ((status || '').toLowerCase()) {
-      case 'completed':
-        return 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-      case 'in_progress':
-        return 'border border-amber-200 bg-amber-50 text-amber-700'
-      case 'assigned':
-        return 'border border-blue-200 bg-blue-50 text-blue-700'
-      case 'cancelled':
-        return 'border border-red-200 bg-red-50 text-red-700'
-      default:
-        return 'border border-slate-200 bg-slate-100 text-slate-700'
-    }
-  }
+  const stats = useMemo(() => {
+    const availableBins = bins.filter(
+      (bin) => (bin.status || '').toLowerCase() === 'available'
+    ).length
 
-  if (loading) {
-    return (
-      <DashboardShell
-        title="Admin Dashboard"
-        subtitle="Full system control for tickets, drivers, bins, and dispatch visibility."
-        roleLabel="Admin"
-        userName={profile?.full_name || profile?.email || 'Admin'}
-        navItems={navItems}
-      >
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-sm text-slate-500">Loading dashboard...</p>
-        </div>
-      </DashboardShell>
-    )
-  }
+    const assignedBins = bins.filter((bin) =>
+      ['assigned', 'delivered', 'picked up', 'in transit'].includes(
+        (bin.status || '').toLowerCase()
+      )
+    ).length
+
+    const maintenanceBins = bins.filter(
+      (bin) => (bin.status || '').toLowerCase() === 'maintenance'
+    ).length
+
+    const activeDrivers = drivers.filter((driver) =>
+      ['active', 'available', 'on duty'].includes(
+        (driver.status || '').toLowerCase()
+      )
+    ).length
+
+    const activeLoads = loads.filter((load) =>
+      ['pending', 'scheduled', 'assigned', 'in progress', 'active'].includes(
+        (load.status || '').toLowerCase()
+      )
+    ).length
+
+    const openJobs = jobs.filter((job) =>
+      ['new', 'pending', 'assigned', 'scheduled', 'in_progress', 'in progress'].includes(
+        (job.status || '').toLowerCase()
+      )
+    ).length
+
+    const completedJobs = jobs.filter(
+      (job) => (job.status || '').toLowerCase() === 'completed'
+    ).length
+
+    return {
+      totalBins: bins.length,
+      availableBins,
+      assignedBins,
+      maintenanceBins,
+      totalDrivers: drivers.length,
+      activeDrivers,
+      totalLoads: loads.length,
+      activeLoads,
+      totalJobs: jobs.length,
+      openJobs,
+      completedJobs,
+    }
+  }, [bins, drivers, loads, jobs])
+
+  const recentBins = bins.slice(0, 5)
+  const recentDrivers = drivers.slice(0, 5)
+  const recentLoads = loads.slice(0, 5)
+  const recentJobs = jobs.slice(0, 5)
 
   return (
     <DashboardShell
-      title="Admin Dashboard"
-      subtitle="Full system control for tickets, drivers, bins, and dispatch visibility."
-      roleLabel="Admin"
-      userName={profile?.full_name || profile?.email || 'Admin'}
+      title="Dashboard"
+      subtitle="SIMPLIITRASH final operational overview"
+      roleLabel={profile?.role?.toUpperCase()}
+      userName={profile?.full_name || profile?.email || 'User'}
       navItems={navItems}
+      onLogout={handleLogout}
     >
-      <div className="mb-6 flex flex-wrap gap-3">
-        <button
-          onClick={() => router.push('/dispatcher')}
-          className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-        >
-          Open dispatch window
-        </button>
-        <button
-          onClick={() => router.push('/loads')}
-          className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-        >
-          Manage tickets
-        </button>
-        <button
-          onClick={() => router.push('/drivers')}
-          className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-        >
-          Manage drivers
-        </button>
-        <button
-          onClick={() => router.push('/bins')}
-          className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-        >
-          Manage bins
-        </button>
-        <button
-          onClick={handleLogout}
-          className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100"
-        >
-          Logout
-        </button>
-      </div>
-
-      {errorMessage ? (
-        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {errorMessage}
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        {[
-          ['Total Tickets', totalTickets],
-          ['Open Tickets', openTickets],
-          ['In Progress', inProgressTickets],
-          ['Completed', completedTickets],
-          ['Active Drivers', activeDrivers],
-          ['Available Bins', availableBins],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">{label}</p>
-            <h2 className="mt-2 text-3xl font-bold text-slate-950">{value}</h2>
+      <div className="space-y-6 pb-24 md:pb-6">
+        {errorMessage ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
           </div>
-        ))}
-      </div>
+        ) : null}
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
+        <div className="rounded-3xl border border-gray-200 bg-gradient-to-r from-black via-gray-900 to-emerald-700 p-6 text-white shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-xl font-bold text-slate-950">Recent Tickets</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Latest operational activity across the system.
+              <div className="mb-2 text-xs uppercase tracking-[0.24em] text-white/70">
+                Live Operations
+              </div>
+              <h1 className="text-2xl font-bold">SIMPLIITRASH Control Center</h1>
+              <p className="mt-1 text-sm text-white/80">
+                Monitor bins, drivers, loads, and jobs before production deploy.
               </p>
             </div>
-            <button
-              onClick={() => router.push('/loads')}
-              className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-            >
-              View all
-            </button>
-          </div>
 
-          <div className="mt-5 space-y-3">
-            {recentTickets.map((ticket) => (
-              <div
-                key={ticket.id}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => router.push('/dispatcher')}
+                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      {ticket.customer_name || 'No client'}
-                    </p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
-                      {ticket.ticket_type || 'General ticket'}
-                    </p>
-                  </div>
-
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusClasses(ticket.status)}`}
-                  >
-                    {ticket.status || 'pending'}
-                  </span>
-                </div>
-
-                <div className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-3">
-                  <p>
-                    <span className="font-medium text-slate-800">Date:</span>{' '}
-                    {ticket.service_date || '—'}
-                  </p>
-                  <p>
-                    <span className="font-medium text-slate-800">Driver:</span>{' '}
-                    {ticket.driver_id || 'Unassigned'}
-                  </p>
-                  <p>
-                    <span className="font-medium text-slate-800">Ticket ID:</span>{' '}
-                    {ticket.id.slice(0, 8)}
-                  </p>
-                </div>
-              </div>
-            ))}
-
-            {!recentTickets.length ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-                No tickets found yet.
-              </div>
-            ) : null}
+                Dispatch Board
+              </button>
+              <button
+                onClick={() => router.push('/jobs')}
+                className="rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Jobs
+              </button>
+              <button
+                onClick={() => router.push('/loads')}
+                className="rounded-xl border border-white/30 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Loads
+              </button>
+            </div>
           </div>
-        </section>
+        </div>
 
-        <aside className="space-y-4">
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-950">Driver Snapshot</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Quick view of the latest driver records.
-            </p>
+        {loading ? (
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-500 shadow-sm">
+            Loading dashboard...
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="text-sm text-gray-500">Bins</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{stats.totalBins}</div>
+                <div className="mt-2 text-xs text-gray-500">
+                  Available: {stats.availableBins}
+                </div>
+              </div>
 
-            <div className="mt-4 space-y-3">
-              {driverRows.map((driver) => (
-                <div
-                  key={driver.id}
-                  className="rounded-2xl border border-slate-200 px-4 py-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-slate-900">
-                        {driver.full_name || 'Unnamed Driver'}
-                      </p>
-                      <p className="text-sm text-slate-500">ID: {driver.id.slice(0, 8)}</p>
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="text-sm text-gray-500">Drivers</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">
+                  {stats.totalDrivers}
+                </div>
+                <div className="mt-2 text-xs text-gray-500">Active: {stats.activeDrivers}</div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="text-sm text-gray-500">Loads</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{stats.totalLoads}</div>
+                <div className="mt-2 text-xs text-gray-500">Active: {stats.activeLoads}</div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="text-sm text-gray-500">Jobs</div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{stats.totalJobs}</div>
+                <div className="mt-2 text-xs text-gray-500">Open: {stats.openJobs}</div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-4">
+              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm xl:col-span-1">
+                <div className="border-b border-gray-200 px-5 py-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Quick Summary</h2>
+                </div>
+                <div className="grid gap-3 p-5">
+                  <div className="rounded-xl bg-gray-50 p-4">
+                    <div className="text-sm text-gray-500">Assigned Bins</div>
+                    <div className="mt-2 text-2xl font-bold text-gray-900">
+                      {stats.assignedBins}
                     </div>
-
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                        (driver.status || 'inactive') === 'active'
-                          ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : 'border border-slate-200 bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      {driver.status || 'inactive'}
-                    </span>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-4">
+                    <div className="text-sm text-gray-500">Maintenance Bins</div>
+                    <div className="mt-2 text-2xl font-bold text-gray-900">
+                      {stats.maintenanceBins}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-4">
+                    <div className="text-sm text-gray-500">Completed Jobs</div>
+                    <div className="mt-2 text-2xl font-bold text-gray-900">
+                      {stats.completedJobs}
+                    </div>
                   </div>
                 </div>
-              ))}
+              </div>
 
-              {!driverRows.length ? (
-                <p className="text-sm text-slate-500">No drivers found.</p>
-              ) : null}
-            </div>
-          </section>
+              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <div className="border-b border-gray-200 px-5 py-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Recent Jobs</h2>
+                </div>
+                <div className="p-5">
+                  {recentJobs.length === 0 ? (
+                    <div className="text-sm text-gray-500">No jobs found.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentJobs.map((job) => (
+                        <div key={job.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-semibold text-gray-900">
+                              {job.job_number || 'No ticket number'}
+                            </div>
+                            <div className="rounded-full bg-white px-3 py-1 text-xs text-gray-600">
+                              {job.status || 'new'}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-sm text-gray-600">
+                            {job.job_type || 'No type'} • {job.scheduled_date || 'No date'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-950">Admin Notes</h2>
-            <div className="mt-4 space-y-3 text-sm text-slate-600">
-              <p className="rounded-2xl bg-slate-50 px-4 py-3">
-                Use <span className="font-semibold text-slate-900">Tickets</span> to create,
-                edit, and review work orders.
-              </p>
-              <p className="rounded-2xl bg-slate-50 px-4 py-3">
-                Use <span className="font-semibold text-slate-900">Drivers</span> to manage the
-                active team and assignments.
-              </p>
-              <p className="rounded-2xl bg-slate-50 px-4 py-3">
-                Use <span className="font-semibold text-slate-900">Bins</span> to track available
-                inventory for operations.
-              </p>
+              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <div className="border-b border-gray-200 px-5 py-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Recent Drivers</h2>
+                </div>
+                <div className="p-5">
+                  {recentDrivers.length === 0 ? (
+                    <div className="text-sm text-gray-500">No drivers found.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentDrivers.map((driver) => (
+                        <div
+                          key={driver.id}
+                          className="rounded-xl border border-gray-100 bg-gray-50 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-semibold text-gray-900">
+                              {driver.full_name}
+                            </div>
+                            <div className="rounded-full bg-white px-3 py-1 text-xs text-gray-600">
+                              {driver.status || 'no status'}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-sm text-gray-600">
+                            Truck: {driver.truck_number || '—'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <div className="border-b border-gray-200 px-5 py-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Recent Bins</h2>
+                </div>
+                <div className="p-5">
+                  {recentBins.length === 0 ? (
+                    <div className="text-sm text-gray-500">No bins found.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentBins.map((bin) => (
+                        <div key={bin.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-semibold text-gray-900">Bin record</div>
+                            <div className="rounded-full bg-white px-3 py-1 text-xs text-gray-600">
+                              {bin.status || 'no status'}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-sm text-gray-600">
+                            Location: {bin.current_location || 'not set'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </section>
-        </aside>
+
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+              <div className="border-b border-gray-200 px-5 py-4">
+                <h2 className="text-lg font-semibold text-gray-900">Recent Loads</h2>
+              </div>
+              <div className="p-5">
+                {recentLoads.length === 0 ? (
+                  <div className="text-sm text-gray-500">No loads found.</div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    {recentLoads.map((load) => (
+                      <div key={load.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                        <div className="text-sm font-semibold text-gray-900">Load record</div>
+                        <div className="mt-2 text-sm text-gray-600">{load.status || 'no status'}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </DashboardShell>
   )
