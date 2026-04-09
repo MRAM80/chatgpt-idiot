@@ -15,70 +15,48 @@ type Profile = {
 type DriverRow = {
   id: string
   full_name: string | null
-  email: string | null
   phone: string | null
+  email: string | null
   truck_number: string | null
   status: string | null
   created_at: string | null
 }
 
-type JobRow = {
-  id: string
-  assigned_driver_id: string | null
-  status: string | null
+type DriverForm = {
+  full_name: string
+  phone: string
+  email: string
+  truck_number: string
+  status: string
 }
 
-const navItems = [
-  { href: '/admin', label: 'Dashboard' },
-  { href: '/dispatcher', label: 'Dispatch' },
-  { href: '/jobs', label: 'Jobs' },
-  { href: '/loads', label: 'Loads' },
-  { href: '/drivers', label: 'Drivers' },
-  { href: '/bins', label: 'Bins' },
-]
+const emptyForm: DriverForm = {
+  full_name: '',
+  phone: '',
+  email: '',
+  truck_number: '',
+  status: 'active',
+}
 
 export default function DriversPage() {
   const router = useRouter()
-
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [drivers, setDrivers] = useState<DriverRow[]>([])
-  const [jobs, setJobs] = useState<JobRow[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [drivers, setDrivers] = useState<DriverRow[]>([])
   const [errorMessage, setErrorMessage] = useState('')
-
-  const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [truckNumber, setTruckNumber] = useState('')
-  const [status, setStatus] = useState('active')
-
-  useEffect(() => {
-    void initialize()
-  }, [])
+  const [successMessage, setSuccessMessage] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingDriverId, setEditingDriverId] = useState<string | null>(null)
+  const [form, setForm] = useState<DriverForm>(emptyForm)
 
   useEffect(() => {
-    const driversChannel = supabase
-      .channel('drivers-page-drivers')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, () => {
-        void loadDrivers()
-      })
-      .subscribe()
-
-    const jobsChannel = supabase
-      .channel('drivers-page-jobs')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => {
-        void loadJobs()
-      })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(driversChannel)
-      supabase.removeChannel(jobsChannel)
-    }
+    void loadPage()
   }, [])
 
-  async function initialize() {
+  async function loadPage() {
     setLoading(true)
     setErrorMessage('')
 
@@ -97,24 +75,20 @@ export default function DriversPage() {
       .eq('id', user.id)
       .single()
 
-    if (
-      profileError ||
-      !profileData ||
-      !['admin', 'dispatcher'].includes(profileData.role || '')
-    ) {
+    if (profileError || !profileData || !['admin', 'dispatcher'].includes(profileData.role || '')) {
       router.push('/login')
       return
     }
 
     setProfile(profileData)
-    await Promise.all([loadDrivers(), loadJobs()])
+    await loadDrivers()
     setLoading(false)
   }
 
   async function loadDrivers() {
     const { data, error } = await supabase
       .from('drivers')
-      .select('id, full_name, email, phone, truck_number, status, created_at')
+      .select('id, full_name, phone, email, truck_number, status, created_at')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -125,311 +99,217 @@ export default function DriversPage() {
     setDrivers((data as DriverRow[]) || [])
   }
 
-  async function loadJobs() {
-    const { data, error } = await supabase
-      .from('jobs')
-      .select('id, assigned_driver_id, status')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      setErrorMessage(error.message)
-      return
-    }
-
-    setJobs((data as JobRow[]) || [])
+  function resetForm() {
+    setForm(emptyForm)
+    setEditingDriverId(null)
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
+  function openCreateModal() {
+    resetForm()
+    setIsModalOpen(true)
   }
 
-  async function createDriver() {
-    if (!fullName.trim()) {
-      setErrorMessage('Driver full name is required.')
-      return
-    }
+  function openEditModal(driver: DriverRow) {
+    setForm({
+      full_name: driver.full_name || '',
+      phone: driver.phone || '',
+      email: driver.email || '',
+      truck_number: driver.truck_number || '',
+      status: driver.status || 'active',
+    })
+    setEditingDriverId(driver.id)
+    setIsModalOpen(true)
+  }
 
+  function closeModal() {
+    setIsModalOpen(false)
+    resetForm()
+  }
+
+  async function handleSave() {
     setSaving(true)
     setErrorMessage('')
+    setSuccessMessage('')
 
-    const { error } = await supabase.from('drivers').insert([
-      {
-        full_name: fullName.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
-        truck_number: truckNumber.trim() || null,
-        status,
-      },
-    ])
-
-    if (error) {
-      setErrorMessage(error.message)
+    if (!form.full_name.trim()) {
+      setErrorMessage('Driver name is required.')
       setSaving(false)
       return
     }
 
-    setFullName('')
-    setEmail('')
-    setPhone('')
-    setTruckNumber('')
-    setStatus('active')
-    setSaving(false)
+    const payload = {
+      full_name: form.full_name,
+      phone: form.phone || null,
+      email: form.email || null,
+      truck_number: form.truck_number || null,
+      status: form.status || 'active',
+    }
 
+    const response = editingDriverId
+      ? await supabase.from('drivers').update(payload).eq('id', editingDriverId)
+      : await supabase.from('drivers').insert([payload])
+
+    if (response.error) {
+      setErrorMessage(response.error.message)
+      setSaving(false)
+      return
+    }
+
+    setSuccessMessage(editingDriverId ? 'Driver updated successfully.' : 'Driver created successfully.')
     await loadDrivers()
+    closeModal()
+    setSaving(false)
   }
 
-  async function updateDriverStatus(driverId: string, nextStatus: string) {
-    const { error } = await supabase
-      .from('drivers')
-      .update({ status: nextStatus })
-      .eq('id', driverId)
+  async function handleDelete(id: string) {
+    if (profile?.role !== 'admin') {
+      setErrorMessage('Only admin can delete drivers.')
+      return
+    }
 
+    if (!window.confirm('Delete this driver?')) return
+
+    const { error } = await supabase.from('drivers').delete().eq('id', id)
     if (error) {
       setErrorMessage(error.message)
       return
     }
 
+    setSuccessMessage('Driver deleted successfully.')
     await loadDrivers()
   }
 
-  function getDriverJobCount(driverId: string) {
-    return jobs.filter((job) => job.assigned_driver_id === driverId).length
-  }
+  const filteredDrivers = useMemo(() => {
+    return drivers.filter((driver) => {
+      const matchesSearch =
+        !search ||
+        (driver.full_name || '').toLowerCase().includes(search.toLowerCase()) ||
+        (driver.email || '').toLowerCase().includes(search.toLowerCase()) ||
+        (driver.phone || '').toLowerCase().includes(search.toLowerCase()) ||
+        (driver.truck_number || '').toLowerCase().includes(search.toLowerCase())
 
-  function getDriverActiveJobCount(driverId: string) {
-    return jobs.filter((job) => {
-      const matchesDriver = job.assigned_driver_id === driverId
-      const activeStatuses = ['new', 'assigned', 'scheduled', 'in_progress', 'in progress']
-      return matchesDriver && activeStatuses.includes((job.status || '').toLowerCase())
-    }).length
-  }
-
-  const stats = useMemo(() => {
-    const totalDrivers = drivers.length
-    const activeDrivers = drivers.filter((driver) =>
-      ['active', 'available', 'on duty'].includes((driver.status || '').toLowerCase())
-    ).length
-    const inactiveDrivers = drivers.filter(
-      (driver) => (driver.status || '').toLowerCase() === 'inactive'
-    ).length
-    const totalAssignedJobs = jobs.filter((job) => !!job.assigned_driver_id).length
-
-    return {
-      totalDrivers,
-      activeDrivers,
-      inactiveDrivers,
-      totalAssignedJobs,
-    }
-  }, [drivers, jobs])
+      const matchesStatus = statusFilter === 'all' || (driver.status || 'active').toLowerCase() === statusFilter.toLowerCase()
+      return matchesSearch && matchesStatus
+    })
+  }, [drivers, search, statusFilter])
 
   return (
     <DashboardShell
-      title="Drivers"
-      subtitle="Manage drivers, truck details, and dispatch availability."
+      title="Drivers Management"
+      subtitle="Dispatch and admin can maintain driver records. Delete is admin-only."
       roleLabel={profile?.role === 'admin' ? 'Admin' : 'Dispatcher'}
       userName={profile?.full_name || profile?.email || 'User'}
-      navItems={navItems}
-      onLogout={handleLogout}
+      navItems={profile?.role === 'admin'
+        ? [
+            { href: '/admin', label: 'Dashboard' },
+            { href: '/dispatcher', label: 'Dispatch Window' },
+            { href: '/loads', label: 'Tickets' },
+            { href: '/drivers', label: 'Drivers' },
+            { href: '/bins', label: 'Bins' },
+          ]
+        : [
+            { href: '/dispatcher', label: 'Dispatch Window' },
+            { href: '/loads', label: 'Tickets' },
+            { href: '/drivers', label: 'Drivers' },
+            { href: '/bins', label: 'Bins' },
+          ]}
     >
-      <div className="space-y-6 pb-24 md:pb-6">
-        {errorMessage ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {errorMessage}
-          </div>
-        ) : null}
+      {(errorMessage || successMessage) && (
+        <div className="mb-6 space-y-3">
+          {errorMessage ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div> : null}
+          {successMessage ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</div> : null}
+        </div>
+      )}
 
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-950 to-blue-700 p-6 text-white shadow-sm">
-          <h1 className="text-2xl font-bold">Driver Management</h1>
-          <p className="mt-1 text-sm text-white/80">
-            Add drivers, track status, and view assigned job counts.
-          </p>
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Total Drivers</p><h2 className="mt-2 text-3xl font-bold text-slate-900">{drivers.length}</h2></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Active</p><h2 className="mt-2 text-3xl font-bold text-slate-900">{drivers.filter((d) => (d.status || 'active') === 'active').length}</h2></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Inactive / Leave</p><h2 className="mt-2 text-3xl font-bold text-slate-900">{drivers.filter((d) => (d.status || 'active') !== 'active').length}</h2></div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">All Drivers</h2>
+            <p className="text-sm text-slate-500">Operational driver records</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email, truck..." className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-slate-900" />
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-slate-900">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="on_leave">On leave</option>
+            </select>
+            <button onClick={openCreateModal} className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">+ New Driver</button>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500 shadow-sm">
-            Loading drivers...
-          </div>
-        ) : (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="text-sm text-slate-500">Total Drivers</div>
-                <div className="mt-2 text-3xl font-bold text-slate-900">
-                  {stats.totalDrivers}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="text-sm text-slate-500">Active Drivers</div>
-                <div className="mt-2 text-3xl font-bold text-slate-900">
-                  {stats.activeDrivers}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="text-sm text-slate-500">Inactive Drivers</div>
-                <div className="mt-2 text-3xl font-bold text-slate-900">
-                  {stats.inactiveDrivers}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="text-sm text-slate-500">Assigned Jobs</div>
-                <div className="mt-2 text-3xl font-bold text-slate-900">
-                  {stats.totalAssignedJobs}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-semibold text-slate-900">Add Driver</h2>
-
-                <div className="mt-4 grid gap-3">
-                  <input
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Full name"
-                    className="rounded-xl border p-3"
-                  />
-
-                  <input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Email"
-                    className="rounded-xl border p-3"
-                  />
-
-                  <input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="Phone"
-                    className="rounded-xl border p-3"
-                  />
-
-                  <input
-                    value={truckNumber}
-                    onChange={(e) => setTruckNumber(e.target.value)}
-                    placeholder="Truck number"
-                    className="rounded-xl border p-3"
-                  />
-
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className="rounded-xl border p-3"
-                  >
-                    <option value="active">Active</option>
-                    <option value="available">Available</option>
-                    <option value="on duty">On Duty</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-
-                  <button
-                    onClick={createDriver}
-                    disabled={saving}
-                    className="rounded-xl bg-black px-5 py-3 text-white disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : 'Add Driver'}
-                  </button>
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-200 px-5 py-4">
-                  <h2 className="text-lg font-semibold text-slate-900">Driver List</h2>
-                </div>
-
-                <div className="divide-y">
-                  {drivers.length === 0 ? (
-                    <div className="p-5 text-sm text-slate-500">No drivers found.</div>
-                  ) : (
-                    drivers.map((driver) => (
-                      <div key={driver.id} className="grid gap-4 p-5 xl:grid-cols-6">
-                        <div>
-                          <div className="text-xs text-slate-500">Driver</div>
-                          <div className="font-medium text-slate-900">
-                            {driver.full_name || '—'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs text-slate-500">Contact</div>
-                          <div className="text-sm text-slate-800">
-                            {driver.email || 'No email'}
-                          </div>
-                          <div className="text-sm text-slate-500">
-                            {driver.phone || 'No phone'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs text-slate-500">Truck</div>
-                          <div className="text-sm text-slate-800">
-                            {driver.truck_number || '—'}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs text-slate-500">Status</div>
-                          <div className="mt-1">
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                ['active', 'available', 'on duty'].includes(
-                                  (driver.status || '').toLowerCase()
-                                )
-                                  ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                                  : 'border border-slate-200 bg-slate-100 text-slate-700'
-                              }`}
-                            >
-                              {driver.status || 'inactive'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs text-slate-500">Jobs</div>
-                          <div className="text-sm text-slate-800">
-                            Total: {getDriverJobCount(driver.id)}
-                          </div>
-                          <div className="text-sm text-slate-500">
-                            Active: {getDriverActiveJobCount(driver.id)}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-xs text-slate-500">Quick Actions</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              onClick={() => updateDriverStatus(driver.id, 'active')}
-                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
-                            >
-                              Active
-                            </button>
-                            <button
-                              onClick={() => updateDriverStatus(driver.id, 'on duty')}
-                              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700"
-                            >
-                              On Duty
-                            </button>
-                            <button
-                              onClick={() => updateDriverStatus(driver.id, 'inactive')}
-                              className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                            >
-                              Inactive
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
-          </>
-        )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-200 text-sm text-slate-500">
+                <th className="px-4 py-3 font-medium">Name</th>
+                <th className="px-4 py-3 font-medium">Phone</th>
+                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Truck</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDrivers.map((driver) => (
+                <tr key={driver.id} className="border-b border-slate-100 text-sm text-slate-700">
+                  <td className="px-4 py-4 font-medium text-slate-900">{driver.full_name || '—'}</td>
+                  <td className="px-4 py-4">{driver.phone || '—'}</td>
+                  <td className="px-4 py-4">{driver.email || '—'}</td>
+                  <td className="px-4 py-4">{driver.truck_number || '—'}</td>
+                  <td className="px-4 py-4">{driver.status || 'active'}</td>
+                  <td className="px-4 py-4">
+                    <div className="flex gap-2">
+                      <button onClick={() => openEditModal(driver)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">Edit</button>
+                      {profile?.role === 'admin' ? (
+                        <button onClick={() => handleDelete(driver.id)} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-100">Delete</button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {isModalOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900">{editingDriverId ? 'Edit Driver' : 'New Driver'}</h3>
+                <p className="text-sm text-slate-500">Driver record form</p>
+              </div>
+              <button onClick={closeModal} className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Close</button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <input name="full_name" value={form.full_name} onChange={(e) => setForm((prev) => ({ ...prev, full_name: e.target.value }))} placeholder="Full name" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <input name="phone" value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} placeholder="Phone" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <input name="email" value={form.email} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))} placeholder="Email" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <input name="truck_number" value={form.truck_number} onChange={(e) => setForm((prev) => ({ ...prev, truck_number: e.target.value }))} placeholder="Truck number" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <select name="status" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))} className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 md:col-span-2">
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="on_leave">On leave</option>
+              </select>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button onClick={handleSave} disabled={saving} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">{saving ? 'Saving...' : editingDriverId ? 'Update Driver' : 'Create Driver'}</button>
+              <button onClick={closeModal} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </DashboardShell>
   )
 }

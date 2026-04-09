@@ -1,58 +1,62 @@
 'use client'
 
-import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
 import DashboardShell from '@/components/dashboard-shell'
+import { supabase } from '@/lib/supabase'
 
 type Profile = {
   id: string
-  email: string
-  role: string
-  full_name?: string | null
+  full_name: string | null
+  email: string | null
+  role: string | null
 }
 
-type Driver = {
+type BinRow = {
   id: string
-  full_name: string
-}
-
-type Bin = {
-  id: string
-  bin_number: string
-  size: string
-  current_location: string | null
+  bin_number: string | null
+  bin_type: string | null
+  size: string | null
   status: string | null
-  driver_id: string | null
-  created_at: string
+  location: string | null
+  notes: string | null
+  created_at: string | null
 }
 
-const navItems = [
-  { href: '/admin', label: 'Dashboard' },
-  { href: '/loads', label: 'Loads' },
-  { href: '/drivers', label: 'Drivers' },
-  { href: '/bins', label: 'Bins' },
-]
+type BinForm = {
+  bin_number: string
+  bin_type: string
+  size: string
+  status: string
+  location: string
+  notes: string
+}
+
+const emptyForm: BinForm = {
+  bin_number: '',
+  bin_type: '',
+  size: '',
+  status: 'available',
+  location: '',
+  notes: '',
+}
 
 export default function BinsPage() {
   const router = useRouter()
-
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [bins, setBins] = useState<Bin[]>([])
-  const [drivers, setDrivers] = useState<Driver[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [bins, setBins] = useState<BinRow[]>([])
   const [errorMessage, setErrorMessage] = useState('')
-
-  const [binNumber, setBinNumber] = useState('')
-  const [size, setSize] = useState('')
-  const [currentLocation, setCurrentLocation] = useState('yard')
-  const [status, setStatus] = useState('available')
-  const [driverId, setDriverId] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingBinId, setEditingBinId] = useState<string | null>(null)
+  const [form, setForm] = useState<BinForm>(emptyForm)
 
   useEffect(() => {
-    loadPage()
+    void loadPage()
   }, [])
 
   async function loadPage() {
@@ -70,30 +74,24 @@ export default function BinsPage() {
 
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, email, role, full_name')
+      .select('id, full_name, email, role')
       .eq('id', user.id)
       .single()
 
-    if (
-      profileError ||
-      !profileData ||
-      !['admin', 'dispatcher'].includes(profileData.role || '')
-    ) {
+    if (profileError || !profileData || !['admin', 'dispatcher'].includes(profileData.role || '')) {
       router.push('/login')
       return
     }
 
     setProfile(profileData)
-    await Promise.all([loadBins(), loadDrivers()])
+    await loadBins()
     setLoading(false)
   }
 
   async function loadBins() {
     const { data, error } = await supabase
       .from('bins')
-      .select(
-        'id, bin_number, size, current_location, status, driver_id, created_at'
-      )
+      .select('id, bin_number, bin_type, size, status, location, notes, created_at')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -101,349 +99,225 @@ export default function BinsPage() {
       return
     }
 
-    setBins(data || [])
+    setBins((data as BinRow[]) || [])
   }
 
-  async function loadDrivers() {
-    const { data, error } = await supabase
-      .from('drivers')
-      .select('id, full_name')
-      .order('full_name', { ascending: true })
-
-    if (error) {
-      setErrorMessage(error.message)
-      return
-    }
-
-    setDrivers(data || [])
+  function resetForm() {
+    setForm(emptyForm)
+    setEditingBinId(null)
   }
 
-  async function handleAddBin(e: React.FormEvent) {
-    e.preventDefault()
+  function openCreateModal() {
+    resetForm()
+    setIsModalOpen(true)
+  }
+
+  function openEditModal(bin: BinRow) {
+    setForm({
+      bin_number: bin.bin_number || '',
+      bin_type: bin.bin_type || '',
+      size: bin.size || '',
+      status: bin.status || 'available',
+      location: bin.location || '',
+      notes: bin.notes || '',
+    })
+    setEditingBinId(bin.id)
+    setIsModalOpen(true)
+  }
+
+  function closeModal() {
+    setIsModalOpen(false)
+    resetForm()
+  }
+
+  async function handleSave() {
     setSaving(true)
     setErrorMessage('')
+    setSuccessMessage('')
 
-    const cleanBinNumber = binNumber.trim()
-    const cleanSize = size.trim()
-    const cleanLocation = currentLocation.trim()
-
-    if (!cleanBinNumber || !cleanSize || !cleanLocation) {
-      setErrorMessage('Please fill all required fields.')
+    if (!form.bin_number.trim() || !form.bin_type.trim()) {
+      setErrorMessage('Bin number and bin type are required.')
       setSaving(false)
       return
     }
 
     const payload = {
-      bin_number: cleanBinNumber,
-      size: cleanSize,
-      current_location: cleanLocation,
-      status,
-      driver_id: driverId || null,
+      bin_number: form.bin_number,
+      bin_type: form.bin_type,
+      size: form.size || null,
+      status: form.status || 'available',
+      location: form.location || null,
+      notes: form.notes || null,
     }
 
-    const { error } = await supabase.from('bins').insert(payload)
+    const response = editingBinId
+      ? await supabase.from('bins').update(payload).eq('id', editingBinId)
+      : await supabase.from('bins').insert([payload])
 
-    if (error) {
-      setErrorMessage(error.message)
+    if (response.error) {
+      setErrorMessage(response.error.message)
       setSaving(false)
       return
     }
 
-    setBinNumber('')
-    setSize('')
-    setCurrentLocation('yard')
-    setStatus('available')
-    setDriverId('')
-
+    setSuccessMessage(editingBinId ? 'Bin updated successfully.' : 'Bin created successfully.')
     await loadBins()
+    closeModal()
     setSaving(false)
   }
 
-  async function handleDeleteBin(id: string) {
-    const confirmed = window.confirm('Delete this bin?')
-    if (!confirmed) return
+  async function handleDelete(id: string) {
+    if (profile?.role !== 'admin') {
+      setErrorMessage('Only admin can delete bins.')
+      return
+    }
 
-    setErrorMessage('')
+    if (!window.confirm('Delete this bin?')) return
 
     const { error } = await supabase.from('bins').delete().eq('id', id)
-
     if (error) {
       setErrorMessage(error.message)
       return
     }
 
+    setSuccessMessage('Bin deleted successfully.')
     await loadBins()
   }
 
-  async function handleQuickUpdate(
-    id: string,
-    field: 'current_location' | 'status' | 'driver_id',
-    value: string
-  ) {
-    setErrorMessage('')
+  const filteredBins = useMemo(() => {
+    return bins.filter((bin) => {
+      const matchesSearch =
+        !search ||
+        (bin.bin_number || '').toLowerCase().includes(search.toLowerCase()) ||
+        (bin.bin_type || '').toLowerCase().includes(search.toLowerCase()) ||
+        (bin.location || '').toLowerCase().includes(search.toLowerCase())
 
-    const updateValue =
-      field === 'driver_id' ? (value === '' ? null : value) : value
-
-    const { error } = await supabase
-      .from('bins')
-      .update({ [field]: updateValue })
-      .eq('id', id)
-
-    if (error) {
-      setErrorMessage(error.message)
-      return
-    }
-
-    await loadBins()
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+      const matchesStatus = statusFilter === 'all' || (bin.status || 'available').toLowerCase() === statusFilter.toLowerCase()
+      return matchesSearch && matchesStatus
+    })
+  }, [bins, search, statusFilter])
 
   return (
     <DashboardShell
-      title="Bins"
-      subtitle="Track available and assigned bins."
-      roleLabel={profile?.role?.toUpperCase()}
+      title="Bins Management"
+      subtitle="Dispatch and admin can maintain the bin inventory. Delete is admin-only."
+      roleLabel={profile?.role === 'admin' ? 'Admin' : 'Dispatcher'}
       userName={profile?.full_name || profile?.email || 'User'}
-      navItems={navItems}
-      onLogout={handleLogout}
+      navItems={profile?.role === 'admin'
+        ? [
+            { href: '/admin', label: 'Dashboard' },
+            { href: '/dispatcher', label: 'Dispatch Window' },
+            { href: '/loads', label: 'Tickets' },
+            { href: '/drivers', label: 'Drivers' },
+            { href: '/bins', label: 'Bins' },
+          ]
+        : [
+            { href: '/dispatcher', label: 'Dispatch Window' },
+            { href: '/loads', label: 'Tickets' },
+            { href: '/drivers', label: 'Drivers' },
+            { href: '/bins', label: 'Bins' },
+          ]}
     >
-      <div className="space-y-6 pb-24 md:pb-6">
-        <div className="sticky top-0 z-20 -mx-1 rounded-2xl border border-gray-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">
-                Dashboard / Bins
-              </div>
-              <h1 className="text-xl font-semibold text-gray-900">
-                Bins Operations
-              </h1>
-              <p className="text-sm text-gray-500">
-                Manage location, status, and driver assignment.
-              </p>
-            </div>
+      {(errorMessage || successMessage) && (
+        <div className="mb-6 space-y-3">
+          {errorMessage ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div> : null}
+          {successMessage ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</div> : null}
+        </div>
+      )}
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => router.push('/admin')}
-                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
-              >
-                ← Back to Dashboard
-              </button>
+      <div className="mb-6 grid gap-4 lg:grid-cols-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Total Bins</p><h2 className="mt-2 text-3xl font-bold text-slate-900">{bins.length}</h2></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Available</p><h2 className="mt-2 text-3xl font-bold text-slate-900">{bins.filter((b) => (b.status || 'available') === 'available').length}</h2></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Assigned</p><h2 className="mt-2 text-3xl font-bold text-slate-900">{bins.filter((b) => (b.status || '') === 'assigned').length}</h2></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">Maintenance</p><h2 className="mt-2 text-3xl font-bold text-slate-900">{bins.filter((b) => (b.status || '') === 'maintenance').length}</h2></div>
+      </div>
 
-              <button
-                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-              >
-                + Add New Bin
-              </button>
-            </div>
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">All Bins</h2>
+            <p className="text-sm text-slate-500">Bin inventory and availability</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search bin, type, location..." className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-slate-900" />
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-slate-900">
+              <option value="all">All statuses</option>
+              <option value="available">Available</option>
+              <option value="assigned">Assigned</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <button onClick={openCreateModal} className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">+ New Bin</button>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          {errorMessage ? (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {errorMessage}
-            </div>
-          ) : null}
-
-          <form onSubmit={handleAddBin} className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <input
-                type="text"
-                placeholder="Bin number"
-                value={binNumber}
-                onChange={(e) => setBinNumber(e.target.value)}
-                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
-              />
-
-              <input
-                type="text"
-                placeholder="Size"
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
-                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
-              />
-
-              <select
-                value={currentLocation}
-                onChange={(e) => setCurrentLocation(e.target.value)}
-                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
-              >
-                <option value="yard">yard</option>
-                <option value="customer site">customer site</option>
-                <option value="landfill">landfill</option>
-                <option value="in transit">in transit</option>
-                <option value="shop">shop</option>
-              </select>
-
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
-              >
-                <option value="available">available</option>
-                <option value="assigned">assigned</option>
-                <option value="delivered">delivered</option>
-                <option value="picked up">picked up</option>
-                <option value="maintenance">maintenance</option>
-              </select>
-
-              <select
-                value={driverId}
-                onChange={(e) => setDriverId(e.target.value)}
-                className="rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-black"
-              >
-                <option value="">No driver</option>
-                {drivers.map((driver) => (
-                  <option key={driver.id} value={driver.id}>
-                    {driver.full_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? 'Saving...' : 'Add Bin'}
-            </button>
-          </form>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 px-5 py-4">
-            <h2 className="text-xl font-semibold text-gray-900">All Bins</h2>
-          </div>
-
-          {loading ? (
-            <div className="p-5 text-sm text-gray-500">Loading bins...</div>
-          ) : bins.length === 0 ? (
-            <div className="p-5 text-sm text-gray-500">No bins found.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-left text-gray-600">
-                  <tr>
-                    <th className="px-5 py-3 font-semibold">Bin #</th>
-                    <th className="px-5 py-3 font-semibold">Size</th>
-                    <th className="px-5 py-3 font-semibold">Location</th>
-                    <th className="px-5 py-3 font-semibold">Status</th>
-                    <th className="px-5 py-3 font-semibold">Driver</th>
-                    <th className="px-5 py-3 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bins.map((bin) => (
-                    <tr key={bin.id} className="border-t border-gray-100">
-                      <td className="px-5 py-4 font-medium text-gray-900">
-                        {bin.bin_number}
-                      </td>
-
-                      <td className="px-5 py-4 text-gray-700">{bin.size}</td>
-
-                      <td className="px-5 py-4">
-                        <select
-                          value={bin.current_location || 'yard'}
-                          onChange={(e) =>
-                            handleQuickUpdate(
-                              bin.id,
-                              'current_location',
-                              e.target.value
-                            )
-                          }
-                          className="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black"
-                        >
-                          <option value="yard">yard</option>
-                          <option value="customer site">customer site</option>
-                          <option value="landfill">landfill</option>
-                          <option value="in transit">in transit</option>
-                          <option value="shop">shop</option>
-                        </select>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <select
-                          value={bin.status || 'available'}
-                          onChange={(e) =>
-                            handleQuickUpdate(bin.id, 'status', e.target.value)
-                          }
-                          className="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black"
-                        >
-                          <option value="available">available</option>
-                          <option value="assigned">assigned</option>
-                          <option value="delivered">delivered</option>
-                          <option value="picked up">picked up</option>
-                          <option value="maintenance">maintenance</option>
-                        </select>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <select
-                          value={bin.driver_id || ''}
-                          onChange={(e) =>
-                            handleQuickUpdate(bin.id, 'driver_id', e.target.value)
-                          }
-                          className="rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-black"
-                        >
-                          <option value="">No driver</option>
-                          {drivers.map((driver) => (
-                            <option key={driver.id} value={driver.id}>
-                              {driver.full_name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <button
-                          onClick={() => handleDeleteBin(bin.id)}
-                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-medium text-red-700 transition hover:bg-red-100"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        <div className="fixed bottom-4 left-1/2 z-30 w-[calc(100%-24px)] max-w-md -translate-x-1/2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur md:hidden">
-          <div className="grid grid-cols-4 gap-2 text-center text-xs font-medium">
-            <Link
-              href="/admin"
-              className="rounded-xl px-2 py-3 text-gray-700 hover:bg-gray-100"
-            >
-              Home
-            </Link>
-            <Link
-              href="/loads"
-              className="rounded-xl px-2 py-3 text-gray-700 hover:bg-gray-100"
-            >
-              Loads
-            </Link>
-            <Link
-              href="/drivers"
-              className="rounded-xl px-2 py-3 text-gray-700 hover:bg-gray-100"
-            >
-              Drivers
-            </Link>
-            <Link href="/bins" className="rounded-xl bg-black px-2 py-3 text-white">
-              Bins
-            </Link>
-          </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-200 text-sm text-slate-500">
+                <th className="px-4 py-3 font-medium">Bin Number</th>
+                <th className="px-4 py-3 font-medium">Type</th>
+                <th className="px-4 py-3 font-medium">Size</th>
+                <th className="px-4 py-3 font-medium">Location</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredBins.map((bin) => (
+                <tr key={bin.id} className="border-b border-slate-100 text-sm text-slate-700">
+                  <td className="px-4 py-4 font-medium text-slate-900">{bin.bin_number || '—'}</td>
+                  <td className="px-4 py-4">{bin.bin_type || '—'}</td>
+                  <td className="px-4 py-4">{bin.size || '—'}</td>
+                  <td className="px-4 py-4">{bin.location || '—'}</td>
+                  <td className="px-4 py-4">{bin.status || 'available'}</td>
+                  <td className="px-4 py-4">
+                    <div className="flex gap-2">
+                      <button onClick={() => openEditModal(bin)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">Edit</button>
+                      {profile?.role === 'admin' ? (
+                        <button onClick={() => handleDelete(bin.id)} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-100">Delete</button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
+
+      {isModalOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900">{editingBinId ? 'Edit Bin' : 'New Bin'}</h3>
+                <p className="text-sm text-slate-500">Bin record form</p>
+              </div>
+              <button onClick={closeModal} className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Close</button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <input value={form.bin_number} onChange={(e) => setForm((prev) => ({ ...prev, bin_number: e.target.value }))} placeholder="Bin number" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <input value={form.bin_type} onChange={(e) => setForm((prev) => ({ ...prev, bin_type: e.target.value }))} placeholder="Bin type" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <input value={form.size} onChange={(e) => setForm((prev) => ({ ...prev, size: e.target.value }))} placeholder="Size" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <input value={form.location} onChange={(e) => setForm((prev) => ({ ...prev, location: e.target.value }))} placeholder="Location" className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900" />
+              <select value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))} className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 md:col-span-2">
+                <option value="available">Available</option>
+                <option value="assigned">Assigned</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" rows={4} className="rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-slate-900 md:col-span-2" />
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button onClick={handleSave} disabled={saving} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">{saving ? 'Saving...' : editingBinId ? 'Update Bin' : 'Create Bin'}</button>
+              <button onClick={closeModal} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </DashboardShell>
   )
 }
