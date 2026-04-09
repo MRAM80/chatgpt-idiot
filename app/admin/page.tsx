@@ -12,13 +12,12 @@ type Profile = {
   role: string | null
 }
 
-type TicketRow = {
+type JobRow = {
   id: string
-  customer_name: string | null
-  service_date: string | null
+  ticket_number: string | null
+  job_type: string | null
+  scheduled_date: string | null
   status: string | null
-  driver_id: string | null
-  ticket_type: string | null
 }
 
 type DriverRow = {
@@ -41,14 +40,17 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
 
-  const [totalTickets, setTotalTickets] = useState(0)
-  const [openTickets, setOpenTickets] = useState(0)
-  const [inProgressTickets, setInProgressTickets] = useState(0)
-  const [completedTickets, setCompletedTickets] = useState(0)
-  const [activeDrivers, setActiveDrivers] = useState(0)
-  const [availableBins, setAvailableBins] = useState(0)
-  const [recentTickets, setRecentTickets] = useState<TicketRow[]>([])
-  const [driverRows, setDriverRows] = useState<DriverRow[]>([])
+  const [stats, setStats] = useState({
+    total: 0,
+    open: 0,
+    progress: 0,
+    completed: 0,
+    drivers: 0,
+    bins: 0,
+  })
+
+  const [recentJobs, setRecentJobs] = useState<JobRow[]>([])
+  const [drivers, setDrivers] = useState<DriverRow[]>([])
 
   useEffect(() => {
     void loadPage()
@@ -81,13 +83,13 @@ export default function AdminPage() {
     setProfile(profileData)
 
     const [
-      allTicketsRes,
-      openRes,
-      progressRes,
-      completedRes,
-      activeDriversRes,
-      binsRes,
-      recentRes,
+      total,
+      open,
+      progress,
+      completed,
+      driversCount,
+      binsCount,
+      jobsRes,
       driversRes,
     ] = await Promise.all([
       supabase.from('jobs').select('*', { count: 'exact', head: true }),
@@ -98,120 +100,124 @@ export default function AdminPage() {
       supabase.from('bins').select('*', { count: 'exact', head: true }).eq('status', 'available'),
       supabase
         .from('jobs')
-        .select('id, customer_name, scheduled_date, status, driver_id, job_type')
+        .select('id, ticket_number, job_type, scheduled_date, status')
         .order('created_at', { ascending: false })
         .limit(8),
-      supabase.from('drivers').select('id, full_name, status').order('created_at', { ascending: false }).limit(6),
+      supabase
+        .from('drivers')
+        .select('id, full_name, status')
+        .order('created_at', { ascending: false })
+        .limit(6),
     ])
 
-    if (allTicketsRes.error || recentRes.error || driversRes.error) {
-      setErrorMessage(allTicketsRes.error?.message || recentRes.error?.message || driversRes.error?.message || 'Could not load dashboard.')
+    if (jobsRes.error || driversRes.error) {
+      setErrorMessage(jobsRes.error?.message || driversRes.error?.message || 'Error loading data')
     }
 
-    setTotalTickets(allTicketsRes.count || 0)
-    setOpenTickets(openRes.count || 0)
-    setInProgressTickets(progressRes.count || 0)
-    setCompletedTickets(completedRes.count || 0)
-    setActiveDrivers(activeDriversRes.count || 0)
-    setAvailableBins(binsRes.count || 0)
-    setRecentTickets((recentRes.data as any[]) || [])
-    setDriverRows((driversRes.data as DriverRow[]) || [])
+    setStats({
+      total: total.count || 0,
+      open: open.count || 0,
+      progress: progress.count || 0,
+      completed: completed.count || 0,
+      drivers: driversCount.count || 0,
+      bins: binsCount.count || 0,
+    })
+
+    setRecentJobs((jobsRes.data as JobRow[]) || [])
+    setDrivers((driversRes.data as DriverRow[]) || [])
     setLoading(false)
   }
 
-  function getStatusClasses(status: string | null) {
+  function badge(status: string | null) {
     switch ((status || '').toLowerCase()) {
       case 'completed':
-        return 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+        return 'bg-green-100 text-green-700'
       case 'in_progress':
-        return 'bg-amber-50 text-amber-700 border border-amber-200'
+        return 'bg-yellow-100 text-yellow-700'
       case 'assigned':
-        return 'bg-blue-50 text-blue-700 border border-blue-200'
+        return 'bg-blue-100 text-blue-700'
       default:
-        return 'bg-slate-100 text-slate-700 border border-slate-200'
+        return 'bg-gray-100 text-gray-700'
     }
   }
 
   return (
     <DashboardShell
       title="Admin Dashboard"
-      subtitle="Full system control"
+      subtitle="System overview"
       roleLabel="Admin"
       userName={profile?.full_name || profile?.email || 'Admin'}
       navItems={navItems}
     >
-      {errorMessage && (
-        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {errorMessage}
-        </div>
-      )}
+      {errorMessage && <div className="mb-4 text-red-600">{errorMessage}</div>}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         {[
-          ['Total Jobs', totalTickets],
-          ['Open', openTickets],
-          ['In Progress', inProgressTickets],
-          ['Completed', completedTickets],
-          ['Drivers', activeDrivers],
-          ['Bins', availableBins],
+          ['Total', stats.total],
+          ['Open', stats.open],
+          ['In Progress', stats.progress],
+          ['Completed', stats.completed],
+          ['Drivers', stats.drivers],
+          ['Bins', stats.bins],
         ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">{label as string}</p>
-            <h2 className="mt-2 text-3xl font-bold text-slate-950">{loading ? '...' : value}</h2>
+          <div key={String(label)} className="rounded-2xl bg-white p-4 shadow">
+            <p className="text-sm text-gray-500">{label as string}</p>
+            <p className="text-2xl font-bold">{loading ? '...' : value}</p>
           </div>
         ))}
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.35fr_1fr]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-slate-950">Recent Jobs</h2>
-            <button onClick={() => router.push('/jobs')} className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
-              Open Jobs
-            </button>
+      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+        <div className="bg-white p-6 rounded-2xl shadow">
+          <div className="flex justify-between mb-4">
+            <h2 className="font-bold text-lg">Recent Jobs</h2>
+            <button onClick={() => router.push('/jobs')} className="text-sm text-blue-600">View all</button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left">
-              <thead>
-                <tr className="border-b border-slate-200 text-sm text-slate-500">
-                  <th className="px-3 py-3 font-semibold">Client</th>
-                  <th className="px-3 py-3 font-semibold">Type</th>
-                  <th className="px-3 py-3 font-semibold">Date</th>
-                  <th className="px-3 py-3 font-semibold">Status</th>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500">
+                <th>Ticket</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentJobs.map(job => (
+                <tr key={job.id} className="border-t">
+                  <td>{job.ticket_number}</td>
+                  <td>{job.job_type}</td>
+                  <td>{job.scheduled_date}</td>
+                  <td>
+                    <span className={`px-2 py-1 rounded ${badge(job.status)}`}>
+                      {job.status}
+                    </span>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {recentTickets.map((job: any) => (
-                  <tr key={job.id} className="border-b border-slate-100 text-sm">
-                    <td className="px-3 py-4">{job.customer_name || 'No client'}</td>
-                    <td className="px-3 py-4">{job.job_type || '-'}</td>
-                    <td className="px-3 py-4">{job.scheduled_date || '-'}</td>
-                    <td className="px-3 py-4">
-                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(job.status)}`}>
-                        {job.status || 'pending'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="space-y-6">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-bold text-slate-950">Drivers</h2>
-            <div className="mt-4 space-y-3">
-              {driverRows.map((driver) => (
-                <div key={driver.id} className="flex justify-between">
-                  <span>{driver.full_name || 'Driver'}</span>
-                  <span>{driver.status}</span>
-                </div>
               ))}
-            </div>
+              {!recentJobs.length && (
+                <tr>
+                  <td colSpan={4} className="text-center py-4 text-gray-400">No data</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow">
+          <h2 className="font-bold text-lg mb-4">Drivers</h2>
+          <div className="space-y-3">
+            {drivers.map(d => (
+              <div key={d.id} className="flex justify-between border p-3 rounded-xl">
+                <span>{d.full_name || 'Driver'}</span>
+                <span className={d.status === 'active' ? 'text-green-600' : 'text-gray-400'}>
+                  {d.status}
+                </span>
+              </div>
+            ))}
           </div>
-        </section>
+        </div>
       </div>
     </DashboardShell>
   )
