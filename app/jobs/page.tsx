@@ -74,6 +74,7 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [pageError, setPageError] = useState('')
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -104,9 +105,12 @@ export default function JobsPage() {
       )
       .order('created_at', { ascending: false })
 
-    if (!error) {
-      setJobs((data as Job[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setJobs((data as Job[]) || [])
   }
 
   async function loadDrivers() {
@@ -115,9 +119,12 @@ export default function JobsPage() {
       .select('id,name,email,phone,status')
       .order('name', { ascending: true })
 
-    if (!error) {
-      setDrivers((data as Driver[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setDrivers((data as Driver[]) || [])
   }
 
   async function loadCustomers() {
@@ -126,13 +133,17 @@ export default function JobsPage() {
       .select('id,name,phone,email,address')
       .order('name', { ascending: true })
 
-    if (!error) {
-      setCustomers((data as Customer[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setCustomers((data as Customer[]) || [])
   }
 
   async function refreshAll() {
     setLoading(true)
+    setPageError('')
     await Promise.all([loadJobs(), loadDrivers(), loadCustomers()])
     setLoading(false)
   }
@@ -147,6 +158,13 @@ export default function JobsPage() {
         { event: '*', schema: 'public', table: 'jobs' },
         async () => {
           await loadJobs()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'drivers' },
+        async () => {
+          await loadDrivers()
         }
       )
       .subscribe()
@@ -247,32 +265,48 @@ export default function JobsPage() {
     }))
   }
 
-  async function syncDriverStatuses(driverId?: string | null, nextStatus?: string | null) {
-    if (!driverId) return
-
-    const activeJobStatuses = ['assigned', 'in_progress']
-    const { data } = await supabase
+  async function syncDriverStatuses(driverId: string) {
+    const { data: jobData, error: jobsError } = await supabase
       .from('jobs')
-      .select('id,status')
+      .select('status')
       .eq('driver_id', driverId)
 
-    const hasActiveJobs =
-      (data || []).filter((job) => activeJobStatuses.includes(job.status || '')).length > 0
+    if (jobsError) {
+      setPageError(jobsError.message)
+      return
+    }
 
-    const driverStatus =
-      nextStatus === 'completed' || nextStatus === 'unassigned' || nextStatus === 'issue'
-        ? hasActiveJobs
-          ? 'busy'
-          : 'available'
-        : hasActiveJobs
-        ? 'busy'
-        : 'available'
+    const activeStatuses = ['assigned', 'in_progress']
+    const hasActiveJobs = (jobData || []).some((job) =>
+      activeStatuses.includes(job.status || '')
+    )
 
-    await supabase.from('drivers').update({ status: driverStatus }).eq('id', driverId)
+    const { data: driver, error: driverError } = await supabase
+      .from('drivers')
+      .select('status')
+      .eq('id', driverId)
+      .single()
+
+    if (driverError) {
+      setPageError(driverError.message)
+      return
+    }
+
+    if (driver?.status === 'offline') return
+
+    const { error: updateError } = await supabase
+      .from('drivers')
+      .update({ status: hasActiveJobs ? 'busy' : 'available' })
+      .eq('id', driverId)
+
+    if (updateError) {
+      setPageError(updateError.message)
+    }
   }
 
   async function handleCreateOrUpdate() {
     setSaving(true)
+    setPageError('')
 
     const payload = {
       customer_id: form.customer_id || null,
@@ -291,12 +325,15 @@ export default function JobsPage() {
 
       const { error } = await supabase.from('jobs').update(payload).eq('id', editingJob.id)
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         if (previousDriverId && previousDriverId !== payload.driver_id) {
-          await syncDriverStatuses(previousDriverId, editingJob.status)
+          await syncDriverStatuses(previousDriverId)
         }
+
         if (payload.driver_id) {
-          await syncDriverStatuses(payload.driver_id, payload.status)
+          await syncDriverStatuses(payload.driver_id)
         }
 
         await refreshAll()
@@ -305,9 +342,11 @@ export default function JobsPage() {
     } else {
       const { error } = await supabase.from('jobs').insert([payload])
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         if (payload.driver_id) {
-          await syncDriverStatuses(payload.driver_id, payload.status)
+          await syncDriverStatuses(payload.driver_id)
         }
 
         await refreshAll()
@@ -323,12 +362,15 @@ export default function JobsPage() {
     if (!confirmed) return
 
     setDeletingId(jobId)
+    setPageError('')
 
     const { error } = await supabase.from('jobs').delete().eq('id', jobId)
 
-    if (!error) {
+    if (error) {
+      setPageError(error.message)
+    } else {
       if (driverId) {
-        await syncDriverStatuses(driverId, 'completed')
+        await syncDriverStatuses(driverId)
       }
       await refreshAll()
     }
@@ -337,18 +379,26 @@ export default function JobsPage() {
   }
 
   async function handleQuickStatus(job: Job, value: string) {
+    setPageError('')
+
     const { error } = await supabase
       .from('jobs')
       .update({ status: value })
       .eq('id', job.id)
 
-    if (!error) {
+    if (error) {
+      setPageError(error.message)
+    } else {
       if (job.driver_id) {
-        await syncDriverStatuses(job.driver_id, value)
+        await syncDriverStatuses(job.driver_id)
       }
       await refreshAll()
     }
   }
+
+  const assignableDrivers = useMemo(() => {
+    return drivers.filter((driver) => driver.status !== 'offline')
+  }, [drivers])
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -377,6 +427,12 @@ export default function JobsPage() {
               </button>
             </div>
           </div>
+
+          {pageError ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {pageError}
+            </div>
+          ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-5">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -661,7 +717,7 @@ export default function JobsPage() {
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                 >
                   <option value="">Unassigned</option>
-                  {drivers.map((driver) => (
+                  {assignableDrivers.map((driver) => (
                     <option key={driver.id} value={driver.id}>
                       {driver.name || 'Unnamed Driver'}
                     </option>

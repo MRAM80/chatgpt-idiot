@@ -49,6 +49,7 @@ export default function DriversPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [pageError, setPageError] = useState('')
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -71,9 +72,12 @@ export default function DriversPage() {
       .select('id,name,email,phone,status,created_at')
       .order('created_at', { ascending: false })
 
-    if (!error) {
-      setDrivers((data as Driver[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setDrivers((data as Driver[]) || [])
   }
 
   async function loadJobs() {
@@ -81,31 +85,19 @@ export default function DriversPage() {
       .from('jobs')
       .select('id,driver_id,customer_name,pickup_address,status,scheduled_date')
 
-    if (!error) {
-      setJobs((data as Job[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setJobs((data as Job[]) || [])
   }
 
   async function refreshAll() {
     setLoading(true)
+    setPageError('')
     await Promise.all([loadDrivers(), loadJobs()])
     setLoading(false)
-  }
-
-  async function syncDriverStatusFromJobs(driverId: string) {
-    const activeStatuses = ['assigned', 'in_progress']
-    const relatedJobs = jobs.filter((job) => job.driver_id === driverId)
-    const hasActiveJobs = relatedJobs.some((job) =>
-      activeStatuses.includes(job.status || '')
-    )
-
-    const driver = drivers.find((item) => item.id === driverId)
-    if (!driver) return
-
-    const nextStatus =
-      driver.status === 'offline' ? 'offline' : hasActiveJobs ? 'busy' : 'available'
-
-    await supabase.from('drivers').update({ status: nextStatus }).eq('id', driverId)
   }
 
   useEffect(() => {
@@ -208,6 +200,7 @@ export default function DriversPage() {
 
   async function handleCreateOrUpdate() {
     setSaving(true)
+    setPageError('')
 
     const payload = {
       name: form.name || null,
@@ -217,19 +210,33 @@ export default function DriversPage() {
     }
 
     if (editingDriver) {
+      const activeJobs = driverStats.activeJobsByDriver[editingDriver.id] || 0
+
+      if (payload.status === 'available' && activeJobs > 0) {
+        setPageError(
+          'This driver still has active jobs. Keep as busy, set offline, or reassign the jobs first.'
+        )
+        setSaving(false)
+        return
+      }
+
       const { error } = await supabase
         .from('drivers')
         .update(payload)
         .eq('id', editingDriver.id)
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         await refreshAll()
         closeModal()
       }
     } else {
       const { error } = await supabase.from('drivers').insert([payload])
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         await refreshAll()
         closeModal()
       }
@@ -256,10 +263,13 @@ export default function DriversPage() {
     if (!confirmed) return
 
     setDeletingId(driverId)
+    setPageError('')
 
     const { error } = await supabase.from('drivers').delete().eq('id', driverId)
 
-    if (!error) {
+    if (error) {
+      setPageError(error.message)
+    } else {
       await refreshAll()
     }
 
@@ -274,26 +284,18 @@ export default function DriversPage() {
       return
     }
 
+    setPageError('')
+
     const { error } = await supabase
       .from('drivers')
       .update({ status: value })
       .eq('id', driver.id)
 
-    if (!error) {
+    if (error) {
+      setPageError(error.message)
+    } else {
       await refreshAll()
     }
-  }
-
-  async function handleRecalculateStatuses() {
-    setLoading(true)
-
-    const onlineDrivers = drivers.filter((driver) => driver.status !== 'offline')
-    for (const driver of onlineDrivers) {
-      await syncDriverStatusFromJobs(driver.id)
-    }
-
-    await refreshAll()
-    setLoading(false)
   }
 
   return (
@@ -318,12 +320,6 @@ export default function DriversPage() {
                 Refresh
               </button>
               <button
-                onClick={handleRecalculateStatuses}
-                className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
-              >
-                Sync Statuses
-              </button>
-              <button
                 onClick={openCreateModal}
                 className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
               >
@@ -331,6 +327,12 @@ export default function DriversPage() {
               </button>
             </div>
           </div>
+
+          {pageError ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {pageError}
+            </div>
+          ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">

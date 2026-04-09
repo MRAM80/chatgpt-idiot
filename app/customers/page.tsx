@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -42,6 +43,7 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [pageError, setPageError] = useState('')
 
   const [search, setSearch] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -62,9 +64,12 @@ export default function CustomersPage() {
       .select('id,name,phone,email,address,created_at,updated_at')
       .order('created_at', { ascending: false })
 
-    if (!error) {
-      setCustomers((data as Customer[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setCustomers((data as Customer[]) || [])
   }
 
   async function loadJobs() {
@@ -72,13 +77,17 @@ export default function CustomersPage() {
       .from('jobs')
       .select('id,customer_id,customer_name,pickup_address,status,scheduled_date')
 
-    if (!error) {
-      setJobs((data as Job[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setJobs((data as Job[]) || [])
   }
 
   async function refreshAll() {
     setLoading(true)
+    setPageError('')
     await Promise.all([loadCustomers(), loadJobs()])
     setLoading(false)
   }
@@ -160,12 +169,14 @@ export default function CustomersPage() {
   function openCreateModal() {
     setEditingCustomer(null)
     setForm(emptyForm)
+    setPageError('')
     setShowCreateModal(true)
   }
 
   function openEditModal(customer: Customer) {
     setEditingCustomer(customer)
     setShowCreateModal(false)
+    setPageError('')
     setForm({
       name: customer.name || '',
       phone: customer.phone || '',
@@ -178,16 +189,24 @@ export default function CustomersPage() {
     setEditingCustomer(null)
     setShowCreateModal(false)
     setForm(emptyForm)
+    setPageError('')
   }
 
   async function handleCreateOrUpdate() {
     setSaving(true)
+    setPageError('')
+
+    if (!form.name.trim()) {
+      setPageError('Customer name is required.')
+      setSaving(false)
+      return
+    }
 
     const payload = {
-      name: form.name || null,
-      phone: form.phone || null,
-      email: form.email || null,
-      address: form.address || null,
+      name: form.name.trim(),
+      phone: form.phone.trim() || null,
+      email: form.email.trim() || null,
+      address: form.address.trim() || null,
     }
 
     if (editingCustomer) {
@@ -196,14 +215,18 @@ export default function CustomersPage() {
         .update(payload)
         .eq('id', editingCustomer.id)
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         await refreshAll()
         closeModal()
       }
     } else {
       const { error } = await supabase.from('customers').insert([payload])
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         await refreshAll()
         closeModal()
       }
@@ -226,10 +249,13 @@ export default function CustomersPage() {
     if (!confirmed) return
 
     setDeletingId(customerId)
+    setPageError('')
 
     const { error } = await supabase.from('customers').delete().eq('id', customerId)
 
-    if (!error) {
+    if (error) {
+      setPageError(error.message)
+    } else {
       await refreshAll()
     }
 
@@ -265,6 +291,12 @@ export default function CustomersPage() {
               </button>
             </div>
           </div>
+
+          {pageError ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {pageError}
+            </div>
+          ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -408,6 +440,15 @@ export default function CustomersPage() {
             </div>
           )}
         </div>
+
+        <div className="mt-6 flex justify-center">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       {(showCreateModal || editingCustomer) && (
@@ -432,6 +473,12 @@ export default function CustomersPage() {
                 Close
               </button>
             </div>
+
+            {pageError ? (
+              <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {pageError}
+              </div>
+            ) : null}
 
             <div className="grid gap-4">
               <div>
