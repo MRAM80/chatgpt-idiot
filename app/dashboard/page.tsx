@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
-type Job = {
+type Order = {
   id: string
+  ticket_number: string | null
   customer_name: string | null
   pickup_address: string | null
   bin_type: string | null
+  bin_size: string | null
+  order_type: string | null
   driver_id: string | null
   scheduled_date: string | null
   status: string | null
@@ -25,6 +28,7 @@ type Bin = {
   id: string
   bin_number: string | null
   bin_type: string | null
+  bin_size: string | null
   status: string | null
 }
 
@@ -39,6 +43,13 @@ const statusClasses: Record<string, string> = {
   in_progress: 'bg-amber-100 text-amber-700 border-amber-200',
   completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   issue: 'bg-rose-100 text-rose-700 border-rose-200',
+}
+
+const orderTypeClasses: Record<string, string> = {
+  DELIVERY: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  EXCHANGE: 'bg-amber-100 text-amber-700 border-amber-200',
+  REMOVAL: 'bg-rose-100 text-rose-700 border-rose-200',
+  'DUMP RETURN': 'bg-sky-100 text-sky-700 border-sky-200',
 }
 
 function formatStatus(status: string | null | undefined) {
@@ -56,6 +67,10 @@ function formatDate(date: string | null) {
   return parsed.toLocaleDateString()
 }
 
+function formatOrderType(orderType: string | null | undefined) {
+  return orderType || 'DELIVERY'
+}
+
 function isToday(date: string | null) {
   if (!date) return false
   const value = new Date(date)
@@ -71,7 +86,7 @@ function isToday(date: string | null) {
 export default function DashboardPage() {
   const supabase = createClient()
 
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [bins, setBins] = useState<Bin[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -80,25 +95,25 @@ export default function DashboardPage() {
   async function loadDashboard() {
     setLoading(true)
 
-    const [jobsRes, driversRes, binsRes, customersRes] = await Promise.all([
+    const [ordersRes, driversRes, binsRes, customersRes] = await Promise.all([
       supabase
-        .from('jobs')
+        .from('orders')
         .select(
-          'id,customer_name,pickup_address,bin_type,driver_id,scheduled_date,status,created_at'
+          'id,ticket_number,customer_name,pickup_address,bin_type,bin_size,order_type,driver_id,scheduled_date,status,created_at'
         )
         .order('created_at', { ascending: false }),
       supabase.from('drivers').select('id,name,status').order('name', { ascending: true }),
       supabase
         .from('bins')
-        .select('id,bin_number,bin_type,status')
-        .order('created_at', { ascending: false }),
+        .select('id,bin_number,bin_type,bin_size,status')
+        .order('bin_number', { ascending: true }),
       supabase
         .from('customers')
         .select('id,name')
-        .order('created_at', { ascending: false }),
+        .order('name', { ascending: true }),
     ])
 
-    setJobs((jobsRes.data as Job[]) || [])
+    setOrders((ordersRes.data as Order[]) || [])
     setDrivers((driversRes.data as Driver[]) || [])
     setBins((binsRes.data as Bin[]) || [])
     setCustomers((customersRes.data as Customer[]) || [])
@@ -112,7 +127,7 @@ export default function DashboardPage() {
       .channel('dashboard-realtime')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'jobs' },
+        { event: '*', schema: 'public', table: 'orders' },
         async () => {
           await loadDashboard()
         }
@@ -153,40 +168,41 @@ export default function DashboardPage() {
   }, [drivers])
 
   const metrics = useMemo(() => {
-    const jobsToday = jobs.filter((job) => isToday(job.scheduled_date)).length
-    const completedToday = jobs.filter(
-      (job) => isToday(job.scheduled_date) && job.status === 'completed'
+    const ordersToday = orders.filter((order) => isToday(order.scheduled_date)).length
+    const completedToday = orders.filter(
+      (order) => isToday(order.scheduled_date) && order.status === 'completed'
     ).length
     const activeDrivers = drivers.filter(
       (driver) => driver.status === 'available' || driver.status === 'busy'
     ).length
-    const pendingPickups = jobs.filter(
-      (job) =>
-        (job.status || 'unassigned') === 'unassigned' ||
-        job.status === 'assigned' ||
-        job.status === 'in_progress'
+    const pendingOrders = orders.filter(
+      (order) =>
+        (order.status || 'unassigned') === 'unassigned' ||
+        order.status === 'assigned' ||
+        order.status === 'in_progress'
     ).length
 
     return {
-      jobsToday,
+      ordersToday,
       completedToday,
       activeDrivers,
-      pendingPickups,
+      pendingOrders,
       totalCustomers: customers.length,
       totalBins: bins.length,
+      totalDrivers: drivers.length,
     }
-  }, [jobs, drivers, customers, bins])
+  }, [orders, drivers, customers, bins])
 
-  const recentJobs = useMemo(() => {
-    return [...jobs].slice(0, 8)
-  }, [jobs])
+  const recentOrders = useMemo(() => {
+    return [...orders].slice(0, 8)
+  }, [orders])
 
-  const upcomingJobs = useMemo(() => {
-    return jobs
+  const upcomingOrders = useMemo(() => {
+    return orders
       .filter(
-        (job) =>
-          (job.status || 'unassigned') !== 'completed' &&
-          (job.status || 'unassigned') !== 'issue'
+        (order) =>
+          (order.status || 'unassigned') !== 'completed' &&
+          (order.status || 'unassigned') !== 'issue'
       )
       .sort((a, b) => {
         const aTime = a.scheduled_date ? new Date(a.scheduled_date).getTime() : 0
@@ -194,23 +210,23 @@ export default function DashboardPage() {
         return aTime - bTime
       })
       .slice(0, 6)
-  }, [jobs])
+  }, [orders])
 
   const driverOverview = useMemo(() => {
     const assignedCounts: Record<string, number> = {}
 
-    for (const job of jobs) {
-      if (!job.driver_id) continue
-      if (job.status === 'assigned' || job.status === 'in_progress') {
-        assignedCounts[job.driver_id] = (assignedCounts[job.driver_id] || 0) + 1
+    for (const order of orders) {
+      if (!order.driver_id) continue
+      if (order.status === 'assigned' || order.status === 'in_progress') {
+        assignedCounts[order.driver_id] = (assignedCounts[order.driver_id] || 0) + 1
       }
     }
 
     return drivers.slice(0, 6).map((driver) => ({
       ...driver,
-      activeJobs: assignedCounts[driver.id] || 0,
+      activeOrders: assignedCounts[driver.id] || 0,
     }))
-  }, [drivers, jobs])
+  }, [drivers, orders])
 
   const binOverview = useMemo(() => {
     const available = bins.filter((bin) => (bin.status || 'available') === 'available').length
@@ -220,15 +236,24 @@ export default function DashboardPage() {
     return { available, inUse, maintenance }
   }, [bins])
 
+  const orderTypeSummary = useMemo(() => {
+    return {
+      delivery: orders.filter((o) => (o.order_type || 'DELIVERY') === 'DELIVERY').length,
+      exchange: orders.filter((o) => o.order_type === 'EXCHANGE').length,
+      removal: orders.filter((o) => o.order_type === 'REMOVAL').length,
+      dumpReturn: orders.filter((o) => o.order_type === 'DUMP RETURN').length,
+    }
+  }, [orders])
+
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-7xl p-4 md:p-6">
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-900 to-slate-800 p-6 text-white shadow-sm">
+        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">SIMPLIITRASH Dashboard</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Professional operations overview for dispatch, jobs, drivers, bins, and customers
+                Professional operations overview for dispatch, orders, drivers, bins, and customers
               </p>
             </div>
 
@@ -238,6 +263,12 @@ export default function DashboardPage() {
                 className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
               >
                 Open Dispatch Board
+              </Link>
+              <Link
+                href="/order"
+                className="rounded-2xl border border-slate-500 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                Open Orders
               </Link>
               <button
                 onClick={loadDashboard}
@@ -252,9 +283,9 @@ export default function DashboardPage() {
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Jobs Today
+              Orders Today
             </div>
-            <div className="mt-3 text-3xl font-bold text-slate-900">{metrics.jobsToday}</div>
+            <div className="mt-3 text-3xl font-bold text-slate-900">{metrics.ordersToday}</div>
             <div className="mt-2 text-sm text-slate-500">Scheduled for today</div>
           </div>
 
@@ -280,10 +311,10 @@ export default function DashboardPage() {
 
           <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Pending Pickups
+              Pending Orders
             </div>
             <div className="mt-3 text-3xl font-bold text-amber-600">
-              {metrics.pendingPickups}
+              {metrics.pendingOrders}
             </div>
             <div className="mt-2 text-sm text-slate-500">Open operational workload</div>
           </div>
@@ -335,7 +366,7 @@ export default function DashboardPage() {
                   Drivers
                 </div>
                 <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {drivers.length}
+                  {metrics.totalDrivers}
                 </div>
               </div>
               <Link
@@ -348,15 +379,53 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              Delivery
+            </div>
+            <div className="mt-2 text-2xl font-bold text-emerald-900">
+              {orderTypeSummary.delivery}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+              Exchange
+            </div>
+            <div className="mt-2 text-2xl font-bold text-amber-900">
+              {orderTypeSummary.exchange}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-rose-700">
+              Removal
+            </div>
+            <div className="mt-2 text-2xl font-bold text-rose-900">
+              {orderTypeSummary.removal}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
+            <div className="text-xs font-semibold uppercase tracking-wide text-sky-700">
+              Dump Return
+            </div>
+            <div className="mt-2 text-2xl font-bold text-sky-900">
+              {orderTypeSummary.dumpReturn}
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-6 xl:grid-cols-3">
           <div className="xl:col-span-2 rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Recent Jobs</h2>
+                <h2 className="text-lg font-bold text-slate-900">Recent Orders</h2>
                 <p className="text-sm text-slate-500">Latest activity across your operation</p>
               </div>
               <Link
-                href="/jobs"
+                href="/order"
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 View All
@@ -365,8 +434,8 @@ export default function DashboardPage() {
 
             {loading ? (
               <div className="p-10 text-center text-sm text-slate-500">Loading dashboard...</div>
-            ) : recentJobs.length === 0 ? (
-              <div className="p-10 text-center text-sm text-slate-500">No jobs found.</div>
+            ) : recentOrders.length === 0 ? (
+              <div className="p-10 text-center text-sm text-slate-500">No orders found.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-200">
@@ -390,34 +459,45 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {recentJobs.map((job) => {
+                    {recentOrders.map((order) => {
                       const badgeClass =
-                        statusClasses[job.status || 'unassigned'] || statusClasses.unassigned
+                        statusClasses[order.status || 'unassigned'] || statusClasses.unassigned
+
+                      const typeClass =
+                        orderTypeClasses[order.order_type || 'DELIVERY'] ||
+                        'bg-slate-100 text-slate-700 border-slate-200'
 
                       return (
-                        <tr key={job.id} className="hover:bg-slate-50/80">
+                        <tr key={order.id} className="hover:bg-slate-50/80">
                           <td className="px-6 py-4">
                             <div className="font-semibold text-slate-900">
-                              {job.customer_name || 'No customer'}
+                              {order.customer_name || 'No customer'}
                             </div>
-                            <div className="mt-1 text-xs text-slate-500">
-                              {job.bin_type || 'No bin type'}
+                            <div className="mt-1 flex flex-wrap gap-2">
+                              <span
+                                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${typeClass}`}
+                              >
+                                {formatOrderType(order.order_type)}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {order.ticket_number || 'No ticket'}
+                              </span>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
-                            {job.pickup_address || '—'}
+                            {order.pickup_address || '—'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
-                            {job.driver_id ? driverMap[job.driver_id]?.name || 'Assigned' : 'Unassigned'}
+                            {order.driver_id ? driverMap[order.driver_id]?.name || 'Assigned' : 'Unassigned'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
-                            {formatDate(job.scheduled_date)}
+                            {formatDate(order.scheduled_date)}
                           </td>
                           <td className="px-6 py-4">
                             <span
                               className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
                             >
-                              {formatStatus(job.status || 'unassigned')}
+                              {formatStatus(order.status || 'unassigned')}
                             </span>
                           </td>
                         </tr>
@@ -433,8 +513,8 @@ export default function DashboardPage() {
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">Upcoming Jobs</h2>
-                  <p className="text-sm text-slate-500">Next jobs to monitor</p>
+                  <h2 className="text-lg font-bold text-slate-900">Upcoming Orders</h2>
+                  <p className="text-sm text-slate-500">Next orders to monitor</p>
                 </div>
                 <Link
                   href="/dispatch"
@@ -445,37 +525,42 @@ export default function DashboardPage() {
               </div>
 
               <div className="space-y-3">
-                {upcomingJobs.length === 0 ? (
+                {upcomingOrders.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No upcoming jobs.
+                    No upcoming orders.
                   </div>
                 ) : (
-                  upcomingJobs.map((job) => {
+                  upcomingOrders.map((order) => {
                     const badgeClass =
-                      statusClasses[job.status || 'unassigned'] || statusClasses.unassigned
+                      statusClasses[order.status || 'unassigned'] || statusClasses.unassigned
 
                     return (
                       <div
-                        key={job.id}
+                        key={order.id}
                         className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <div className="font-semibold text-slate-900">
-                              {job.customer_name || 'No customer'}
+                              {order.customer_name || 'No customer'}
                             </div>
                             <div className="mt-1 text-sm text-slate-500">
-                              {job.pickup_address || 'No address'}
+                              {order.pickup_address || 'No address'}
                             </div>
                           </div>
                           <span
                             className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
                           >
-                            {formatStatus(job.status || 'unassigned')}
+                            {formatStatus(order.status || 'unassigned')}
                           </span>
                         </div>
-                        <div className="mt-3 text-sm text-slate-600">
-                          {formatDate(job.scheduled_date)}
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <div className="text-sm text-slate-600">
+                            {formatDate(order.scheduled_date)}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {formatOrderType(order.order_type)}
+                          </div>
                         </div>
                       </div>
                     )
@@ -499,8 +584,8 @@ export default function DashboardPage() {
                       driver.status === 'busy'
                         ? 'bg-amber-100 text-amber-700 border-amber-200'
                         : driver.status === 'offline'
-                        ? 'bg-slate-100 text-slate-700 border-slate-200'
-                        : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                          ? 'bg-slate-100 text-slate-700 border-slate-200'
+                          : 'bg-emerald-100 text-emerald-700 border-emerald-200'
 
                     return (
                       <div
@@ -512,7 +597,7 @@ export default function DashboardPage() {
                             {driver.name || 'Unnamed Driver'}
                           </div>
                           <div className="mt-1 text-sm text-slate-500">
-                            Active jobs: {driver.activeJobs}
+                            Active orders: {driver.activeOrders}
                           </div>
                         </div>
                         <span
@@ -565,12 +650,12 @@ export default function DashboardPage() {
 
         <div className="mt-6 grid gap-4 md:grid-cols-4">
           <Link
-            href="/jobs"
+            href="/order"
             className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
           >
-            <div className="text-lg font-bold text-slate-900">Jobs</div>
+            <div className="text-lg font-bold text-slate-900">Orders</div>
             <div className="mt-2 text-sm text-slate-500">
-              Create, edit, filter, and manage all operational jobs
+              Create, edit, filter, and manage all operational orders
             </div>
           </Link>
 
@@ -600,7 +685,7 @@ export default function DashboardPage() {
           >
             <div className="text-lg font-bold text-slate-900">Customers</div>
             <div className="mt-2 text-sm text-slate-500">
-              Keep organized customer records connected to your jobs
+              Keep organized customer records connected to your orders
             </div>
           </Link>
         </div>
