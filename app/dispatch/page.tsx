@@ -12,6 +12,7 @@ type Driver = {
 
 type Job = {
   id: string
+  ticket_number: string | null
   customer_name: string | null
   pickup_address: string | null
   bin_type: string | null
@@ -98,7 +99,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from('jobs')
       .select(
-        'id,customer_name,pickup_address,bin_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
+        'id,ticket_number,customer_name,pickup_address,bin_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
       )
       .order('scheduled_date', { ascending: true })
 
@@ -158,7 +159,8 @@ export default function DispatchBoardPage() {
         (job.customer_name || '').toLowerCase().includes(q) ||
         (job.pickup_address || '').toLowerCase().includes(q) ||
         (job.bin_type || '').toLowerCase().includes(q) ||
-        (driverMap[job.driver_id || '']?.name || '').toLowerCase().includes(q)
+        (driverMap[job.driver_id || '']?.name || '').toLowerCase().includes(q) ||
+        (job.ticket_number || '').toLowerCase().includes(q)
 
       const matchesDriver =
         driverFilter === 'all' || (job.driver_id || '') === driverFilter
@@ -327,7 +329,7 @@ export default function DispatchBoardPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search customer, address, bin, or driver"
+              placeholder="Search ticket, customer, address, bin, or driver"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -400,7 +402,7 @@ export default function DispatchBoardPage() {
                               {job.customer_name || 'No customer'}
                             </div>
                             <div className="mt-1 text-xs text-slate-500">
-                              #{job.id.slice(0, 8)}
+                              {job.ticket_number || `#${job.id.slice(0, 8)}`}
                             </div>
                           </div>
 
@@ -490,7 +492,7 @@ export default function DispatchBoardPage() {
               <div>
                 <h3 className="text-xl font-bold text-slate-900">Edit Job</h3>
                 <p className="text-sm text-slate-500">
-                  Update dispatch details directly from the board
+                  {selectedJob.ticket_number || `Job #${selectedJob.id.slice(0, 8)}`}
                 </p>
               </div>
 

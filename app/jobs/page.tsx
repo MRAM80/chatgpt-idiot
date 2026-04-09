@@ -21,6 +21,7 @@ type Customer = {
 
 type Job = {
   id: string
+  ticket_number: string | null
   customer_id: string | null
   customer_name: string | null
   pickup_address: string | null
@@ -101,7 +102,7 @@ export default function JobsPage() {
     const { data, error } = await supabase
       .from('jobs')
       .select(
-        'id,customer_id,customer_name,pickup_address,bin_id,bin_type,driver_id,scheduled_date,status,notes,created_at,updated_at'
+        'id,ticket_number,customer_id,customer_name,pickup_address,bin_id,bin_type,driver_id,scheduled_date,status,notes,created_at,updated_at'
       )
       .order('created_at', { ascending: false })
 
@@ -202,7 +203,8 @@ export default function JobsPage() {
         (job.pickup_address || '').toLowerCase().includes(query) ||
         (job.bin_type || '').toLowerCase().includes(query) ||
         driverName.toLowerCase().includes(query) ||
-        (job.notes || '').toLowerCase().includes(query)
+        (job.notes || '').toLowerCase().includes(query) ||
+        (job.ticket_number || '').toLowerCase().includes(query)
 
       const matchesStatus =
         statusFilter === 'all' || (job.status || 'unassigned') === statusFilter
@@ -471,7 +473,7 @@ export default function JobsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search customer, address, driver, bin, notes"
+              placeholder="Search ticket, customer, address, driver, bin, notes"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -514,6 +516,9 @@ export default function JobsPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Ticket
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Customer
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -551,8 +556,14 @@ export default function JobsPage() {
                     return (
                       <tr key={job.id} className="hover:bg-slate-50/80">
                         <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">{customer}</div>
+                          <div className="font-semibold text-slate-900">
+                            {job.ticket_number || 'Pending'}
+                          </div>
                           <div className="mt-1 text-xs text-slate-500">#{job.id.slice(0, 8)}</div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top">
+                          <div className="font-semibold text-slate-900">{customer}</div>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
