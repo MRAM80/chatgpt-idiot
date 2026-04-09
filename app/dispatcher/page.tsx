@@ -28,6 +28,7 @@ const BOARD_COLUMNS = [
   { key: 'assigned', label: 'Assigned' },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'completed', label: 'Completed' },
+  { key: 'issue', label: 'Issue' },
 ] as const
 
 const statusStyles: Record<string, string> = {
@@ -55,7 +56,7 @@ function formatDate(date: string | null) {
 }
 
 export default function DispatchBoardPage() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const [jobs, setJobs] = useState<Job[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
@@ -66,6 +67,7 @@ export default function DispatchBoardPage() {
   const [search, setSearch] = useState('')
   const [driverFilter, setDriverFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [pageError, setPageError] = useState('')
   const [form, setForm] = useState({
     customer_name: '',
     pickup_address: '',
@@ -77,10 +79,15 @@ export default function DispatchBoardPage() {
   })
 
   async function loadDrivers() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('drivers')
       .select('id,name,phone,status')
       .order('name', { ascending: true })
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
 
     setDrivers((data as Driver[]) || [])
   }
@@ -88,18 +95,25 @@ export default function DispatchBoardPage() {
   async function loadJobs() {
     setLoading(true)
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('jobs')
       .select(
         'id,customer_name,pickup_address,bin_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
       )
       .order('scheduled_date', { ascending: true })
 
+    if (error) {
+      setPageError(error.message)
+      setLoading(false)
+      return
+    }
+
     setJobs((data as Job[]) || [])
     setLoading(false)
   }
 
   async function refreshAll() {
+    setPageError('')
     await Promise.all([loadDrivers(), loadJobs()])
   }
 
@@ -127,7 +141,7 @@ export default function DispatchBoardPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [supabase])
 
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
@@ -186,10 +200,20 @@ export default function DispatchBoardPage() {
   }
 
   async function updateJob(id: string, values: Partial<Job>) {
-    await supabase.from('jobs').update(values).eq('id', id)
+    setPageError('')
+
+    const { error } = await supabase.from('jobs').update(values).eq('id', id)
+
+    if (error) {
+      setPageError(error.message)
+      return false
+    }
+
     setJobs((current) =>
       current.map((job) => (job.id === id ? { ...job, ...values } : job))
     )
+
+    return true
   }
 
   async function handleDrop(newStatus: string) {
@@ -209,7 +233,7 @@ export default function DispatchBoardPage() {
     if (!selectedJob) return
     setSaving(true)
 
-    await updateJob(selectedJob.id, {
+    const success = await updateJob(selectedJob.id, {
       customer_name: form.customer_name || null,
       pickup_address: form.pickup_address || null,
       bin_type: form.bin_type || null,
@@ -220,12 +244,17 @@ export default function DispatchBoardPage() {
     })
 
     setSaving(false)
-    closeEditModal()
+
+    if (success) {
+      closeEditModal()
+    }
   }
 
   const stats = useMemo(() => {
     const total = jobs.length
-    const unassigned = jobs.filter((job) => (job.status || 'unassigned') === 'unassigned').length
+    const unassigned = jobs.filter(
+      (job) => (job.status || 'unassigned') === 'unassigned'
+    ).length
     const assigned = jobs.filter((job) => job.status === 'assigned').length
     const inProgress = jobs.filter((job) => job.status === 'in_progress').length
     const completed = jobs.filter((job) => job.status === 'completed').length
@@ -254,6 +283,12 @@ export default function DispatchBoardPage() {
               Refresh
             </button>
           </div>
+
+          {pageError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {pageError}
+            </div>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-5">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -329,7 +364,7 @@ export default function DispatchBoardPage() {
             Loading dispatch board...
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-4">
+          <div className="grid gap-4 xl:grid-cols-5">
             {BOARD_COLUMNS.map((column) => (
               <div
                 key={column.key}
@@ -349,7 +384,8 @@ export default function DispatchBoardPage() {
                 <div className="space-y-3">
                   {(groupedJobs[column.key] || []).map((job) => {
                     const assignedDriver = job.driver_id ? driverMap[job.driver_id] : null
-                    const badgeClass = statusStyles[job.status || 'unassigned'] || statusStyles.unassigned
+                    const badgeClass =
+                      statusStyles[job.status || 'unassigned'] || statusStyles.unassigned
 
                     return (
                       <div
