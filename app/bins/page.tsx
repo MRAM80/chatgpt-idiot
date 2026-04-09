@@ -1,37 +1,28 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type Bin = {
   id: string
   bin_number: string | null
+  bin_size: string | null
   bin_type: string | null
   status: string | null
-  location: string | null
-  customer_id: string | null
   created_at: string | null
   updated_at: string | null
-}
-
-type Customer = {
-  id: string
-  name: string | null
-  phone: string | null
-  email: string | null
-  address: string | null
 }
 
 type Job = {
   id: string
   bin_id: string | null
-  customer_id: string | null
-  customer_name: string | null
-  pickup_address: string | null
   status: string | null
   scheduled_date: string | null
 }
 
+const BIN_SIZES = ['6', '8', '15', '20', '30', '40'] as const
+const BIN_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
 const BIN_STATUSES = ['available', 'in_use', 'maintenance'] as const
 
 const statusClasses: Record<string, string> = {
@@ -59,14 +50,15 @@ export default function BinsPage() {
   const supabase = createClient()
 
   const [bins, setBins] = useState<Bin[]>([])
-  const [customers, setCustomers] = useState<Customer[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [pageError, setPageError] = useState('')
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [sizeFilter, setSizeFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
 
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -74,10 +66,9 @@ export default function BinsPage() {
 
   const emptyForm = {
     bin_number: '',
-    bin_type: '',
+    bin_size: '20',
+    bin_type: 'Garbage',
     status: 'available',
-    location: '',
-    customer_id: '',
   }
 
   const [form, setForm] = useState(emptyForm)
@@ -85,42 +76,34 @@ export default function BinsPage() {
   async function loadBins() {
     const { data, error } = await supabase
       .from('bins')
-      .select(
-        'id,bin_number,bin_type,status,location,customer_id,created_at,updated_at'
-      )
+      .select('id,bin_number,bin_size,bin_type,status,created_at,updated_at')
       .order('created_at', { ascending: false })
 
-    if (!error) {
-      setBins((data as Bin[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
-  }
 
-  async function loadCustomers() {
-    const { data, error } = await supabase
-      .from('customers')
-      .select('id,name,phone,email,address')
-      .order('name', { ascending: true })
-
-    if (!error) {
-      setCustomers((data as Customer[]) || [])
-    }
+    setBins((data as Bin[]) || [])
   }
 
   async function loadJobs() {
     const { data, error } = await supabase
       .from('jobs')
-      .select(
-        'id,bin_id,customer_id,customer_name,pickup_address,status,scheduled_date'
-      )
+      .select('id,bin_id,status,scheduled_date')
 
-    if (!error) {
-      setJobs((data as Job[]) || [])
+    if (error) {
+      setPageError(error.message)
+      return
     }
+
+    setJobs((data as Job[]) || [])
   }
 
   async function refreshAll() {
     setLoading(true)
-    await Promise.all([loadBins(), loadCustomers(), loadJobs()])
+    setPageError('')
+    await Promise.all([loadBins(), loadJobs()])
     setLoading(false)
   }
 
@@ -150,13 +133,6 @@ export default function BinsPage() {
     }
   }, [])
 
-  const customerMap = useMemo(() => {
-    return customers.reduce<Record<string, Customer>>((acc, customer) => {
-      acc[customer.id] = customer
-      return acc
-    }, {})
-  }, [customers])
-
   const binStats = useMemo(() => {
     const totalJobsByBin: Record<string, number> = {}
     const activeJobsByBin: Record<string, number> = {}
@@ -183,54 +159,45 @@ export default function BinsPage() {
     }
   }, [bins])
 
-  const typeOptions = useMemo(() => {
-    const values = Array.from(
-      new Set(
-        bins
-          .map((bin) => (bin.bin_type || '').trim())
-          .filter((value) => value.length > 0)
-      )
-    )
-    return values.sort((a, b) => a.localeCompare(b))
-  }, [bins])
-
   const filteredBins = useMemo(() => {
     const query = search.trim().toLowerCase()
 
     return bins.filter((bin) => {
-      const customerName = bin.customer_id ? customerMap[bin.customer_id]?.name || '' : ''
-
       const matchesSearch =
         !query ||
         (bin.bin_number || '').toLowerCase().includes(query) ||
-        (bin.bin_type || '').toLowerCase().includes(query) ||
-        (bin.location || '').toLowerCase().includes(query) ||
-        customerName.toLowerCase().includes(query)
+        (bin.bin_size || '').toLowerCase().includes(query) ||
+        (bin.bin_type || '').toLowerCase().includes(query)
 
       const matchesStatus =
         statusFilter === 'all' || (bin.status || 'available') === statusFilter
 
-      const matchesType = typeFilter === 'all' || (bin.bin_type || '') === typeFilter
+      const matchesSize =
+        sizeFilter === 'all' || (bin.bin_size || '') === sizeFilter
 
-      return matchesSearch && matchesStatus && matchesType
+      const matchesType =
+        typeFilter === 'all' || (bin.bin_type || '') === typeFilter
+
+      return matchesSearch && matchesStatus && matchesSize && matchesType
     })
-  }, [bins, search, statusFilter, typeFilter, customerMap])
+  }, [bins, search, statusFilter, sizeFilter, typeFilter])
 
   function openCreateModal() {
     setEditingBin(null)
     setForm(emptyForm)
+    setPageError('')
     setShowCreateModal(true)
   }
 
   function openEditModal(bin: Bin) {
     setEditingBin(bin)
     setShowCreateModal(false)
+    setPageError('')
     setForm({
       bin_number: bin.bin_number || '',
-      bin_type: bin.bin_type || '',
+      bin_size: bin.bin_size || '20',
+      bin_type: bin.bin_type || 'Garbage',
       status: bin.status || 'available',
-      location: bin.location || '',
-      customer_id: bin.customer_id || '',
     })
   }
 
@@ -238,17 +205,24 @@ export default function BinsPage() {
     setEditingBin(null)
     setShowCreateModal(false)
     setForm(emptyForm)
+    setPageError('')
   }
 
   async function handleCreateOrUpdate() {
     setSaving(true)
+    setPageError('')
+
+    if (!form.bin_number.trim()) {
+      setPageError('Bin number is required.')
+      setSaving(false)
+      return
+    }
 
     const payload = {
-      bin_number: form.bin_number || null,
+      bin_number: form.bin_number.trim(),
+      bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       status: form.status || 'available',
-      location: form.location || null,
-      customer_id: form.customer_id || null,
     }
 
     if (editingBin) {
@@ -257,14 +231,18 @@ export default function BinsPage() {
         .update(payload)
         .eq('id', editingBin.id)
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         await refreshAll()
         closeModal()
       }
     } else {
       const { error } = await supabase.from('bins').insert([payload])
 
-      if (!error) {
+      if (error) {
+        setPageError(error.message)
+      } else {
         await refreshAll()
         closeModal()
       }
@@ -291,10 +269,13 @@ export default function BinsPage() {
     if (!confirmed) return
 
     setDeletingId(binId)
+    setPageError('')
 
     const { error } = await supabase.from('bins').delete().eq('id', binId)
 
-    if (!error) {
+    if (error) {
+      setPageError(error.message)
+    } else {
       await refreshAll()
     }
 
@@ -309,12 +290,16 @@ export default function BinsPage() {
       return
     }
 
+    setPageError('')
+
     const { error } = await supabase
       .from('bins')
       .update({ status: value })
       .eq('id', bin.id)
 
-    if (!error) {
+    if (error) {
+      setPageError(error.message)
+    } else {
       await refreshAll()
     }
   }
@@ -326,10 +311,10 @@ export default function BinsPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                Bins
+                Bin Inventory
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Manage inventory, location, customer assignment, and operational status
+                Manage your yard inventory with fixed sizes and operational status
               </p>
             </div>
 
@@ -348,6 +333,12 @@ export default function BinsPage() {
               </button>
             </div>
           </div>
+
+          {pageError ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {pageError}
+            </div>
+          ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -387,11 +378,11 @@ export default function BinsPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-3">
+          <div className="mt-6 grid gap-3 md:grid-cols-4">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search bin number, type, location, or customer"
+              placeholder="Search bin number, size, or type"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -409,12 +400,25 @@ export default function BinsPage() {
             </select>
 
             <select
+              value={sizeFilter}
+              onChange={(e) => setSizeFilter(e.target.value)}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+            >
+              <option value="all">All Sizes</option>
+              {BIN_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size} Yard
+                </option>
+              ))}
+            </select>
+
+            <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
             >
-              <option value="all">All Bin Types</option>
-              {typeOptions.map((type) => (
+              <option value="all">All Types</option>
+              {BIN_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>
@@ -438,22 +442,22 @@ export default function BinsPage() {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Bin
+                      Bin Number
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Size
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Type
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Location
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Customer
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Usage
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Status
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Added
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
                       Actions
@@ -463,7 +467,6 @@ export default function BinsPage() {
 
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {filteredBins.map((bin) => {
-                    const customer = bin.customer_id ? customerMap[bin.customer_id] : null
                     const totalJobs = binStats.totalJobsByBin[bin.id] || 0
                     const activeJobs = binStats.activeJobsByBin[bin.id] || 0
                     const badgeClass =
@@ -475,21 +478,14 @@ export default function BinsPage() {
                           <div className="font-semibold text-slate-900">
                             {bin.bin_number || 'No bin number'}
                           </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            Added {formatDate(bin.created_at)}
-                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {bin.bin_size ? `${bin.bin_size} Yard` : '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {bin.bin_type || '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {bin.location || '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {customer?.name || 'Unassigned'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -519,6 +515,10 @@ export default function BinsPage() {
                           </div>
                         </td>
 
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {formatDate(bin.created_at)}
+                        </td>
+
                         <td className="px-4 py-4 align-top">
                           <div className="flex justify-end gap-2">
                             <button
@@ -545,6 +545,15 @@ export default function BinsPage() {
             </div>
           )}
         </div>
+
+        <div className="mt-6 flex justify-center">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       {(showCreateModal || editingBin) && (
@@ -558,7 +567,7 @@ export default function BinsPage() {
                 <p className="mt-1 text-sm text-slate-500">
                   {editingBin
                     ? 'Update bin details and operational status'
-                    : 'Add a new bin to your inventory system'}
+                    : 'Add a new bin to your yard inventory'}
                 </p>
               </div>
 
@@ -570,67 +579,42 @@ export default function BinsPage() {
               </button>
             </div>
 
-            <div className="grid gap-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Bin Number
-                  </label>
-                  <input
-                    value={form.bin_number}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, bin_number: e.target.value }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="BIN-001"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Bin Type
-                  </label>
-                  <input
-                    value={form.bin_type}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, bin_type: e.target.value }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                    placeholder="Dumpster, Recycling, Garbage..."
-                  />
-                </div>
+            {pageError ? (
+              <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {pageError}
               </div>
+            ) : null}
 
+            <div className="grid gap-4">
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Location
+                  Bin Number
                 </label>
                 <input
-                  value={form.location}
+                  value={form.bin_number}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, location: e.target.value }))
+                    setForm((prev) => ({ ...prev, bin_number: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="Current location"
+                  placeholder="BIN-001"
                 />
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Customer
+                    Bin Size
                   </label>
                   <select
-                    value={form.customer_id}
+                    value={form.bin_size}
                     onChange={(e) =>
-                      setForm((prev) => ({ ...prev, customer_id: e.target.value }))
+                      setForm((prev) => ({ ...prev, bin_size: e.target.value }))
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                   >
-                    <option value="">Unassigned</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name || 'Unnamed Customer'}
+                    {BIN_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size} Yard
                       </option>
                     ))}
                   </select>
@@ -638,22 +622,41 @@ export default function BinsPage() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Status
+                    Bin Type
                   </label>
                   <select
-                    value={form.status}
+                    value={form.bin_type}
                     onChange={(e) =>
-                      setForm((prev) => ({ ...prev, status: e.target.value }))
+                      setForm((prev) => ({ ...prev, bin_type: e.target.value }))
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                   >
-                    {BIN_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {formatStatus(status)}
+                    {BIN_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
                       </option>
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Status
+                </label>
+                <select
+                  value={form.status}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, status: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                >
+                  {BIN_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
