@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -19,6 +20,14 @@ type Customer = {
   address: string | null
 }
 
+type Bin = {
+  id: string
+  bin_number: string | null
+  bin_size: string | null
+  bin_type: string | null
+  status: string | null
+}
+
 type Job = {
   id: string
   ticket_number: string | null
@@ -26,6 +35,7 @@ type Job = {
   customer_name: string | null
   pickup_address: string | null
   bin_id: string | null
+  bin_size: string | null
   bin_type: string | null
   driver_id: string | null
   scheduled_date: string | null
@@ -42,6 +52,9 @@ const JOB_STATUSES = [
   'completed',
   'issue',
 ] as const
+
+const BIN_SIZES = ['6', '8', '15', '20', '30', '40'] as const
+const BIN_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
 
 const statusClasses: Record<string, string> = {
   unassigned: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -72,6 +85,7 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [bins, setBins] = useState<Bin[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -88,8 +102,8 @@ export default function JobsPage() {
     customer_id: '',
     customer_name: '',
     pickup_address: '',
-    bin_id: '',
-    bin_type: '',
+    bin_size: '20',
+    bin_type: 'Garbage',
     driver_id: '',
     scheduled_date: '',
     status: 'unassigned',
@@ -102,7 +116,7 @@ export default function JobsPage() {
     const { data, error } = await supabase
       .from('jobs')
       .select(
-        'id,ticket_number,customer_id,customer_name,pickup_address,bin_id,bin_type,driver_id,scheduled_date,status,notes,created_at,updated_at'
+        'id,ticket_number,customer_id,customer_name,pickup_address,bin_id,bin_size,bin_type,driver_id,scheduled_date,status,notes,created_at,updated_at'
       )
       .order('created_at', { ascending: false })
 
@@ -142,10 +156,24 @@ export default function JobsPage() {
     setCustomers((data as Customer[]) || [])
   }
 
+  async function loadBins() {
+    const { data, error } = await supabase
+      .from('bins')
+      .select('id,bin_number,bin_size,bin_type,status')
+      .order('bin_number', { ascending: true })
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    setBins((data as Bin[]) || [])
+  }
+
   async function refreshAll() {
     setLoading(true)
     setPageError('')
-    await Promise.all([loadJobs(), loadDrivers(), loadCustomers()])
+    await Promise.all([loadJobs(), loadDrivers(), loadCustomers(), loadBins()])
     setLoading(false)
   }
 
@@ -166,6 +194,13 @@ export default function JobsPage() {
         { event: '*', schema: 'public', table: 'drivers' },
         async () => {
           await loadDrivers()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bins' },
+        async () => {
+          await loadBins()
         }
       )
       .subscribe()
@@ -189,6 +224,13 @@ export default function JobsPage() {
     }, {})
   }, [customers])
 
+  const binMap = useMemo(() => {
+    return bins.reduce<Record<string, Bin>>((acc, bin) => {
+      acc[bin.id] = bin
+      return acc
+    }, {})
+  }, [bins])
+
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase()
 
@@ -196,15 +238,18 @@ export default function JobsPage() {
       const driverName = job.driver_id ? driverMap[job.driver_id]?.name || '' : ''
       const customerName =
         job.customer_name || (job.customer_id ? customerMap[job.customer_id]?.name || '' : '')
+      const binLabel = job.bin_id ? binMap[job.bin_id]?.bin_number || '' : ''
 
       const matchesSearch =
         !query ||
         customerName.toLowerCase().includes(query) ||
         (job.pickup_address || '').toLowerCase().includes(query) ||
         (job.bin_type || '').toLowerCase().includes(query) ||
+        (job.bin_size || '').toLowerCase().includes(query) ||
         driverName.toLowerCase().includes(query) ||
         (job.notes || '').toLowerCase().includes(query) ||
-        (job.ticket_number || '').toLowerCase().includes(query)
+        (job.ticket_number || '').toLowerCase().includes(query) ||
+        binLabel.toLowerCase().includes(query)
 
       const matchesStatus =
         statusFilter === 'all' || (job.status || 'unassigned') === statusFilter
@@ -214,7 +259,7 @@ export default function JobsPage() {
 
       return matchesSearch && matchesStatus && matchesDriver
     })
-  }, [jobs, search, statusFilter, driverFilter, driverMap, customerMap])
+  }, [jobs, search, statusFilter, driverFilter, driverMap, customerMap, binMap])
 
   const counts = useMemo(() => {
     return {
@@ -230,17 +275,19 @@ export default function JobsPage() {
     setEditingJob(null)
     setForm(emptyForm)
     setShowCreateModal(true)
+    setPageError('')
   }
 
   function openEditModal(job: Job) {
     setEditingJob(job)
     setShowCreateModal(false)
+    setPageError('')
     setForm({
       customer_id: job.customer_id || '',
       customer_name: job.customer_name || '',
       pickup_address: job.pickup_address || '',
-      bin_id: job.bin_id || '',
-      bin_type: job.bin_type || '',
+      bin_size: job.bin_size || '20',
+      bin_type: job.bin_type || 'Garbage',
       driver_id: job.driver_id || '',
       scheduled_date: job.scheduled_date
         ? new Date(job.scheduled_date).toISOString().slice(0, 10)
@@ -254,6 +301,7 @@ export default function JobsPage() {
     setEditingJob(null)
     setShowCreateModal(false)
     setForm(emptyForm)
+    setPageError('')
   }
 
   function handleCustomerChange(customerId: string) {
@@ -306,15 +354,109 @@ export default function JobsPage() {
     }
   }
 
+  async function releaseBin(binId: string | null) {
+    if (!binId) return
+
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id,status')
+      .eq('bin_id', binId)
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    const hasActiveJobs = (data || []).some((job) =>
+      ['assigned', 'in_progress', 'unassigned'].includes(job.status || '')
+    )
+
+    if (!hasActiveJobs) {
+      const { error: updateError } = await supabase
+        .from('bins')
+        .update({ status: 'available' })
+        .eq('id', binId)
+
+      if (updateError) {
+        setPageError(updateError.message)
+      }
+    }
+  }
+
+  async function reserveMatchingBin(
+    size: string,
+    type: string,
+    currentBinId?: string | null
+  ): Promise<Bin | null> {
+    if (currentBinId) {
+      const currentBin = bins.find((bin) => bin.id === currentBinId)
+      if (
+        currentBin &&
+        currentBin.bin_size === size &&
+        currentBin.bin_type === type
+      ) {
+        return currentBin
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('bins')
+      .select('id,bin_number,bin_size,bin_type,status')
+      .eq('bin_size', size)
+      .eq('bin_type', type)
+      .eq('status', 'available')
+      .order('bin_number', { ascending: true })
+      .limit(1)
+
+    if (error) {
+      setPageError(error.message)
+      return null
+    }
+
+    const found = (data as Bin[] | null)?.[0] || null
+    if (!found) return null
+
+    const { error: updateError } = await supabase
+      .from('bins')
+      .update({ status: 'in_use' })
+      .eq('id', found.id)
+
+    if (updateError) {
+      setPageError(updateError.message)
+      return null
+    }
+
+    return found
+  }
+
   async function handleCreateOrUpdate() {
     setSaving(true)
     setPageError('')
+
+    if (!form.customer_name.trim()) {
+      setPageError('Customer name is required.')
+      setSaving(false)
+      return
+    }
+
+    const matchedBin = await reserveMatchingBin(
+      form.bin_size,
+      form.bin_type,
+      editingJob?.bin_id || null
+    )
+
+    if (!matchedBin) {
+      setPageError(`No available ${form.bin_size} yard ${form.bin_type} bin found.`)
+      setSaving(false)
+      return
+    }
 
     const payload = {
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || null,
       pickup_address: form.pickup_address || null,
-      bin_id: form.bin_id || null,
+      bin_id: matchedBin.id,
+      bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       driver_id: form.driver_id || null,
       scheduled_date: form.scheduled_date || null,
@@ -324,6 +466,7 @@ export default function JobsPage() {
 
     if (editingJob) {
       const previousDriverId = editingJob.driver_id
+      const previousBinId = editingJob.bin_id
 
       const { error } = await supabase.from('jobs').update(payload).eq('id', editingJob.id)
 
@@ -336,6 +479,14 @@ export default function JobsPage() {
 
         if (payload.driver_id) {
           await syncDriverStatuses(payload.driver_id)
+        }
+
+        if (previousBinId && previousBinId !== payload.bin_id) {
+          await releaseBin(previousBinId)
+        }
+
+        if (payload.status === 'completed' || payload.status === 'issue') {
+          await releaseBin(payload.bin_id)
         }
 
         await refreshAll()
@@ -359,7 +510,7 @@ export default function JobsPage() {
     setSaving(false)
   }
 
-  async function handleDelete(jobId: string, driverId?: string | null) {
+  async function handleDelete(jobId: string, driverId?: string | null, binId?: string | null) {
     const confirmed = window.confirm('Delete this job?')
     if (!confirmed) return
 
@@ -373,6 +524,9 @@ export default function JobsPage() {
     } else {
       if (driverId) {
         await syncDriverStatuses(driverId)
+      }
+      if (binId) {
+        await releaseBin(binId)
       }
       await refreshAll()
     }
@@ -394,6 +548,11 @@ export default function JobsPage() {
       if (job.driver_id) {
         await syncDriverStatuses(job.driver_id)
       }
+
+      if ((value === 'completed' || value === 'issue') && job.bin_id) {
+        await releaseBin(job.bin_id)
+      }
+
       await refreshAll()
     }
   }
@@ -401,6 +560,15 @@ export default function JobsPage() {
   const assignableDrivers = useMemo(() => {
     return drivers.filter((driver) => driver.status !== 'offline')
   }, [drivers])
+
+  const availableBinCountForSelection = useMemo(() => {
+    return bins.filter(
+      (bin) =>
+        bin.status === 'available' &&
+        bin.bin_size === form.bin_size &&
+        bin.bin_type === form.bin_type
+    ).length
+  }, [bins, form.bin_size, form.bin_type])
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -410,7 +578,7 @@ export default function JobsPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Jobs</h1>
               <p className="mt-1 text-sm text-slate-500">
-                Manage all jobs with filters, inline updates, and a professional operations layout
+                Create jobs with automatic bin assignment from yard inventory
               </p>
             </div>
 
@@ -549,6 +717,7 @@ export default function JobsPage() {
                       job.customer_name ||
                       (job.customer_id ? customerMap[job.customer_id]?.name : null) ||
                       'No customer'
+                    const bin = job.bin_id ? binMap[job.bin_id] : null
 
                     const badgeClass =
                       statusClasses[job.status || 'unassigned'] || statusClasses.unassigned
@@ -571,7 +740,9 @@ export default function JobsPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {job.bin_type || '—'}
+                          {bin
+                            ? `${bin.bin_number || 'Bin'} • ${job.bin_size || ''}Y ${job.bin_type || ''}`
+                            : 'Auto assign'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -614,7 +785,7 @@ export default function JobsPage() {
                             </button>
 
                             <button
-                              onClick={() => handleDelete(job.id, job.driver_id)}
+                              onClick={() => handleDelete(job.id, job.driver_id, job.bin_id)}
                               disabled={deletingId === job.id}
                               className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
                             >
@@ -630,6 +801,15 @@ export default function JobsPage() {
             </div>
           )}
         </div>
+
+        <div className="mt-6 flex justify-center">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       {(showCreateModal || editingJob) && (
@@ -642,8 +822,8 @@ export default function JobsPage() {
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
                   {editingJob
-                    ? 'Update job details directly from the jobs page'
-                    : 'Add a new job to your dispatch system'}
+                    ? 'Update job details with automatic bin assignment'
+                    : 'Add a new job and reserve a matching available bin'}
                 </p>
               </div>
 
@@ -654,6 +834,12 @@ export default function JobsPage() {
                 Close
               </button>
             </div>
+
+            {pageError ? (
+              <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {pageError}
+              </div>
+            ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -704,16 +890,44 @@ export default function JobsPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Bin Size
+                </label>
+                <select
+                  value={form.bin_size}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, bin_size: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                >
+                  {BIN_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {size} Yard
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
                   Bin Type
                 </label>
-                <input
+                <select
                   value={form.bin_type}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, bin_type: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="Dumpster, Recycling, Garbage..."
-                />
+                >
+                  {BIN_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                Matching available bins: <span className="font-semibold">{availableBinCountForSelection}</span>
               </div>
 
               <div>
