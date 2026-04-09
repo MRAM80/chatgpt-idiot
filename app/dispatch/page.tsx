@@ -1,13 +1,22 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type Driver = {
   id: string
   name: string | null
-  phone?: string | null
-  status?: string | null
+  phone: string | null
+  status: string | null
+}
+
+type Bin = {
+  id: string
+  bin_number: string | null
+  bin_size: string | null
+  bin_type: string | null
+  status: string | null
 }
 
 type Job = {
@@ -15,13 +24,15 @@ type Job = {
   ticket_number: string | null
   customer_name: string | null
   pickup_address: string | null
+  bin_id: string | null
+  bin_size: string | null
   bin_type: string | null
   scheduled_date: string | null
   driver_id: string | null
   status: string | null
   notes: string | null
-  created_at?: string | null
-  updated_at?: string | null
+  created_at: string | null
+  updated_at: string | null
 }
 
 const BOARD_COLUMNS = [
@@ -61,18 +72,22 @@ export default function DispatchBoardPage() {
 
   const [jobs, setJobs] = useState<Job[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
+  const [bins, setBins] = useState<Bin[]>([])
   const [loading, setLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
   const [draggingJobId, setDraggingJobId] = useState<string | null>(null)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [saving, setSaving] = useState(false)
+
   const [search, setSearch] = useState('')
   const [driverFilter, setDriverFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [pageError, setPageError] = useState('')
+
   const [form, setForm] = useState({
     customer_name: '',
     pickup_address: '',
-    bin_type: '',
+    bin_size: '20',
+    bin_type: 'Garbage',
     scheduled_date: '',
     driver_id: '',
     status: 'unassigned',
@@ -93,13 +108,27 @@ export default function DispatchBoardPage() {
     setDrivers((data as Driver[]) || [])
   }
 
+  async function loadBins() {
+    const { data, error } = await supabase
+      .from('bins')
+      .select('id,bin_number,bin_size,bin_type,status')
+      .order('bin_number', { ascending: true })
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    setBins((data as Bin[]) || [])
+  }
+
   async function loadJobs() {
     setLoading(true)
 
     const { data, error } = await supabase
       .from('jobs')
       .select(
-        'id,ticket_number,customer_name,pickup_address,bin_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
+        'id,ticket_number,customer_name,pickup_address,bin_id,bin_size,bin_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
       )
       .order('scheduled_date', { ascending: true })
 
@@ -115,7 +144,7 @@ export default function DispatchBoardPage() {
 
   async function refreshAll() {
     setPageError('')
-    await Promise.all([loadDrivers(), loadJobs()])
+    await Promise.all([loadDrivers(), loadBins(), loadJobs()])
   }
 
   useEffect(() => {
@@ -137,6 +166,13 @@ export default function DispatchBoardPage() {
           await loadDrivers()
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bins' },
+        async () => {
+          await loadBins()
+        }
+      )
       .subscribe()
 
     return () => {
@@ -151,16 +187,96 @@ export default function DispatchBoardPage() {
     }, {})
   }, [drivers])
 
+  const binMap = useMemo(() => {
+    return bins.reduce<Record<string, Bin>>((acc, bin) => {
+      acc[bin.id] = bin
+      return acc
+    }, {})
+  }, [bins])
+
+  async function syncDriverStatuses(driverId: string) {
+    const { data: jobData, error: jobsError } = await supabase
+      .from('jobs')
+      .select('status')
+      .eq('driver_id', driverId)
+
+    if (jobsError) {
+      setPageError(jobsError.message)
+      return
+    }
+
+    const activeStatuses = ['assigned', 'in_progress']
+    const hasActiveJobs = (jobData || []).some((job) =>
+      activeStatuses.includes(job.status || '')
+    )
+
+    const { data: driver, error: driverError } = await supabase
+      .from('drivers')
+      .select('status')
+      .eq('id', driverId)
+      .single()
+
+    if (driverError) {
+      setPageError(driverError.message)
+      return
+    }
+
+    if (driver?.status === 'offline') return
+
+    const { error: updateError } = await supabase
+      .from('drivers')
+      .update({ status: hasActiveJobs ? 'busy' : 'available' })
+      .eq('id', driverId)
+
+    if (updateError) {
+      setPageError(updateError.message)
+    }
+  }
+
+  async function releaseBin(binId: string | null) {
+    if (!binId) return
+
+    const { data, error } = await supabase
+      .from('jobs')
+      .select('id,status')
+      .eq('bin_id', binId)
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    const hasActiveJobs = (data || []).some((job) =>
+      ['unassigned', 'assigned', 'in_progress'].includes(job.status || '')
+    )
+
+    if (!hasActiveJobs) {
+      const { error: updateError } = await supabase
+        .from('bins')
+        .update({ status: 'available' })
+        .eq('id', binId)
+
+      if (updateError) {
+        setPageError(updateError.message)
+      }
+    }
+  }
+
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
       const q = search.trim().toLowerCase()
+      const driverName = driverMap[job.driver_id || '']?.name || ''
+      const binLabel = job.bin_id ? binMap[job.bin_id]?.bin_number || '' : ''
+
       const matchesSearch =
         !q ||
+        (job.ticket_number || '').toLowerCase().includes(q) ||
         (job.customer_name || '').toLowerCase().includes(q) ||
         (job.pickup_address || '').toLowerCase().includes(q) ||
         (job.bin_type || '').toLowerCase().includes(q) ||
-        (driverMap[job.driver_id || '']?.name || '').toLowerCase().includes(q) ||
-        (job.ticket_number || '').toLowerCase().includes(q)
+        (job.bin_size || '').toLowerCase().includes(q) ||
+        driverName.toLowerCase().includes(q) ||
+        binLabel.toLowerCase().includes(q)
 
       const matchesDriver =
         driverFilter === 'all' || (job.driver_id || '') === driverFilter
@@ -171,7 +287,7 @@ export default function DispatchBoardPage() {
 
       return matchesSearch && matchesDriver && matchesStatus
     })
-  }, [jobs, search, driverFilter, statusFilter, driverMap])
+  }, [jobs, search, driverFilter, statusFilter, driverMap, binMap])
 
   const groupedJobs = useMemo(() => {
     return BOARD_COLUMNS.reduce<Record<string, Job[]>>((acc, column) => {
@@ -187,7 +303,8 @@ export default function DispatchBoardPage() {
     setForm({
       customer_name: job.customer_name || '',
       pickup_address: job.pickup_address || '',
-      bin_type: job.bin_type || '',
+      bin_size: job.bin_size || '20',
+      bin_type: job.bin_type || 'Garbage',
       scheduled_date: job.scheduled_date
         ? new Date(job.scheduled_date).toISOString().slice(0, 10)
         : '',
@@ -199,10 +316,17 @@ export default function DispatchBoardPage() {
 
   function closeEditModal() {
     setSelectedJob(null)
+    setPageError('')
   }
 
   async function updateJob(id: string, values: Partial<Job>) {
     setPageError('')
+
+    const currentJob = jobs.find((job) => job.id === id)
+    if (!currentJob) return false
+
+    const previousDriverId = currentJob.driver_id
+    const previousBinId = currentJob.bin_id
 
     const { error } = await supabase.from('jobs').update(values).eq('id', id)
 
@@ -211,10 +335,25 @@ export default function DispatchBoardPage() {
       return false
     }
 
+    if (previousDriverId && previousDriverId !== values.driver_id) {
+      await syncDriverStatuses(previousDriverId)
+    }
+
+    if (values.driver_id) {
+      await syncDriverStatuses(values.driver_id)
+    }
+
+    const nextStatus = values.status ?? currentJob.status
+
+    if ((nextStatus === 'completed' || nextStatus === 'issue') && previousBinId) {
+      await releaseBin(previousBinId)
+    }
+
     setJobs((current) =>
       current.map((job) => (job.id === id ? { ...job, ...values } : job))
     )
 
+    await refreshAll()
     return true
   }
 
@@ -238,6 +377,7 @@ export default function DispatchBoardPage() {
     const success = await updateJob(selectedJob.id, {
       customer_name: form.customer_name || null,
       pickup_address: form.pickup_address || null,
+      bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       scheduled_date: form.scheduled_date || null,
       driver_id: form.driver_id || null,
@@ -254,9 +394,7 @@ export default function DispatchBoardPage() {
 
   const stats = useMemo(() => {
     const total = jobs.length
-    const unassigned = jobs.filter(
-      (job) => (job.status || 'unassigned') === 'unassigned'
-    ).length
+    const unassigned = jobs.filter((job) => (job.status || 'unassigned') === 'unassigned').length
     const assigned = jobs.filter((job) => job.status === 'assigned').length
     const inProgress = jobs.filter((job) => job.status === 'in_progress').length
     const completed = jobs.filter((job) => job.status === 'completed').length
@@ -274,7 +412,7 @@ export default function DispatchBoardPage() {
                 Dispatch Board
               </h1>
               <p className="text-sm text-slate-500">
-                Manage assignments, move jobs by status, and update work in real time
+                Move jobs across dispatch stages and manage assignments in real time
               </p>
             </div>
 
@@ -372,7 +510,7 @@ export default function DispatchBoardPage() {
                 key={column.key}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleDrop(column.key)}
-                className="min-h-[500px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
+                className="min-h-[520px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
               >
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
@@ -386,6 +524,7 @@ export default function DispatchBoardPage() {
                 <div className="space-y-3">
                   {(groupedJobs[column.key] || []).map((job) => {
                     const assignedDriver = job.driver_id ? driverMap[job.driver_id] : null
+                    const assignedBin = job.bin_id ? binMap[job.bin_id] : null
                     const badgeClass =
                       statusStyles[job.status || 'unassigned'] || statusStyles.unassigned
 
@@ -401,7 +540,7 @@ export default function DispatchBoardPage() {
                             <div className="text-sm font-semibold text-slate-900">
                               {job.customer_name || 'No customer'}
                             </div>
-                            <div className="mt-1 text-xs text-slate-500">
+                            <div className="mt-1 text-xs font-medium text-slate-500">
                               {job.ticket_number || `#${job.id.slice(0, 8)}`}
                             </div>
                           </div>
@@ -420,7 +559,9 @@ export default function DispatchBoardPage() {
                           </div>
                           <div>
                             <span className="font-medium text-slate-800">Bin:</span>{' '}
-                            {job.bin_type || 'Not set'}
+                            {assignedBin
+                              ? `${assignedBin.bin_number || 'Bin'} • ${job.bin_size || ''}Y ${job.bin_type || ''}`
+                              : `${job.bin_size || '—'}Y ${job.bin_type || ''}`}
                           </div>
                           <div>
                             <span className="font-medium text-slate-800">Date:</span>{' '}
@@ -439,11 +580,13 @@ export default function DispatchBoardPage() {
                             className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
                           >
                             <option value="">Assign driver</option>
-                            {drivers.map((driver) => (
-                              <option key={driver.id} value={driver.id}>
-                                {driver.name || 'Unnamed Driver'}
-                              </option>
-                            ))}
+                            {drivers
+                              .filter((driver) => driver.status !== 'offline')
+                              .map((driver) => (
+                                <option key={driver.id} value={driver.id}>
+                                  {driver.name || 'Unnamed Driver'}
+                                </option>
+                              ))}
                           </select>
                         </div>
 
@@ -483,6 +626,15 @@ export default function DispatchBoardPage() {
             ))}
           </div>
         )}
+
+        <div className="mt-6 flex justify-center">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       {selectedJob && (
@@ -503,6 +655,12 @@ export default function DispatchBoardPage() {
                 Close
               </button>
             </div>
+
+            {pageError ? (
+              <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {pageError}
+              </div>
+            ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -531,14 +689,14 @@ export default function DispatchBoardPage() {
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Pickup Address
+                  Bin Size
                 </label>
                 <input
-                  value={form.pickup_address}
+                  value={form.bin_size}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, pickup_address: e.target.value }))
+                    setForm((prev) => ({ ...prev, bin_size: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                 />
@@ -558,6 +716,19 @@ export default function DispatchBoardPage() {
                 />
               </div>
 
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Pickup Address
+                </label>
+                <input
+                  value={form.pickup_address}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, pickup_address: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                />
+              </div>
+
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Driver
@@ -570,11 +741,13 @@ export default function DispatchBoardPage() {
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                 >
                   <option value="">Unassigned</option>
-                  {drivers.map((driver) => (
-                    <option key={driver.id} value={driver.id}>
-                      {driver.name || 'Unnamed Driver'}
-                    </option>
-                  ))}
+                  {drivers
+                    .filter((driver) => driver.status !== 'offline')
+                    .map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.name || 'Unnamed Driver'}
+                      </option>
+                    ))}
                 </select>
               </div>
 
