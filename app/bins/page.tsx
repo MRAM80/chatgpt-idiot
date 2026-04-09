@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import DashboardShell from '@/components/dashboard-shell'
 import { supabase } from '@/lib/supabase'
 
@@ -28,13 +29,18 @@ const navItems = [
 ]
 
 export default function BinsPage() {
+  const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [bins, setBins] = useState<Bin[]>([])
   const [loading, setLoading] = useState(true)
-  const [binNumber, setBinNumber] = useState('')
-  const [binType, setBinType] = useState('')
-  const [location, setLocation] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const [form, setForm] = useState({
+    bin_number: '',
+    bin_type: '',
+    location: '',
+  })
 
   useEffect(() => {
     void loadPage()
@@ -47,7 +53,10 @@ export default function BinsPage() {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return
+    if (!user) {
+      router.push('/login')
+      return
+    }
 
     const { data: profileData } = await supabase
       .from('profiles')
@@ -69,29 +78,30 @@ export default function BinsPage() {
   }
 
   async function addBin() {
-    if (!binNumber) return
+    if (!form.bin_number) return
+
+    setSaving(true)
 
     const { error } = await supabase.from('bins').insert({
-      bin_number: binNumber,
-      bin_type: binType,
-      location: location,
+      bin_number: form.bin_number,
+      bin_type: form.bin_type,
+      location: form.location,
       status: 'available',
     })
 
     if (error) {
       setErrorMessage(error.message)
+      setSaving(false)
       return
     }
 
-    setBinNumber('')
-    setBinType('')
-    setLocation('')
-    loadPage()
+    setForm({ bin_number: '', bin_type: '', location: '' })
+    await loadPage()
+    setSaving(false)
   }
 
   async function toggleStatus(id: string, current: string | null) {
     const newStatus = current === 'available' ? 'unavailable' : 'available'
-
     await supabase.from('bins').update({ status: newStatus }).eq('id', id)
     loadPage()
   }
@@ -103,53 +113,78 @@ export default function BinsPage() {
 
   return (
     <DashboardShell
-      title="Bin Management"
-      subtitle="Create and manage bins"
+      title="Bins Management"
+      subtitle="Manage your bins inventory"
       roleLabel={profile?.role || 'Admin'}
       userName={profile?.full_name || profile?.email || 'User'}
       navItems={navItems}
     >
-      {errorMessage && <div className="mb-4 text-red-600">{errorMessage}</div>}
+      {errorMessage && (
+        <div className="mb-6 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      )}
 
-      <div className="bg-white p-6 rounded-2xl shadow mb-6">
-        <h2 className="font-bold mb-4">Add Bin</h2>
-        <div className="grid gap-3 md:grid-cols-3">
-          <input
-            placeholder="Bin number"
-            value={binNumber}
-            onChange={(e) => setBinNumber(e.target.value)}
-            className="border p-3 rounded-xl"
-          />
-          <input
-            placeholder="Bin type"
-            value={binType}
-            onChange={(e) => setBinType(e.target.value)}
-            className="border p-3 rounded-xl"
-          />
-          <input
-            placeholder="Location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            className="border p-3 rounded-xl"
-          />
-          <button onClick={addBin} className="bg-black text-white rounded-xl">
-            Add
-          </button>
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+          <h2 className="text-lg font-bold mb-4">Add Bin</h2>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <input
+              placeholder="Bin Number"
+              value={form.bin_number}
+              onChange={(e) => setForm({ ...form, bin_number: e.target.value })}
+              className="input"
+            />
+            <input
+              placeholder="Bin Type"
+              value={form.bin_type}
+              onChange={(e) => setForm({ ...form, bin_type: e.target.value })}
+              className="input"
+            />
+            <input
+              placeholder="Location"
+              value={form.location}
+              onChange={(e) => setForm({ ...form, location: e.target.value })}
+              className="input"
+            />
+            <button onClick={addBin} disabled={saving} className="bg-black text-white rounded-xl">
+              {saving ? 'Adding...' : 'Add Bin'}
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+          <h2 className="text-lg font-bold mb-4">Summary</h2>
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span>Total Bins</span>
+              <span>{bins.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Available</span>
+              <span>{bins.filter(b => b.status === 'available').length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Unavailable</span>
+              <span>{bins.filter(b => b.status !== 'available').length}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow">
-        <h2 className="font-bold mb-4">Bins</h2>
+      <div className="mt-6 bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+        <h2 className="text-lg font-bold mb-4">Bins List</h2>
 
         {loading ? (
           <p>Loading...</p>
         ) : (
           <div className="space-y-3">
             {bins.map((b) => (
-              <div key={b.id} className="flex justify-between items-center border p-3 rounded-xl">
+              <div key={b.id} className="flex justify-between items-center border p-4 rounded-xl">
                 <div>
                   <p className="font-semibold">{b.bin_number}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-slate-500">
                     {b.bin_type} • {b.location}
                   </p>
                 </div>
@@ -157,8 +192,10 @@ export default function BinsPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => toggleStatus(b.id, b.status)}
-                    className={`px-3 py-1 rounded ${
-                      b.status === 'available' ? 'bg-green-200' : 'bg-gray-200'
+                    className={`px-3 py-1 rounded text-xs ${
+                      b.status === 'available'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-600'
                     }`}
                   >
                     {b.status}
@@ -166,7 +203,7 @@ export default function BinsPage() {
 
                   <button
                     onClick={() => deleteBin(b.id)}
-                    className="px-3 py-1 bg-red-500 text-white rounded"
+                    className="text-red-600 text-xs"
                   >
                     Delete
                   </button>
@@ -174,7 +211,9 @@ export default function BinsPage() {
               </div>
             ))}
 
-            {!bins.length && <p>No bins</p>}
+            {!bins.length && (
+              <p className="text-center text-slate-400 py-6">No bins found</p>
+            )}
           </div>
         )}
       </div>

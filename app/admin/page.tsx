@@ -131,9 +131,9 @@ export default function AdminPage() {
   function badge(status: string | null) {
     switch ((status || '').toLowerCase()) {
       case 'completed':
-        return 'bg-green-100 text-green-700'
+        return 'bg-emerald-100 text-emerald-700'
       case 'in_progress':
-        return 'bg-yellow-100 text-yellow-700'
+        return 'bg-amber-100 text-amber-700'
       case 'assigned':
         return 'bg-blue-100 text-blue-700'
       default:
@@ -144,78 +144,122 @@ export default function AdminPage() {
   return (
     <DashboardShell
       title="Admin Dashboard"
-      subtitle="System overview"
-      roleLabel="Admin"
+      subtitle="Operations overview and system activity"
+      roleLabel="Administrator"
       userName={profile?.full_name || profile?.email || 'Admin'}
       navItems={navItems}
     >
-      {errorMessage && <div className="mb-4 text-red-600">{errorMessage}</div>}
+      {errorMessage && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      )}
 
+      {/* STATS */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         {[
-          ['Total', stats.total],
-          ['Open', stats.open],
+          ['Total Jobs', stats.total],
+          ['Open Jobs', stats.open],
           ['In Progress', stats.progress],
           ['Completed', stats.completed],
-          ['Drivers', stats.drivers],
-          ['Bins', stats.bins],
+          ['Active Drivers', stats.drivers],
+          ['Available Bins', stats.bins],
         ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-2xl bg-white p-4 shadow">
-            <p className="text-sm text-gray-500">{label as string}</p>
-            <p className="text-2xl font-bold">{loading ? '...' : value}</p>
+          <div
+            key={String(label)}
+            className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition"
+          >
+            <p className="text-sm text-slate-500">{label as string}</p>
+            <p className="mt-2 text-3xl font-bold text-slate-900">
+              {loading ? '...' : value}
+            </p>
           </div>
         ))}
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-2">
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <div className="flex justify-between mb-4">
-            <h2 className="font-bold text-lg">Recent Jobs</h2>
-            <button onClick={() => router.push('/jobs')} className="text-sm text-blue-600">View all</button>
+      {/* MAIN GRID */}
+      <div className="mt-8 grid gap-6 xl:grid-cols-2">
+        {/* JOBS */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-lg font-semibold text-slate-900">Recent Jobs</h2>
+            <button
+              onClick={() => router.push('/jobs')}
+              className="text-sm font-medium text-blue-600 hover:underline"
+            >
+              View all
+            </button>
           </div>
 
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500">
-                <th>Ticket</th>
-                <th>Type</th>
-                <th>Date</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentJobs.map(job => (
-                <tr key={job.id} className="border-t">
-                  <td>{job.ticket_number}</td>
-                  <td>{job.job_type}</td>
-                  <td>{job.scheduled_date}</td>
-                  <td>
-                    <span className={`px-2 py-1 rounded ${badge(job.status)}`}>
-                      {job.status}
-                    </span>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b">
+                  <th className="pb-2">Ticket</th>
+                  <th className="pb-2">Type</th>
+                  <th className="pb-2">Date</th>
+                  <th className="pb-2">Status</th>
                 </tr>
-              ))}
-              {!recentJobs.length && (
-                <tr>
-                  <td colSpan={4} className="text-center py-4 text-gray-400">No data</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recentJobs.map(job => (
+                  <tr key={job.id} className="border-b last:border-0 hover:bg-slate-50">
+                    <td className="py-3 font-medium text-slate-900">
+                      {job.ticket_number}
+                    </td>
+                    <td>{job.job_type}</td>
+                    <td>{job.scheduled_date}</td>
+                    <td>
+                      <span className={`px-3 py-1 text-xs font-semibold rounded-full ${badge(job.status)}`}>
+                        {job.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+
+                {!recentJobs.length && (
+                  <tr>
+                    <td colSpan={4} className="text-center py-6 text-slate-400">
+                      No jobs available
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="font-bold text-lg mb-4">Drivers</h2>
+        {/* DRIVERS */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-5">
+            Drivers Overview
+          </h2>
+
           <div className="space-y-3">
             {drivers.map(d => (
-              <div key={d.id} className="flex justify-between border p-3 rounded-xl">
-                <span>{d.full_name || 'Driver'}</span>
-                <span className={d.status === 'active' ? 'text-green-600' : 'text-gray-400'}>
+              <div
+                key={d.id}
+                className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 hover:bg-slate-50 transition"
+              >
+                <span className="font-medium text-slate-900">
+                  {d.full_name || 'Driver'}
+                </span>
+
+                <span
+                  className={`text-sm font-semibold ${
+                    d.status === 'active'
+                      ? 'text-emerald-600'
+                      : 'text-slate-400'
+                  }`}
+                >
                   {d.status}
                 </span>
               </div>
             ))}
+
+            {!drivers.length && (
+              <p className="text-sm text-slate-400">No drivers found</p>
+            )}
           </div>
         </div>
       </div>

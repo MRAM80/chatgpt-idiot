@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import DashboardShell from '@/components/dashboard-shell'
 import { supabase } from '@/lib/supabase'
 
@@ -27,12 +28,17 @@ const navItems = [
 ]
 
 export default function DriversPage() {
+  const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [loading, setLoading] = useState(true)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const [form, setForm] = useState({
+    full_name: '',
+    email: '',
+  })
 
   useEffect(() => {
     void loadPage()
@@ -40,11 +46,15 @@ export default function DriversPage() {
 
   async function loadPage() {
     setLoading(true)
+
     const {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return
+    if (!user) {
+      router.push('/login')
+      return
+    }
 
     const { data: profileData } = await supabase
       .from('profiles')
@@ -66,27 +76,29 @@ export default function DriversPage() {
   }
 
   async function addDriver() {
-    if (!name) return
+    if (!form.full_name) return
+
+    setSaving(true)
 
     const { error } = await supabase.from('drivers').insert({
-      full_name: name,
-      email,
+      full_name: form.full_name,
+      email: form.email,
       status: 'active',
     })
 
     if (error) {
       setErrorMessage(error.message)
+      setSaving(false)
       return
     }
 
-    setName('')
-    setEmail('')
-    loadPage()
+    setForm({ full_name: '', email: '' })
+    await loadPage()
+    setSaving(false)
   }
 
   async function toggleStatus(id: string, current: string | null) {
     const newStatus = current === 'active' ? 'inactive' : 'active'
-
     await supabase.from('drivers').update({ status: newStatus }).eq('id', id)
     loadPage()
   }
@@ -96,64 +108,108 @@ export default function DriversPage() {
     loadPage()
   }
 
+  function badge(status: string | null) {
+    return status === 'active'
+      ? 'bg-emerald-100 text-emerald-700'
+      : 'bg-slate-100 text-slate-600'
+  }
+
   return (
     <DashboardShell
-      title="Driver Management"
-      subtitle="Create and manage drivers"
+      title="Drivers Management"
+      subtitle="Manage your driver team and availability"
       roleLabel={profile?.role || 'Admin'}
       userName={profile?.full_name || profile?.email || 'User'}
       navItems={navItems}
     >
-      {errorMessage && <div className="mb-4 text-red-600">{errorMessage}</div>}
+      {errorMessage && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      )}
 
-      <div className="bg-white p-6 rounded-2xl shadow mb-6">
-        <h2 className="font-bold mb-4">Add Driver</h2>
-        <div className="grid gap-3 md:grid-cols-3">
-          <input
-            placeholder="Full name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="border p-3 rounded-xl"
-          />
-          <input
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="border p-3 rounded-xl"
-          />
-          <button onClick={addDriver} className="bg-black text-white rounded-xl">
-            Add
-          </button>
+      {/* TOP GRID */}
+      <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
+        {/* ADD DRIVER */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold mb-5">Add Driver</h2>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <input
+              placeholder="Full Name"
+              value={form.full_name}
+              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              className="input"
+            />
+            <input
+              placeholder="Email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="input"
+            />
+
+            <button
+              onClick={addDriver}
+              disabled={saving}
+              className="rounded-xl bg-slate-900 text-white py-2 font-medium hover:bg-slate-800 transition"
+            >
+              {saving ? 'Adding...' : 'Add Driver'}
+            </button>
+          </div>
+        </div>
+
+        {/* SUMMARY */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold mb-5">Summary</h2>
+
+          <div className="space-y-4 text-sm">
+            <div className="flex justify-between">
+              <span>Total Drivers</span>
+              <span className="font-semibold">{drivers.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Active</span>
+              <span>{drivers.filter(d => d.status === 'active').length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Inactive</span>
+              <span>{drivers.filter(d => d.status !== 'active').length}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl shadow">
-        <h2 className="font-bold mb-4">Drivers</h2>
+      {/* DRIVERS LIST */}
+      <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-semibold mb-5">Drivers List</h2>
 
         {loading ? (
-          <p>Loading...</p>
+          <p className="text-sm text-slate-500">Loading drivers...</p>
         ) : (
           <div className="space-y-3">
             {drivers.map((d) => (
-              <div key={d.id} className="flex justify-between items-center border p-3 rounded-xl">
+              <div
+                key={d.id}
+                className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 hover:bg-slate-50 transition"
+              >
                 <div>
-                  <p className="font-semibold">{d.full_name}</p>
-                  <p className="text-sm text-gray-500">{d.email}</p>
+                  <p className="font-semibold text-slate-900">
+                    {d.full_name}
+                  </p>
+                  <p className="text-sm text-slate-500">{d.email}</p>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex items-center gap-3">
                   <button
                     onClick={() => toggleStatus(d.id, d.status)}
-                    className={`px-3 py-1 rounded ${
-                      d.status === 'active' ? 'bg-green-200' : 'bg-gray-200'
-                    }`}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full ${badge(d.status)}`}
                   >
                     {d.status}
                   </button>
 
                   <button
                     onClick={() => deleteDriver(d.id)}
-                    className="px-3 py-1 bg-red-500 text-white rounded"
+                    className="text-red-600 text-xs font-medium hover:underline"
                   >
                     Delete
                   </button>
@@ -161,7 +217,11 @@ export default function DriversPage() {
               </div>
             ))}
 
-            {!drivers.length && <p>No drivers</p>}
+            {!drivers.length && (
+              <p className="text-center text-slate-400 py-6">
+                No drivers found
+              </p>
+            )}
           </div>
         )}
       </div>
