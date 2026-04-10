@@ -8,7 +8,6 @@ type Bin = {
   id: string
   bin_number: string | null
   bin_size: string | null
-  bin_type: string | null
   location: string | null
   status: string | null
   created_at: string | null
@@ -18,14 +17,20 @@ type Bin = {
 type Order = {
   id: string
   bin_id: string | null
+  old_bin_id: string | null
   status: string | null
+  order_type: string | null
   scheduled_date: string | null
   service_address: string | null
+  created_at: string | null
 }
 
-const BIN_SIZES = ['6', '8', '15', '20', '30', '40'] as const
-const BIN_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
+type UserRole = 'admin' | 'dispatcher' | 'unknown'
+
+const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const BIN_STATUSES = ['available', 'in_use', 'maintenance'] as const
+
+const ACTIVE_ORDER_STATUSES = ['assigned', 'scheduled', 'in_progress', 'on_route'] as const
 
 const statusClasses: Record<string, string> = {
   available: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -48,6 +53,12 @@ function formatDate(date: string | null) {
   return parsed.toLocaleDateString()
 }
 
+function sortOrdersNewest(a: Order, b: Order) {
+  const aDate = new Date(a.scheduled_date || a.created_at || 0).getTime()
+  const bDate = new Date(b.scheduled_date || b.created_at || 0).getTime()
+  return bDate - aDate
+}
+
 export default function BinsPage() {
   const supabase = createClient()
 
@@ -57,11 +68,11 @@ export default function BinsPage() {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [pageError, setPageError] = useState('')
+  const [userRole, setUserRole] = useState<UserRole>('unknown')
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [sizeFilter, setSizeFilter] = useState('all')
-  const [typeFilter, setTypeFilter] = useState('all')
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingBin, setEditingBin] = useState<Bin | null>(null)
@@ -69,64 +80,94 @@ export default function BinsPage() {
   const emptyForm = {
     bin_number: '',
     bin_size: '20',
-    bin_type: 'Garbage',
-    location: '',
     status: 'available',
   }
 
   const [form, setForm] = useState(emptyForm)
 
-  function getOrderStatusGroup(status: string | null) {
-    return status || ''
-  }
+  const isAdmin = userRole === 'admin'
 
   function isActiveOrder(order: Order) {
-    const status = getOrderStatusGroup(order.status)
-    return (
-      status === 'assigned' ||
-      status === 'scheduled' ||
-      status === 'in_progress'
-    )
+    return ACTIVE_ORDER_STATUSES.includes((order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number])
   }
 
   function getOrdersForBin(binId: string) {
-    return orders.filter((order) => order.bin_id === binId)
+    return orders.filter((order) => order.bin_id === binId || order.old_bin_id === binId)
   }
 
-  function getActiveOrdersForBin(binId: string) {
+  function getActiveServiceOrdersForBin(binId: string) {
     return orders.filter((order) => order.bin_id === binId && isActiveOrder(order))
   }
 
-  function getPrimaryOrderForBin(binId: string) {
-    const active = getActiveOrdersForBin(binId)
-    if (active.length > 0) return active[0]
-
-    const related = getOrdersForBin(binId)
-    if (related.length > 0) return related[0]
-
-    return null
+  function getLatestOrderForBin(binId: string) {
+    return [...getOrdersForBin(binId)].sort(sortOrdersNewest)[0] || null
   }
 
-  function getNextStatusFromOrders(binId: string) {
-    const activeOrders = getActiveOrdersForBin(binId)
+  function getCurrentLocationFromOrders(binId: string) {
+    const activeOrder = [...getActiveServiceOrdersForBin(binId)].sort(sortOrdersNewest)[0] || null
+
+    if (activeOrder?.service_address?.trim()) {
+      return activeOrder.service_address.trim()
+    }
+
+    return 'Yard'
+  }
+
+  function getNextStatusFromOrders(binId: string, currentStatus: string | null) {
+    if ((currentStatus || 'available') === 'maintenance') {
+      return 'maintenance'
+    }
+
+    const activeOrders = getActiveServiceOrdersForBin(binId)
     return activeOrders.length > 0 ? 'in_use' : 'available'
   }
 
-  function getLocationFromOrders(binId: string) {
-    const primaryOrder = getPrimaryOrderForBin(binId)
-    return primaryOrder?.service_address?.trim() || null
+  async function loadCurrentUserRole() {
+    try {
+      const { data: authData } = await supabase.auth.getUser()
+      const user = authData.user
+
+      if (!user) {
+        setUserRole('unknown')
+        return
+      }
+
+      const metaRole =
+        (user.app_metadata?.role as string | undefined) ||
+        (user.user_metadata?.role as string | undefined)
+
+      if (metaRole === 'admin' || metaRole === 'dispatcher') {
+        setUserRole(metaRole)
+        return
+      }
+
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      const profileRole = profileData?.role as string | undefined
+
+      if (profileRole === 'admin' || profileRole === 'dispatcher') {
+        setUserRole(profileRole)
+      } else {
+        setUserRole('unknown')
+      }
+    } catch {
+      setUserRole('unknown')
+    }
   }
 
   async function syncBinFromOrders(binId: string) {
     const currentBin = bins.find((bin) => bin.id === binId)
     if (!currentBin) return
-    if (currentBin.status === 'maintenance') return
 
-    const nextStatus = getNextStatusFromOrders(binId)
-    const nextLocation = getLocationFromOrders(binId)
+    const nextStatus = getNextStatusFromOrders(binId, currentBin.status)
+    const nextLocation = getCurrentLocationFromOrders(binId)
 
     const currentStatus = currentBin.status || 'available'
-    const currentLocation = currentBin.location || null
+    const currentLocation = currentBin.location || 'Yard'
 
     if (currentStatus === nextStatus && currentLocation === nextLocation) return
 
@@ -144,38 +185,38 @@ export default function BinsPage() {
   }
 
   async function syncAllBinsFromOrders(currentBins: Bin[], currentOrders: Order[]) {
-    const updates = currentBins
-      .filter((bin) => (bin.status || 'available') !== 'maintenance')
-      .map(async (bin) => {
-        const activeOrders = currentOrders.filter(
-          (order) =>
-            order.bin_id === bin.id &&
-            (order.status === 'assigned' ||
-              order.status === 'scheduled' ||
-              order.status === 'in_progress')
-        )
+    const updates = currentBins.map(async (bin) => {
+      const activeOrders = currentOrders.filter(
+        (order) =>
+          order.bin_id === bin.id &&
+          ACTIVE_ORDER_STATUSES.includes((order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number])
+      )
 
-        const primaryOrder =
-          activeOrders[0] || currentOrders.find((order) => order.bin_id === bin.id) || null
+      const nextStatus =
+        (bin.status || 'available') === 'maintenance'
+          ? 'maintenance'
+          : activeOrders.length > 0
+            ? 'in_use'
+            : 'available'
 
-        const nextStatus = activeOrders.length > 0 ? 'in_use' : 'available'
-        const nextLocation = primaryOrder?.service_address?.trim() || null
+      const latestActive = [...activeOrders].sort(sortOrdersNewest)[0] || null
+      const nextLocation = latestActive?.service_address?.trim() || 'Yard'
 
-        const currentStatus = bin.status || 'available'
-        const currentLocation = bin.location || null
+      const currentStatus = bin.status || 'available'
+      const currentLocation = bin.location || 'Yard'
 
-        if (currentStatus === nextStatus && currentLocation === nextLocation) return
+      if (currentStatus === nextStatus && currentLocation === nextLocation) return
 
-        const { error } = await supabase
-          .from('bins')
-          .update({
-            status: nextStatus,
-            location: nextLocation,
-          })
-          .eq('id', bin.id)
+      const { error } = await supabase
+        .from('bins')
+        .update({
+          status: nextStatus,
+          location: nextLocation,
+        })
+        .eq('id', bin.id)
 
-        if (error) throw error
-      })
+      if (error) throw error
+    })
 
     if (updates.length === 0) return
     await Promise.all(updates)
@@ -184,7 +225,7 @@ export default function BinsPage() {
   async function loadBins() {
     const { data, error } = await supabase
       .from('bins')
-      .select('id,bin_number,bin_size,bin_type,location,status,created_at,updated_at')
+      .select('id,bin_number,bin_size,location,status,created_at,updated_at')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -200,7 +241,7 @@ export default function BinsPage() {
   async function loadOrders() {
     const { data, error } = await supabase
       .from('order')
-      .select('id,bin_id,status,scheduled_date,service_address')
+      .select('id,bin_id,old_bin_id,status,order_type,scheduled_date,service_address,created_at')
 
     if (error) {
       setPageError(error.message)
@@ -218,7 +259,7 @@ export default function BinsPage() {
 
     const [nextBins, nextOrders] = await Promise.all([loadBins(), loadOrders()])
     await syncAllBinsFromOrders(nextBins, nextOrders)
-    await Promise.all([loadBins(), loadOrders()])
+    await Promise.all([loadBins(), loadOrders(), loadCurrentUserRole()])
 
     setLoading(false)
   }
@@ -254,12 +295,14 @@ export default function BinsPage() {
     const activeOrdersByBin: Record<string, number> = {}
 
     for (const order of orders) {
-      if (!order.bin_id) continue
+      const linkedBinIds = [order.bin_id, order.old_bin_id].filter(Boolean) as string[]
 
-      totalOrdersByBin[order.bin_id] = (totalOrdersByBin[order.bin_id] || 0) + 1
+      for (const binId of linkedBinIds) {
+        totalOrdersByBin[binId] = (totalOrdersByBin[binId] || 0) + 1
 
-      if (isActiveOrder(order)) {
-        activeOrdersByBin[order.bin_id] = (activeOrdersByBin[order.bin_id] || 0) + 1
+        if (order.bin_id === binId && isActiveOrder(order)) {
+          activeOrdersByBin[binId] = (activeOrdersByBin[binId] || 0) + 1
+        }
       }
     }
 
@@ -283,7 +326,6 @@ export default function BinsPage() {
         !query ||
         (bin.bin_number || '').toLowerCase().includes(query) ||
         (bin.bin_size || '').toLowerCase().includes(query) ||
-        (bin.bin_type || '').toLowerCase().includes(query) ||
         (bin.location || '').toLowerCase().includes(query)
 
       const matchesStatus =
@@ -292,14 +334,12 @@ export default function BinsPage() {
       const matchesSize =
         sizeFilter === 'all' || (bin.bin_size || '') === sizeFilter
 
-      const matchesType =
-        typeFilter === 'all' || (bin.bin_type || '') === typeFilter
-
-      return matchesSearch && matchesStatus && matchesSize && matchesType
+      return matchesSearch && matchesStatus && matchesSize
     })
-  }, [bins, search, statusFilter, sizeFilter, typeFilter])
+  }, [bins, search, statusFilter, sizeFilter])
 
   function openCreateModal() {
+    if (!isAdmin) return
     setEditingBin(null)
     setForm(emptyForm)
     setPageError('')
@@ -307,14 +347,13 @@ export default function BinsPage() {
   }
 
   function openEditModal(bin: Bin) {
+    if (!isAdmin) return
     setEditingBin(bin)
     setShowCreateModal(false)
     setPageError('')
     setForm({
       bin_number: bin.bin_number || '',
       bin_size: bin.bin_size || '20',
-      bin_type: bin.bin_type || 'Garbage',
-      location: bin.location || '',
       status: bin.status || 'available',
     })
   }
@@ -327,6 +366,11 @@ export default function BinsPage() {
   }
 
   async function handleCreateOrUpdate() {
+    if (!isAdmin) {
+      setPageError('Only admin can create or update bins.')
+      return
+    }
+
     setSaving(true)
     setPageError('')
 
@@ -339,9 +383,8 @@ export default function BinsPage() {
     const payload = {
       bin_number: form.bin_number.trim(),
       bin_size: form.bin_size || null,
-      bin_type: form.bin_type || null,
-      location: form.location.trim() || null,
       status: form.status || 'available',
+      location: form.status === 'available' ? 'Yard' : null,
     }
 
     if (editingBin) {
@@ -373,13 +416,18 @@ export default function BinsPage() {
   }
 
   async function handleDelete(binId: string) {
+    if (!isAdmin) {
+      setPageError('Only admin can delete bins.')
+      return
+    }
+
     const relatedActiveOrders = orders.filter(
       (order) => order.bin_id === binId && isActiveOrder(order)
     )
 
     if (relatedActiveOrders.length > 0) {
       window.alert(
-        'This bin has active orders linked to it. Complete or reassign those orders first.'
+        'This bin has active service orders linked to it. Complete or reassign those orders first.'
       )
       return
     }
@@ -402,11 +450,16 @@ export default function BinsPage() {
   }
 
   async function handleQuickStatus(bin: Bin, value: string) {
+    if (!isAdmin) {
+      setPageError('Only admin can update bin status.')
+      return
+    }
+
     const activeOrders = binStats.activeOrdersByBin[bin.id] || 0
 
     if (value === 'available' && activeOrders > 0) {
       window.alert(
-        'This bin still has active orders. Keep it in use or reassign the orders first.'
+        'This bin still has active service orders. Reassign or complete the order first.'
       )
       return
     }
@@ -417,8 +470,8 @@ export default function BinsPage() {
       status: value,
     }
 
-    if (value === 'available' && activeOrders === 0) {
-      updatePayload.location = getLocationFromOrders(bin.id)
+    if (value === 'available') {
+      updatePayload.location = 'Yard'
     }
 
     const { error } = await supabase
@@ -443,7 +496,7 @@ export default function BinsPage() {
                 Bin Inventory
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Manage your yard inventory with fixed sizes, operational status, and synced order addresses
+                Track yard stock, live bin availability, and current service location from active orders
               </p>
             </div>
 
@@ -454,12 +507,15 @@ export default function BinsPage() {
               >
                 Refresh
               </button>
-              <button
-                onClick={openCreateModal}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-              >
-                New Bin
-              </button>
+
+              {isAdmin && (
+                <button
+                  onClick={openCreateModal}
+                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                >
+                  New Bin
+                </button>
+              )}
             </div>
           </div>
 
@@ -468,6 +524,12 @@ export default function BinsPage() {
               {pageError}
             </div>
           ) : null}
+
+          {!isAdmin && (
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+              Dispatcher view: stock is view-only. Bin create, edit, delete, and manual status changes are admin-only.
+            </div>
+          )}
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -481,7 +543,7 @@ export default function BinsPage() {
 
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                Available
+                Available In Yard
               </div>
               <div className="mt-2 text-2xl font-bold text-emerald-900">
                 {dashboardCounts.available}
@@ -507,11 +569,11 @@ export default function BinsPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-4">
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search bin number, size, type, or location"
+              placeholder="Search bin number, size, or location"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -540,19 +602,6 @@ export default function BinsPage() {
                 </option>
               ))}
             </select>
-
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-            >
-              <option value="all">All Types</option>
-              {BIN_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
 
@@ -577,13 +626,10 @@ export default function BinsPage() {
                       Size
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Type
+                      Current Location
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Location
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Usage
+                      Order History
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Status
@@ -601,6 +647,7 @@ export default function BinsPage() {
                   {filteredBins.map((bin) => {
                     const totalOrders = binStats.totalOrdersByBin[bin.id] || 0
                     const activeOrders = binStats.activeOrdersByBin[bin.id] || 0
+                    const latestOrder = getLatestOrderForBin(bin.id)
                     const badgeClass =
                       statusClasses[bin.status || 'available'] || statusClasses.available
 
@@ -617,16 +664,26 @@ export default function BinsPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {bin.bin_type || '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {bin.location || '—'}
+                          <div>{bin.location || 'Yard'}</div>
+                          {activeOrders > 0 ? (
+                            <div className="mt-1 text-xs text-slate-500">
+                              Active service location
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-xs text-slate-500">
+                              In yard
+                            </div>
+                          )}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           <div>Total Orders: {totalOrders}</div>
                           <div className="mt-1 text-slate-500">Active: {activeOrders}</div>
+                          {latestOrder?.scheduled_date ? (
+                            <div className="mt-1 text-xs text-slate-500">
+                              Last: {formatDate(latestOrder.scheduled_date)}
+                            </div>
+                          ) : null}
                         </td>
 
                         <td className="px-4 py-4 align-top">
@@ -637,17 +694,19 @@ export default function BinsPage() {
                               {formatStatus(bin.status || 'available')}
                             </span>
 
-                            <select
-                              value={bin.status || 'available'}
-                              onChange={(e) => handleQuickStatus(bin, e.target.value)}
-                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
-                            >
-                              {BIN_STATUSES.map((status) => (
-                                <option key={status} value={status}>
-                                  {formatStatus(status)}
-                                </option>
-                              ))}
-                            </select>
+                            {isAdmin ? (
+                              <select
+                                value={bin.status || 'available'}
+                                onChange={(e) => handleQuickStatus(bin, e.target.value)}
+                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                              >
+                                {BIN_STATUSES.map((status) => (
+                                  <option key={status} value={status}>
+                                    {formatStatus(status)}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
                           </div>
                         </td>
 
@@ -657,20 +716,26 @@ export default function BinsPage() {
 
                         <td className="px-4 py-4 align-top">
                           <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => openEditModal(bin)}
-                              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                            >
-                              Edit
-                            </button>
+                            {isAdmin ? (
+                              <>
+                                <button
+                                  onClick={() => openEditModal(bin)}
+                                  className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                                >
+                                  Edit
+                                </button>
 
-                            <button
-                              onClick={() => handleDelete(bin.id)}
-                              disabled={deletingId === bin.id}
-                              className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-                            >
-                              {deletingId === bin.id ? 'Deleting...' : 'Delete'}
-                            </button>
+                                <button
+                                  onClick={() => handleDelete(bin.id)}
+                                  disabled={deletingId === bin.id}
+                                  className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                                >
+                                  {deletingId === bin.id ? 'Deleting...' : 'Delete'}
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-sm text-slate-400">View Only</span>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -692,7 +757,7 @@ export default function BinsPage() {
         </div>
       </div>
 
-      {(showCreateModal || editingBin) && (
+      {(showCreateModal || editingBin) && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
             <div className="mb-6 flex items-start justify-between gap-4">
@@ -701,9 +766,7 @@ export default function BinsPage() {
                   {editingBin ? 'Edit Bin' : 'Create Bin'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {editingBin
-                    ? 'Update bin details and operational status'
-                    : 'Add a new bin to your yard inventory'}
+                  Bin inventory stores size only. Material type belongs to the order.
                 </p>
               </div>
 
@@ -758,55 +821,26 @@ export default function BinsPage() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Bin Type
+                    Status
                   </label>
                   <select
-                    value={form.bin_type}
+                    value={form.status}
                     onChange={(e) =>
-                      setForm((prev) => ({ ...prev, bin_type: e.target.value }))
+                      setForm((prev) => ({ ...prev, status: e.target.value }))
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                   >
-                    {BIN_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
+                    {BIN_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {formatStatus(status)}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Location
-                </label>
-                <input
-                  value={form.location}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, location: e.target.value }))
-                  }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="Auto-updated from assigned order address when linked"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Status
-                </label>
-                <select
-                  value={form.status}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, status: e.target.value }))
-                  }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                >
-                  {BIN_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {formatStatus(status)}
-                    </option>
-                  ))}
-                </select>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Location is synced automatically from the active service order. If the bin is not assigned to an active service order, it will stay in the <strong>Yard</strong>.
               </div>
             </div>
 

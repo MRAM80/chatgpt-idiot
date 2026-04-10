@@ -20,6 +20,7 @@ type Order = {
   customer_id: string | null
   customer_name: string | null
   pickup_address: string | null
+  service_address?: string | null
   status: string | null
   scheduled_date: string | null
 }
@@ -41,6 +42,10 @@ function formatDate(date: string | null) {
 function formatStatus(status: string | null | undefined) {
   if (!status) return 'Active'
   return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function isOpenOrderStatus(status: string | null | undefined) {
+  return ['unassigned', 'assigned', 'in_progress'].includes(status || '')
 }
 
 export default function CustomersPage() {
@@ -85,7 +90,7 @@ export default function CustomersPage() {
   async function loadOrders() {
     const { data, error } = await supabase
       .from('order')
-      .select('id,customer_id,customer_name,pickup_address,status,scheduled_date')
+      .select('id,customer_id,customer_name,pickup_address,service_address,status,scheduled_date')
 
     if (error) {
       setPageError(error.message)
@@ -148,7 +153,7 @@ export default function CustomersPage() {
 
   const customerStats = useMemo(() => {
     const orderCountByCustomer: Record<string, number> = {}
-    const activeOrderCountByCustomer: Record<string, number> = {}
+    const openOrderCountByCustomer: Record<string, number> = {}
 
     for (const order of orders) {
       if (!order.customer_id) continue
@@ -156,13 +161,13 @@ export default function CustomersPage() {
       orderCountByCustomer[order.customer_id] =
         (orderCountByCustomer[order.customer_id] || 0) + 1
 
-      if (order.status === 'assigned' || order.status === 'in_progress') {
-        activeOrderCountByCustomer[order.customer_id] =
-          (activeOrderCountByCustomer[order.customer_id] || 0) + 1
+      if (isOpenOrderStatus(order.status)) {
+        openOrderCountByCustomer[order.customer_id] =
+          (openOrderCountByCustomer[order.customer_id] || 0) + 1
       }
     }
 
-    return { orderCountByCustomer, activeOrderCountByCustomer }
+    return { orderCountByCustomer, openOrderCountByCustomer }
   }, [orders])
 
   const dashboardCounts = useMemo(() => {
@@ -170,7 +175,7 @@ export default function CustomersPage() {
       total: customers.length,
       active: customers.filter((customer) => (customer.status || 'active') === 'active').length,
       inactive: customers.filter((customer) => customer.status === 'inactive').length,
-      withOpenOrders: Object.keys(customerStats.activeOrderCountByCustomer).length,
+      withOpenOrders: Object.keys(customerStats.openOrderCountByCustomer).length,
     }
   }, [customers, customerStats])
 
@@ -282,7 +287,7 @@ export default function CustomersPage() {
                 Customers
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Manage customer companies and contacts separately from job site / bin placement addresses
+                Manage customer companies and contacts separately from Job Site / bin placement addresses
               </p>
             </div>
 
@@ -407,8 +412,7 @@ export default function CustomersPage() {
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {filteredCustomers.map((customer) => {
                     const totalOrders = customerStats.orderCountByCustomer[customer.id] || 0
-                    const activeOrders =
-                      customerStats.activeOrderCountByCustomer[customer.id] || 0
+                    const openOrders = customerStats.openOrderCountByCustomer[customer.id] || 0
                     const status = customer.status || 'active'
                     const badgeClass =
                       CUSTOMER_STATUS_STYLES[status] || CUSTOMER_STATUS_STYLES.active
@@ -435,7 +439,7 @@ export default function CustomersPage() {
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           <div>Total: {totalOrders}</div>
-                          <div className="mt-1 text-slate-500">Open: {activeOrders}</div>
+                          <div className="mt-1 text-slate-500">Open: {openOrders}</div>
                         </td>
 
                         <td className="px-4 py-4 align-top">
@@ -492,7 +496,7 @@ export default function CustomersPage() {
                   {editingCustomer ? 'Edit Customer' : 'Create Customer'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Save company/customer details here. Job site or bin placement address belongs on the order.
+                  Save company/customer details here. Job Site or bin placement address belongs on the order.
                 </p>
               </div>
 
@@ -590,8 +594,8 @@ export default function CustomersPage() {
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                Customer address is for the company or billing contact.  
-                The bin placement / job site address should be entered on the order.
+                Customer address is for the company or billing contact.
+                The bin placement / Job Site Address should be entered on the order.
               </div>
             </div>
 

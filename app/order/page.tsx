@@ -18,14 +18,15 @@ type Customer = {
   phone: string | null
   email: string | null
   address: string | null
+  status?: string | null
 }
 
 type Bin = {
   id: string
   bin_number: string | null
   bin_size: string | null
-  bin_type: string | null
   status: string | null
+  location?: string | null
 }
 
 type OrderCustomerRelation = {
@@ -44,7 +45,8 @@ type OrderBinRelation = {
   id: string
   bin_number: string | null
   bin_size: string | null
-  bin_type: string | null
+  status?: string | null
+  location?: string | null
 }
 
 type Order = {
@@ -53,6 +55,7 @@ type Order = {
   customer_id: string | null
   customer_name: string | null
   pickup_address: string | null
+  service_address?: string | null
   bin_id: string | null
   old_bin_id: string | null
   bin_size: string | null
@@ -81,8 +84,8 @@ const ORDER_STATUSES = [
 ] as const
 
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
-const BIN_SIZES = ['6', '8', '15', '20', '30', '40'] as const
-const BIN_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
+const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
+const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
 
 const statusClasses: Record<string, string> = {
   unassigned: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -152,6 +155,10 @@ function firstRelation<T>(value?: T[] | null): T | null {
   return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
 
+function isActiveWorkflowStatus(status: string | null | undefined) {
+  return ['assigned', 'scheduled', 'in_progress', 'on_route'].includes(status || '')
+}
+
 export default function OrdersPage() {
   const supabase = createClient()
 
@@ -182,6 +189,7 @@ export default function OrdersPage() {
         customer_id,
         customer_name,
         pickup_address,
+        service_address,
         bin_id,
         old_bin_id,
         bin_size,
@@ -195,8 +203,8 @@ export default function OrdersPage() {
         updated_at,
         customers:customer_id ( id, name, address ),
         drivers:driver_id ( id, name ),
-        bins:bin_id ( id, bin_number, bin_size, bin_type ),
-        old_bin:old_bin_id ( id, bin_number, bin_size, bin_type )
+        bins:bin_id ( id, bin_number, bin_size, status, location ),
+        old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
       `)
       .order('created_at', { ascending: false })
 
@@ -240,7 +248,7 @@ export default function OrdersPage() {
   async function loadBins() {
     const { data, error } = await supabase
       .from('bins')
-      .select('id,bin_number,bin_size,bin_type,status')
+      .select('id,bin_number,bin_size,status,location')
       .order('bin_number', { ascending: true })
 
     if (error) {
@@ -321,13 +329,14 @@ export default function OrdersPage() {
       const driverName =
         driverRelation?.name || (order.driver_id ? driverMap[order.driver_id]?.name || '' : '')
       const customerName = customerRelation?.name || order.customer_name || ''
+      const serviceAddress = order.service_address || order.pickup_address || ''
       const binLabel = binRelation?.bin_number || ''
       const oldBinLabel = oldBinRelation?.bin_number || ''
 
       const matchesSearch =
         !query ||
         customerName.toLowerCase().includes(query) ||
-        (order.pickup_address || '').toLowerCase().includes(query) ||
+        serviceAddress.toLowerCase().includes(query) ||
         (order.bin_type || '').toLowerCase().includes(query) ||
         (order.bin_size || '').toLowerCase().includes(query) ||
         (order.order_type || '').toLowerCase().includes(query) ||
@@ -368,15 +377,18 @@ export default function OrdersPage() {
     return bins.filter((bin) => bin.status === 'in_use')
   }, [bins])
 
+  const availableBinsForSelectedSize = useMemo(() => {
+    return bins.filter((bin) => {
+      if (bin.status !== 'available') return false
+      if ((bin.bin_size || '') !== form.bin_size) return false
+      if (form.order_type === 'EXCHANGE' && form.old_bin_id && bin.id === form.old_bin_id) return false
+      return true
+    })
+  }, [bins, form.bin_size, form.order_type, form.old_bin_id])
+
   const currentAvailableBinCount = useMemo(() => {
-    return bins.filter(
-      (bin) =>
-        bin.status === 'available' &&
-        bin.bin_size === form.bin_size &&
-        bin.bin_type === form.bin_type &&
-        bin.id !== form.old_bin_id
-    ).length
-  }, [bins, form.bin_size, form.bin_type, form.old_bin_id])
+    return availableBinsForSelectedSize.length
+  }, [availableBinsForSelectedSize])
 
   function openCreateModal() {
     setEditingOrder(null)
@@ -396,9 +408,9 @@ export default function OrdersPage() {
     setForm({
       customer_id: order.customer_id || '',
       customer_name: customerRelation?.name || order.customer_name || '',
-      pickup_address: order.pickup_address || '',
+      pickup_address: order.service_address || order.pickup_address || '',
       bin_size: order.bin_size || binRelation?.bin_size || oldBinRelation?.bin_size || '20',
-      bin_type: order.bin_type || binRelation?.bin_type || oldBinRelation?.bin_type || 'Garbage',
+      bin_type: order.bin_type || 'Garbage',
       order_type: order.order_type || 'DELIVERY',
       driver_id: order.driver_id || '',
       scheduled_date: order.scheduled_date
@@ -488,40 +500,42 @@ export default function OrdersPage() {
     await setBinStatus(binId, 'in_use')
   }
 
-  async function reserveMatchingBin(
-    size: string,
-    type: string,
-    excludeBinId?: string | null,
-    keepCurrentBinId?: string | null
-  ): Promise<Bin | null> {
-    if (keepCurrentBinId) {
-      const keepBin = bins.find((bin) => bin.id === keepCurrentBinId)
-      if (keepBin && keepBin.bin_size === size && keepBin.bin_type === type) {
-        await occupyBin(keepBin.id)
-        return keepBin
-      }
-    }
+  async function findBinById(binId: string | null) {
+    if (!binId) return null
+    const found = bins.find((bin) => bin.id === binId) || null
+    return found
+  }
 
+  async function validateSelectedAvailableBin(
+    selectedBinId: string,
+    expectedSize: string,
+    excludeBinId?: string | null
+  ): Promise<Bin> {
     const { data, error } = await supabase
       .from('bins')
-      .select('id,bin_number,bin_size,bin_type,status')
-      .eq('bin_size', size)
-      .eq('bin_type', type)
-      .eq('status', 'available')
-      .order('bin_number', { ascending: true })
-      .limit(20)
+      .select('id,bin_number,bin_size,status,location')
+      .eq('id', selectedBinId)
+      .single()
 
-    if (error) {
-      throw new Error(error.message)
+    if (error || !data) {
+      throw new Error('Selected bin could not be found.')
     }
 
-    const found =
-      ((data as Bin[] | null) || []).find((bin) => bin.id !== excludeBinId) || null
+    const selected = data as Bin
 
-    if (!found) return null
+    if (excludeBinId && selected.id === excludeBinId) {
+      throw new Error('The new bin cannot be the same as the old bin.')
+    }
 
-    await occupyBin(found.id)
-    return found
+    if ((selected.bin_size || '') !== expectedSize) {
+      throw new Error('The selected bin does not match the chosen size.')
+    }
+
+    if (selected.status !== 'available') {
+      throw new Error('The selected bin is no longer available.')
+    }
+
+    return selected
   }
 
   async function applyWorkflowAndBuildPayload() {
@@ -532,6 +546,7 @@ export default function OrdersPage() {
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || null,
       pickup_address: form.pickup_address.trim() || null,
+      service_address: form.pickup_address.trim() || null,
       bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       order_type: orderType,
@@ -542,26 +557,21 @@ export default function OrdersPage() {
     }
 
     if (orderType === 'DELIVERY') {
-      const matchedBin = await reserveMatchingBin(
-        form.bin_size,
-        form.bin_type,
-        null,
-        editingOrder?.bin_id || null
-      )
-
-      if (!matchedBin) {
-        throw new Error(`No available ${form.bin_size} yard ${form.bin_type} bin found.`)
+      if (!form.bin_id) {
+        throw new Error('Please select an available bin.')
       }
+
+      const selectedBin = await validateSelectedAvailableBin(form.bin_id, form.bin_size)
 
       return {
         payload: {
           ...basePayload,
-          bin_id: matchedBin.id,
+          bin_id: selectedBin.id,
           old_bin_id: null,
         },
-        assignedBinId: matchedBin.id,
+        assignedBinId: selectedBin.id,
         releasedBinId:
-          editingOrder?.bin_id && editingOrder.bin_id !== matchedBin.id ? editingOrder.bin_id : null,
+          editingOrder?.bin_id && editingOrder.bin_id !== selectedBin.id ? editingOrder.bin_id : null,
       }
     }
 
@@ -570,24 +580,23 @@ export default function OrdersPage() {
         throw new Error('Exchange requires an old bin.')
       }
 
-      const matchedBin = await reserveMatchingBin(
-        form.bin_size,
-        form.bin_type,
-        form.old_bin_id,
-        editingOrder?.bin_id && editingOrder.bin_id !== form.old_bin_id ? editingOrder.bin_id : null
-      )
-
-      if (!matchedBin) {
-        throw new Error(`No available ${form.bin_size} yard ${form.bin_type} bin found for exchange.`)
+      if (!form.bin_id) {
+        throw new Error('Please select the replacement bin.')
       }
+
+      const selectedBin = await validateSelectedAvailableBin(
+        form.bin_id,
+        form.bin_size,
+        form.old_bin_id
+      )
 
       return {
         payload: {
           ...basePayload,
-          bin_id: matchedBin.id,
+          bin_id: selectedBin.id,
           old_bin_id: form.old_bin_id,
         },
-        assignedBinId: matchedBin.id,
+        assignedBinId: selectedBin.id,
         releasedBinId: form.old_bin_id,
       }
     }
@@ -641,7 +650,7 @@ export default function OrdersPage() {
       }
 
       if (!form.pickup_address.trim()) {
-        throw new Error('Service / job site address is required.')
+        throw new Error('Job Site Address is required.')
       }
 
       const previousDriverId = editingOrder?.driver_id || null
@@ -842,7 +851,7 @@ export default function OrdersPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Orders</h1>
               <p className="mt-1 text-sm text-slate-500">
-                Create orders with workflow-based bin assignment and separate job site addresses
+                Create orders with selected bin assignment, active customers only, and a separate Job Site Address
               </p>
             </div>
 
@@ -979,6 +988,9 @@ export default function OrdersPage() {
                       Old Bin
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Material
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Driver
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1033,19 +1045,23 @@ export default function OrdersPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {order.pickup_address || '—'}
+                          {order.service_address || order.pickup_address || '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {bin
-                            ? `${bin.bin_number || 'Bin'} • ${bin.bin_size || order.bin_size || ''}Y ${bin.bin_type || order.bin_type || ''}`
+                            ? `${bin.bin_number || 'Bin'} • ${bin.bin_size || order.bin_size || ''}Y`
                             : '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {oldBin
-                            ? `${oldBin.bin_number || 'Bin'} • ${oldBin.bin_size || ''}Y ${oldBin.bin_type || ''}`
+                            ? `${oldBin.bin_number || 'Bin'} • ${oldBin.bin_size || ''}Y`
                             : '—'}
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {order.bin_type || '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
@@ -1124,7 +1140,7 @@ export default function OrdersPage() {
                   {editingOrder ? 'Edit Order' : 'Create Order'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Customer company info stays on the customer record. Enter the actual bin placement address here.
+                  Customer company info stays on the customer record. Enter the actual Job Site Address here.
                 </p>
               </div>
 
@@ -1177,17 +1193,17 @@ export default function OrdersPage() {
 
               {selectedCustomer?.address ? (
                 <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  <div className="font-semibold text-slate-900">Customer company / billing address</div>
+                  <div className="font-semibold text-slate-900">Company / Billing Address</div>
                   <div className="mt-1">{selectedCustomer.address}</div>
                   <div className="mt-2 text-slate-500">
-                    This is only a reference. Enter the real bin placement address below.
+                    This is only a reference. Enter the real Job Site Address below.
                   </div>
                 </div>
               ) : null}
 
               <div className="md:col-span-2">
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Service / Job Site Address
+                  Job Site Address
                 </label>
                 <input
                   value={form.pickup_address}
@@ -1206,7 +1222,11 @@ export default function OrdersPage() {
                 <select
                   value={form.bin_size}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '' }))
+                    setForm((prev) => ({
+                      ...prev,
+                      bin_size: e.target.value,
+                      bin_id: '',
+                    }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                 >
@@ -1220,16 +1240,16 @@ export default function OrdersPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Bin Type
+                  Material / Bin Type
                 </label>
                 <select
                   value={form.bin_type}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, bin_type: e.target.value, bin_id: '' }))
+                    setForm((prev) => ({ ...prev, bin_type: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                 >
-                  {BIN_TYPES.map((type) => (
+                  {MATERIAL_TYPES.map((type) => (
                     <option key={type} value={type}>
                       {type}
                     </option>
@@ -1293,7 +1313,12 @@ export default function OrdersPage() {
                       setForm((prev) => ({
                         ...prev,
                         old_bin_id: e.target.value,
-                        bin_id: prev.order_type === 'DUMP RETURN' ? e.target.value : prev.bin_id,
+                        bin_id:
+                          prev.order_type === 'DUMP RETURN'
+                            ? e.target.value
+                            : prev.bin_id === e.target.value
+                              ? ''
+                              : prev.bin_id,
                       }))
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
@@ -1301,7 +1326,7 @@ export default function OrdersPage() {
                     <option value="">Select current bin</option>
                     {inUseBins.map((bin) => (
                       <option key={bin.id} value={bin.id}>
-                        {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y {bin.bin_type || ''}
+                        {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
                       </option>
                     ))}
                   </select>
@@ -1309,10 +1334,33 @@ export default function OrdersPage() {
               )}
 
               {(form.order_type === 'DELIVERY' || form.order_type === 'EXCHANGE') && (
-                <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  Matching available bins:{' '}
-                  <span className="font-semibold">{currentAvailableBinCount}</span>
-                </div>
+                <>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Available Bin
+                    </label>
+                    <select
+                      value={form.bin_id}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, bin_id: e.target.value }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                    >
+                      <option value="">Select available bin</option>
+                      {availableBinsForSelectedSize.map((bin) => (
+                        <option key={bin.id} value={bin.id}>
+                          {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
+                          {bin.location ? ` • ${bin.location}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                    Available bins for selected size:{' '}
+                    <span className="font-semibold">{currentAvailableBinCount}</span>
+                  </div>
+                </>
               )}
 
               <div>
@@ -1367,10 +1415,10 @@ export default function OrdersPage() {
                 <div className="font-semibold text-slate-900">Workflow preview</div>
                 <div className="mt-2 space-y-1">
                   {form.order_type === 'DELIVERY' && (
-                    <p>• Assigns a new available matching bin and marks it in use.</p>
+                    <p>• Uses the selected available bin and marks it in use.</p>
                   )}
                   {form.order_type === 'EXCHANGE' && (
-                    <p>• Assigns a new available matching bin and releases the old bin.</p>
+                    <p>• Uses the selected replacement bin and releases the old bin.</p>
                   )}
                   {form.order_type === 'REMOVAL' && (
                     <p>• Releases the old bin and does not assign a new one.</p>

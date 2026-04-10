@@ -9,6 +9,7 @@ type Order = {
   ticket_number: string | null
   customer_name: string | null
   pickup_address: string | null
+  service_address?: string | null
   bin_type: string | null
   bin_size: string | null
   order_type: string | null
@@ -27,15 +28,18 @@ type Driver = {
 type Bin = {
   id: string
   bin_number: string | null
-  bin_type: string | null
   bin_size: string | null
   status: string | null
+  location?: string | null
 }
 
 type Customer = {
   id: string
   name: string | null
+  status?: string | null
 }
+
+const TABLE_NAME = 'order'
 
 const statusClasses: Record<string, string> = {
   unassigned: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -73,6 +77,7 @@ function formatOrderType(orderType: string | null | undefined) {
 
 function isToday(date: string | null) {
   if (!date) return false
+
   const value = new Date(date)
   const today = new Date()
 
@@ -91,27 +96,41 @@ export default function DashboardPage() {
   const [bins, setBins] = useState<Bin[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
 
   async function loadDashboard() {
     setLoading(true)
+    setPageError('')
 
     const [ordersRes, driversRes, binsRes, customersRes] = await Promise.all([
       supabase
-        .from('orders')
+        .from(TABLE_NAME)
         .select(
-          'id,ticket_number,customer_name,pickup_address,bin_type,bin_size,order_type,driver_id,scheduled_date,status,created_at'
+          'id,ticket_number,customer_name,pickup_address,service_address,bin_type,bin_size,order_type,driver_id,scheduled_date,status,created_at'
         )
         .order('created_at', { ascending: false }),
-      supabase.from('drivers').select('id,name,status').order('name', { ascending: true }),
+
+      supabase
+        .from('drivers')
+        .select('id,name,status')
+        .order('name', { ascending: true }),
+
       supabase
         .from('bins')
-        .select('id,bin_number,bin_type,bin_size,status')
+        .select('id,bin_number,bin_size,status,location')
         .order('bin_number', { ascending: true }),
+
       supabase
         .from('customers')
-        .select('id,name')
+        .select('id,name,status')
+        .eq('status', 'active')
         .order('name', { ascending: true }),
     ])
+
+    if (ordersRes.error) setPageError(ordersRes.error.message)
+    if (driversRes.error) setPageError((prev) => prev || driversRes.error!.message)
+    if (binsRes.error) setPageError((prev) => prev || binsRes.error!.message)
+    if (customersRes.error) setPageError((prev) => prev || customersRes.error!.message)
 
     setOrders((ordersRes.data as Order[]) || [])
     setDrivers((driversRes.data as Driver[]) || [])
@@ -121,13 +140,13 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    loadDashboard()
+    void loadDashboard()
 
     const channel = supabase
       .channel('dashboard-realtime')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders' },
+        { event: '*', schema: 'public', table: TABLE_NAME },
         async () => {
           await loadDashboard()
         }
@@ -253,7 +272,7 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">SIMPLIITRASH Dashboard</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Professional operations overview for dispatch, orders, drivers, bins, and customers
+                Professional operations overview for dispatch, orders, drivers, bins, and active customers
               </p>
             </div>
 
@@ -279,6 +298,12 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {pageError ? (
+          <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {pageError}
+          </div>
+        ) : null}
 
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -325,7 +350,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Customers
+                  Active Customers
                 </div>
                 <div className="mt-2 text-2xl font-bold text-slate-900">
                   {metrics.totalCustomers}
@@ -445,7 +470,7 @@ export default function DashboardPage() {
                         Customer
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                        Address
+                        Job Site Address
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                         Driver
@@ -485,10 +510,12 @@ export default function DashboardPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
-                            {order.pickup_address || '—'}
+                            {order.service_address || order.pickup_address || '—'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
-                            {order.driver_id ? driverMap[order.driver_id]?.name || 'Assigned' : 'Unassigned'}
+                            {order.driver_id
+                              ? driverMap[order.driver_id]?.name || 'Assigned'
+                              : 'Unassigned'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
                             {formatDate(order.scheduled_date)}
@@ -545,7 +572,7 @@ export default function DashboardPage() {
                               {order.customer_name || 'No customer'}
                             </div>
                             <div className="mt-1 text-sm text-slate-500">
-                              {order.pickup_address || 'No address'}
+                              {order.service_address || order.pickup_address || 'No address'}
                             </div>
                           </div>
                           <span
@@ -619,7 +646,7 @@ export default function DashboardPage() {
               <div className="mt-4 grid gap-3">
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                   <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                    Available
+                    Available In Yard
                   </div>
                   <div className="mt-2 text-2xl font-bold text-emerald-900">
                     {binOverview.available}
@@ -675,7 +702,7 @@ export default function DashboardPage() {
           >
             <div className="text-lg font-bold text-slate-900">Bins</div>
             <div className="mt-2 text-sm text-slate-500">
-              Manage inventory, status, and assigned customer locations
+              Manage inventory, stock status, and yard availability
             </div>
           </Link>
 
@@ -685,7 +712,7 @@ export default function DashboardPage() {
           >
             <div className="text-lg font-bold text-slate-900">Customers</div>
             <div className="mt-2 text-sm text-slate-500">
-              Keep organized customer records connected to your orders
+              Keep organized active customer records connected to your orders
             </div>
           </Link>
         </div>

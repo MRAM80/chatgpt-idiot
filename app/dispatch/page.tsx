@@ -15,8 +15,8 @@ type Bin = {
   id: string
   bin_number: string | null
   bin_size: string | null
-  bin_type: string | null
   status: string | null
+  location?: string | null
 }
 
 type Order = {
@@ -24,6 +24,7 @@ type Order = {
   ticket_number: string | null
   customer_name: string | null
   pickup_address: string | null
+  service_address?: string | null
   bin_id: string | null
   old_bin_id: string | null
   bin_size: string | null
@@ -48,8 +49,8 @@ const BOARD_COLUMNS = [
 ] as const
 
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
-const BIN_SIZES = ['6', '8', '15', '20', '30', '40'] as const
-const BIN_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
+const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
+const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
 
 const statusStyles: Record<string, string> = {
   unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
@@ -134,7 +135,7 @@ export default function DispatchBoardPage() {
   async function loadBins() {
     const { data, error } = await supabase
       .from('bins')
-      .select('id,bin_number,bin_size,bin_type,status')
+      .select('id,bin_number,bin_size,status,location')
       .order('bin_number', { ascending: true })
 
     if (error) {
@@ -151,7 +152,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .select(
-        'id,ticket_number,customer_name,pickup_address,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
+        'id,ticket_number,customer_name,pickup_address,service_address,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
       )
       .order('scheduled_date', { ascending: true })
 
@@ -221,6 +222,15 @@ export default function DispatchBoardPage() {
     return bins.filter((bin) => bin.status === 'in_use')
   }, [bins])
 
+  const availableBinsForSelectedSize = useMemo(() => {
+    return bins.filter((bin) => {
+      if (bin.status !== 'available') return false
+      if ((bin.bin_size || '') !== form.bin_size) return false
+      if (form.order_type === 'EXCHANGE' && form.old_bin_id && bin.id === form.old_bin_id) return false
+      return true
+    })
+  }, [bins, form.bin_size, form.order_type, form.old_bin_id])
+
   async function syncDriverStatuses(driverId: string) {
     const { data: orderData, error: ordersError } = await supabase
       .from(TABLE_NAME)
@@ -281,44 +291,36 @@ export default function DispatchBoardPage() {
     await setBinStatus(binId, 'in_use')
   }
 
-  async function reserveMatchingBin(
-    size: string,
-    type: string,
-    excludeBinId?: string | null,
-    keepCurrentBinId?: string | null
-  ): Promise<Bin | null> {
-    if (keepCurrentBinId) {
-      const keepBin = bins.find((bin) => bin.id === keepCurrentBinId)
-      if (
-        keepBin &&
-        keepBin.bin_size === size &&
-        keepBin.bin_type === type
-      ) {
-        await occupyBin(keepBin.id)
-        return keepBin
-      }
-    }
-
+  async function validateSelectedAvailableBin(
+    selectedBinId: string,
+    expectedSize: string,
+    excludeBinId?: string | null
+  ): Promise<Bin> {
     const { data, error } = await supabase
       .from('bins')
-      .select('id,bin_number,bin_size,bin_type,status')
-      .eq('bin_size', size)
-      .eq('bin_type', type)
-      .eq('status', 'available')
-      .order('bin_number', { ascending: true })
-      .limit(20)
+      .select('id,bin_number,bin_size,status,location')
+      .eq('id', selectedBinId)
+      .single()
 
-    if (error) {
-      throw new Error(error.message)
+    if (error || !data) {
+      throw new Error('Selected bin could not be found.')
     }
 
-    const found =
-      ((data as Bin[] | null) || []).find((bin) => bin.id !== excludeBinId) || null
+    const selected = data as Bin
 
-    if (!found) return null
+    if (excludeBinId && selected.id === excludeBinId) {
+      throw new Error('The new bin cannot be the same as the old bin.')
+    }
 
-    await occupyBin(found.id)
-    return found
+    if ((selected.bin_size || '') !== expectedSize) {
+      throw new Error('The selected bin does not match the chosen size.')
+    }
+
+    if (selected.status !== 'available') {
+      throw new Error('The selected bin is no longer available.')
+    }
+
+    return selected
   }
 
   const filteredOrders = useMemo(() => {
@@ -327,12 +329,13 @@ export default function DispatchBoardPage() {
       const driverName = driverMap[order.driver_id || '']?.name || ''
       const binLabel = order.bin_id ? binMap[order.bin_id]?.bin_number || '' : ''
       const oldBinLabel = order.old_bin_id ? binMap[order.old_bin_id]?.bin_number || '' : ''
+      const serviceAddress = order.service_address || order.pickup_address || ''
 
       const matchesSearch =
         !q ||
         (order.ticket_number || '').toLowerCase().includes(q) ||
         (order.customer_name || '').toLowerCase().includes(q) ||
-        (order.pickup_address || '').toLowerCase().includes(q) ||
+        serviceAddress.toLowerCase().includes(q) ||
         (order.bin_type || '').toLowerCase().includes(q) ||
         (order.bin_size || '').toLowerCase().includes(q) ||
         (order.order_type || '').toLowerCase().includes(q) ||
@@ -367,7 +370,7 @@ export default function DispatchBoardPage() {
     setSelectedOrder(order)
     setForm({
       customer_name: order.customer_name || '',
-      pickup_address: order.pickup_address || '',
+      pickup_address: order.service_address || order.pickup_address || '',
       bin_size: order.bin_size || '20',
       bin_type: order.bin_type || 'Garbage',
       order_type: order.order_type || 'DELIVERY',
@@ -390,7 +393,6 @@ export default function DispatchBoardPage() {
   async function applyWorkflowForUpdate(currentOrder: Order, values: Partial<Order>) {
     const nextOrderType = values.order_type ?? currentOrder.order_type ?? 'DELIVERY'
     const nextBinSize = values.bin_size ?? currentOrder.bin_size ?? '20'
-    const nextBinType = values.bin_type ?? currentOrder.bin_type ?? 'Garbage'
     const nextBinId = values.bin_id ?? currentOrder.bin_id ?? null
     const nextOldBinId = values.old_bin_id ?? currentOrder.old_bin_id ?? null
     const nextStatus = values.status ?? currentOrder.status ?? 'unassigned'
@@ -400,20 +402,11 @@ export default function DispatchBoardPage() {
 
     if (nextOrderType === 'DELIVERY') {
       if (!finalBinId) {
-        const matched = await reserveMatchingBin(
-          nextBinSize,
-          nextBinType,
-          null,
-          currentOrder.bin_id || null
-        )
-
-        if (!matched) {
-          throw new Error(`No available ${nextBinSize} yard ${nextBinType} bin found.`)
-        }
-
-        finalBinId = matched.id
+        throw new Error('Please select an available bin.')
       }
 
+      const selectedBin = await validateSelectedAvailableBin(finalBinId, nextBinSize)
+      finalBinId = selectedBin.id
       finalOldBinId = null
       await occupyBin(finalBinId)
     }
@@ -423,20 +416,17 @@ export default function DispatchBoardPage() {
         throw new Error('Exchange requires an old bin.')
       }
 
-      if (!finalBinId || finalBinId === finalOldBinId) {
-        const matched = await reserveMatchingBin(
-          nextBinSize,
-          nextBinType,
-          finalOldBinId,
-          currentOrder.bin_id && currentOrder.bin_id !== finalOldBinId ? currentOrder.bin_id : null
-        )
-
-        if (!matched) {
-          throw new Error(`No available ${nextBinSize} yard ${nextBinType} bin found for exchange.`)
-        }
-
-        finalBinId = matched.id
+      if (!finalBinId) {
+        throw new Error('Please select the replacement bin.')
       }
+
+      const selectedBin = await validateSelectedAvailableBin(
+        finalBinId,
+        nextBinSize,
+        finalOldBinId
+      )
+
+      finalBinId = selectedBin.id
 
       if (nextStatus === 'completed' || nextStatus === 'issue') {
         await releaseBin(finalOldBinId)
@@ -574,6 +564,7 @@ export default function DispatchBoardPage() {
     const success = await updateOrder(selectedOrder.id, {
       customer_name: form.customer_name || null,
       pickup_address: form.pickup_address || null,
+      service_address: form.pickup_address || null,
       bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       order_type: form.order_type || 'DELIVERY',
@@ -603,14 +594,8 @@ export default function DispatchBoardPage() {
   }, [orders])
 
   const availableMatchingCount = useMemo(() => {
-    return bins.filter(
-      (bin) =>
-        bin.status === 'available' &&
-        bin.bin_size === form.bin_size &&
-        bin.bin_type === form.bin_type &&
-        bin.id !== form.old_bin_id
-    ).length
-  }, [bins, form.bin_size, form.bin_type, form.old_bin_id])
+    return availableBinsForSelectedSize.length
+  }, [availableBinsForSelectedSize])
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -790,16 +775,16 @@ export default function DispatchBoardPage() {
                         <div className="space-y-2 text-sm text-slate-600">
                           <div>
                             <span className="font-medium text-slate-800">Job Site:</span>{' '}
-                            {order.pickup_address || 'Not set'}
+                            {order.service_address || order.pickup_address || 'Not set'}
                           </div>
 
                           <div>
                             <span className="font-medium text-slate-800">Bin:</span>{' '}
                             {assignedBin
-                              ? `${assignedBin.bin_number || 'Bin'} • ${order.bin_size || ''}Y ${order.bin_type || ''}`
+                              ? `${assignedBin.bin_number || 'Bin'} • ${assignedBin.bin_size || order.bin_size || ''}Y`
                               : order.order_type === 'REMOVAL'
                                 ? 'No new bin'
-                                : `${order.bin_size || '—'}Y ${order.bin_type || ''}`}
+                                : `${order.bin_size || '—'}Y`}
                           </div>
 
                           {(order.order_type === 'EXCHANGE' ||
@@ -808,10 +793,15 @@ export default function DispatchBoardPage() {
                             <div>
                               <span className="font-medium text-slate-800">Old Bin:</span>{' '}
                               {oldBin
-                                ? `${oldBin.bin_number || 'Bin'} • ${oldBin.bin_size || ''}Y ${oldBin.bin_type || ''}`
+                                ? `${oldBin.bin_number || 'Bin'} • ${oldBin.bin_size || ''}Y`
                                 : 'Not set'}
                             </div>
                           )}
+
+                          <div>
+                            <span className="font-medium text-slate-800">Material:</span>{' '}
+                            {order.bin_type || '—'}
+                          </div>
 
                           <div>
                             <span className="font-medium text-slate-800">Date:</span>{' '}
@@ -952,16 +942,16 @@ export default function DispatchBoardPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Bin Type
+                  Material / Bin Type
                 </label>
                 <select
                   value={form.bin_type}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, bin_type: e.target.value, bin_id: '' }))
+                    setForm((prev) => ({ ...prev, bin_type: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                 >
-                  {BIN_TYPES.map((type) => (
+                  {MATERIAL_TYPES.map((type) => (
                     <option key={type} value={type}>
                       {type}
                     </option>
@@ -1001,7 +991,12 @@ export default function DispatchBoardPage() {
                       setForm((prev) => ({
                         ...prev,
                         old_bin_id: e.target.value,
-                        bin_id: prev.order_type === 'DUMP RETURN' ? e.target.value : prev.bin_id,
+                        bin_id:
+                          prev.order_type === 'DUMP RETURN'
+                            ? e.target.value
+                            : prev.bin_id === e.target.value
+                              ? ''
+                              : prev.bin_id,
                       }))
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
@@ -1009,7 +1004,7 @@ export default function DispatchBoardPage() {
                     <option value="">Select current bin</option>
                     {inUseBins.map((bin) => (
                       <option key={bin.id} value={bin.id}>
-                        {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y {bin.bin_type || ''}
+                        {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
                       </option>
                     ))}
                   </select>
@@ -1017,10 +1012,33 @@ export default function DispatchBoardPage() {
               )}
 
               {(form.order_type === 'DELIVERY' || form.order_type === 'EXCHANGE') && (
-                <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  Matching available bins:{' '}
-                  <span className="font-semibold">{availableMatchingCount}</span>
-                </div>
+                <>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Available Bin
+                    </label>
+                    <select
+                      value={form.bin_id}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, bin_id: e.target.value }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                    >
+                      <option value="">Select available bin</option>
+                      {availableBinsForSelectedSize.map((bin) => (
+                        <option key={bin.id} value={bin.id}>
+                          {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
+                          {bin.location ? ` • ${bin.location}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                    Available bins for selected size:{' '}
+                    <span className="font-semibold">{availableMatchingCount}</span>
+                  </div>
+                </>
               )}
 
               <div>
@@ -1110,10 +1128,10 @@ export default function DispatchBoardPage() {
                 <div className="font-semibold text-slate-900">Workflow preview</div>
                 <div className="mt-2 space-y-1">
                   {form.order_type === 'DELIVERY' && (
-                    <p>• Assigns a matching available bin and keeps it in use.</p>
+                    <p>• Uses the selected available bin and keeps it in use.</p>
                   )}
                   {form.order_type === 'EXCHANGE' && (
-                    <p>• Assigns a new matching bin and releases the old bin when completed.</p>
+                    <p>• Uses the selected replacement bin and releases the old bin when completed.</p>
                   )}
                   {form.order_type === 'REMOVAL' && (
                     <p>• Removes the current bin and releases it when completed.</p>
