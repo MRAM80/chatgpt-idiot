@@ -60,6 +60,30 @@ const statusStyles: Record<string, string> = {
   issue: 'border-rose-200 bg-rose-50 text-rose-700',
 }
 
+const columnHeaderStyles: Record<string, string> = {
+  unassigned: 'border-slate-200 bg-slate-100 text-slate-700',
+  assigned: 'border-blue-200 bg-blue-100 text-blue-700',
+  in_progress: 'border-amber-200 bg-amber-100 text-amber-700',
+  completed: 'border-emerald-200 bg-emerald-100 text-emerald-700',
+  issue: 'border-rose-200 bg-rose-100 text-rose-700',
+}
+
+const columnHighlightStyles: Record<string, string> = {
+  unassigned: 'bg-slate-50 ring-slate-400 shadow-lg',
+  assigned: 'bg-blue-50 ring-blue-400 shadow-lg',
+  in_progress: 'bg-amber-50 ring-amber-400 shadow-lg',
+  completed: 'bg-emerald-50 ring-emerald-400 shadow-lg',
+  issue: 'bg-rose-50 ring-rose-400 shadow-lg',
+}
+
+const dropHintStyles: Record<string, string> = {
+  unassigned: 'border-slate-300 bg-white/70 text-slate-700',
+  assigned: 'border-blue-300 bg-white/70 text-blue-700',
+  in_progress: 'border-amber-300 bg-white/70 text-amber-700',
+  completed: 'border-emerald-300 bg-white/70 text-emerald-700',
+  issue: 'border-rose-300 bg-white/70 text-rose-700',
+}
+
 const orderTypeStyles: Record<string, string> = {
   DELIVERY: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   EXCHANGE: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -87,6 +111,61 @@ function formatOrderType(orderType: string | null | undefined) {
   return orderType || 'DELIVERY'
 }
 
+function StatusHeaderIcon({ statusKey }: { statusKey: string }) {
+  const common = 'h-4 w-4 shrink-0'
+
+  if (statusKey === 'unassigned') {
+    return (
+      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
+        <circle cx="10" cy="10" r="5.5" />
+      </svg>
+    )
+  }
+
+  if (statusKey === 'assigned') {
+    return (
+      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
+        <path d="M10 2.5a3.25 3.25 0 1 1 0 6.5a3.25 3.25 0 0 1 0-6.5Z" />
+        <path d="M4.5 15.25c0-2.15 2.36-3.75 5.5-3.75s5.5 1.6 5.5 3.75v.75H4.5v-.75Z" />
+      </svg>
+    )
+  }
+
+  if (statusKey === 'in_progress') {
+    return (
+      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
+        <path
+          fillRule="evenodd"
+          d="M10 3.25a6.75 6.75 0 1 0 6.75 6.75A6.758 6.758 0 0 0 10 3.25Zm.75 2.75a.75.75 0 0 0-1.5 0v4.25c0 .24.115.465.31.606l2.5 1.8a.75.75 0 1 0 .88-1.214l-2.19-1.577V6Z"
+          clipRule="evenodd"
+        />
+      </svg>
+    )
+  }
+
+  if (statusKey === 'completed') {
+    return (
+      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
+        <path
+          fillRule="evenodd"
+          d="M16.704 5.29a.75.75 0 0 1 .006 1.06l-7.2 7.286a.75.75 0 0 1-1.07.002L4.79 9.977a.75.75 0 1 1 1.06-1.06l3.116 3.115l6.678-6.758a.75.75 0 0 1 1.06.016Z"
+          clipRule="evenodd"
+        />
+      </svg>
+    )
+  }
+
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M10 2.75a7.25 7.25 0 1 0 0 14.5a7.25 7.25 0 0 0 0-14.5Zm0 3a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-1.5 0v-4A.75.75 0 0 1 10 5.75Zm0 7a1 1 0 1 0 0 2a1 1 0 0 0 0-2Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  )
+}
+
 export default function DispatchBoardPage() {
   const supabase = useMemo(() => createClient(), [])
 
@@ -96,6 +175,7 @@ export default function DispatchBoardPage() {
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [draggingOrderId, setDraggingOrderId] = useState<string | null>(null)
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -548,12 +628,13 @@ export default function DispatchBoardPage() {
     if (!draggingOrderId) return
     await updateOrder(draggingOrderId, { status: newStatus })
     setDraggingOrderId(null)
+    setDragOverColumn(null)
   }
 
   async function handleQuickAssign(orderId: string, driverId: string) {
     await updateOrder(orderId, {
       driver_id: driverId || null,
-      status: driverId ? 'assigned' : 'unassigned',
+      status: driverId ? 'in_progress' : 'unassigned',
     })
   }
 
@@ -570,7 +651,10 @@ export default function DispatchBoardPage() {
       order_type: form.order_type || 'DELIVERY',
       scheduled_date: form.scheduled_date || null,
       driver_id: form.driver_id || null,
-      status: form.status || 'unassigned',
+      status:
+        form.driver_id && form.status === 'unassigned'
+          ? 'in_progress'
+          : form.status || 'unassigned',
       bin_id: form.bin_id || null,
       old_bin_id: form.old_bin_id || null,
       notes: form.notes || null,
@@ -713,158 +797,212 @@ export default function DispatchBoardPage() {
           </div>
         ) : (
           <div className="grid gap-4 xl:grid-cols-5">
-            {BOARD_COLUMNS.map((column) => (
-              <div
-                key={column.key}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleDrop(column.key)}
-                className="min-h-[520px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
-              >
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-                    {column.label}
-                  </h2>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                    {groupedOrders[column.key]?.length || 0}
-                  </span>
-                </div>
+            {BOARD_COLUMNS.map((column) => {
+              const isHighlighted = !!draggingOrderId && dragOverColumn === column.key
+              const headerClass =
+                columnHeaderStyles[column.key] || columnHeaderStyles.unassigned
+              const highlightClass =
+                columnHighlightStyles[column.key] || 'bg-sky-50 ring-sky-400 shadow-lg'
+              const dropHintClass =
+                dropHintStyles[column.key] || 'border-sky-300 bg-white/70 text-sky-700'
 
-                <div className="space-y-3">
-                  {(groupedOrders[column.key] || []).map((order) => {
-                    const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
-                    const assignedBin = order.bin_id ? binMap[order.bin_id] : null
-                    const oldBin = order.old_bin_id ? binMap[order.old_bin_id] : null
-                    const badgeClass =
-                      statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
-                    const orderTypeClass =
-                      orderTypeStyles[order.order_type || 'DELIVERY'] ||
-                      'border-slate-200 bg-slate-50 text-slate-700'
+              return (
+                <div
+                  key={column.key}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    if (dragOverColumn !== column.key) {
+                      setDragOverColumn(column.key)
+                    }
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault()
+                    setDragOverColumn(column.key)
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverColumn === column.key) {
+                      setDragOverColumn(null)
+                    }
+                  }}
+                  onDrop={() => handleDrop(column.key)}
+                  className={`min-h-[520px] rounded-3xl p-4 shadow-sm ring-1 transition-all duration-150 ${
+                    isHighlighted
+                      ? highlightClass
+                      : 'bg-white ring-slate-200'
+                  }`}
+                >
+                  <div
+                    className={`mb-4 flex items-center justify-between rounded-2xl border px-3 py-3 ${headerClass}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <StatusHeaderIcon statusKey={column.key} />
+                      <h2 className="text-sm font-semibold uppercase tracking-wide">
+                        {column.label}
+                      </h2>
+                    </div>
 
-                    return (
-                      <div
-                        key={order.id}
-                        draggable
-                        onDragStart={() => setDraggingOrderId(order.id)}
-                        className="cursor-grab rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                      >
-                        <div className="mb-3 flex items-start justify-between gap-2">
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900">
-                              {order.customer_name || 'No customer'}
-                            </div>
-                            <div className="mt-1 text-xs font-medium text-slate-500">
-                              {order.ticket_number || `#${order.id.slice(0, 8)}`}
-                            </div>
-                          </div>
+                    <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold">
+                      {groupedOrders[column.key]?.length || 0}
+                    </span>
+                  </div>
 
-                          <span
-                            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${badgeClass}`}
-                          >
-                            {formatStatus(order.status || 'unassigned')}
-                          </span>
-                        </div>
-
-                        <div className="mb-3">
-                          <span
-                            className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${orderTypeClass}`}
-                          >
-                            {formatOrderType(order.order_type)}
-                          </span>
-                        </div>
-
-                        <div className="space-y-2 text-sm text-slate-600">
-                          <div>
-                            <span className="font-medium text-slate-800">Job Site:</span>{' '}
-                            {order.service_address || order.pickup_address || 'Not set'}
-                          </div>
-
-                          <div>
-                            <span className="font-medium text-slate-800">Bin:</span>{' '}
-                            {assignedBin
-                              ? `${assignedBin.bin_number || 'Bin'} • ${assignedBin.bin_size || order.bin_size || ''}Y`
-                              : order.order_type === 'REMOVAL'
-                                ? 'No new bin'
-                                : `${order.bin_size || '—'}Y`}
-                          </div>
-
-                          {(order.order_type === 'EXCHANGE' ||
-                            order.order_type === 'REMOVAL' ||
-                            order.order_type === 'DUMP RETURN') && (
-                            <div>
-                              <span className="font-medium text-slate-800">Old Bin:</span>{' '}
-                              {oldBin
-                                ? `${oldBin.bin_number || 'Bin'} • ${oldBin.bin_size || ''}Y`
-                                : 'Not set'}
-                            </div>
-                          )}
-
-                          <div>
-                            <span className="font-medium text-slate-800">Material:</span>{' '}
-                            {order.bin_type || '—'}
-                          </div>
-
-                          <div>
-                            <span className="font-medium text-slate-800">Date:</span>{' '}
-                            {formatDate(order.scheduled_date)}
-                          </div>
-
-                          <div>
-                            <span className="font-medium text-slate-800">Driver:</span>{' '}
-                            {assignedDriver?.name || 'Unassigned'}
-                          </div>
-                        </div>
-
-                        <div className="mt-4">
-                          <select
-                            value={order.driver_id || ''}
-                            onChange={(e) => handleQuickAssign(order.id, e.target.value)}
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                          >
-                            <option value="">Assign driver</option>
-                            {drivers
-                              .filter((driver) => driver.status !== 'offline')
-                              .map((driver) => (
-                                <option key={driver.id} value={driver.id}>
-                                  {driver.name || 'Unnamed Driver'}
-                                </option>
-                              ))}
-                          </select>
-                        </div>
-
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            onClick={() => openEditModal(order)}
-                            className="flex-1 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                          >
-                            Edit
-                          </button>
-
-                          <select
-                            value={order.status || 'unassigned'}
-                            onChange={(e) =>
-                              updateOrder(order.id, { status: e.target.value })
-                            }
-                            className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                          >
-                            <option value="unassigned">Unassigned</option>
-                            <option value="assigned">Assigned</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="completed">Completed</option>
-                            <option value="issue">Issue</option>
-                          </select>
-                        </div>
-                      </div>
-                    )
-                  })}
-
-                  {(!groupedOrders[column.key] || groupedOrders[column.key].length === 0) && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
-                      No orders here
+                  {isHighlighted && (
+                    <div className={`mb-3 rounded-2xl border border-dashed px-3 py-2 text-center text-xs font-semibold ${dropHintClass}`}>
+                      Drop here to move order to {column.label}
                     </div>
                   )}
+
+                  <div className="space-y-3">
+                    {(groupedOrders[column.key] || []).map((order) => {
+                      const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
+                      const assignedBin = order.bin_id ? binMap[order.bin_id] : null
+                      const oldBin = order.old_bin_id ? binMap[order.old_bin_id] : null
+                      const badgeClass =
+                        statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
+                      const orderTypeClass =
+                        orderTypeStyles[order.order_type || 'DELIVERY'] ||
+                        'border-slate-200 bg-slate-50 text-slate-700'
+
+                      return (
+                        <div
+                          key={order.id}
+                          draggable
+                          onDragStart={() => setDraggingOrderId(order.id)}
+                          onDragEnd={() => {
+                            setDraggingOrderId(null)
+                            setDragOverColumn(null)
+                          }}
+                          className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                            draggingOrderId === order.id
+                              ? 'cursor-grabbing border-sky-300 opacity-60 ring-2 ring-sky-200'
+                              : 'cursor-grab border-slate-200'
+                          }`}
+                        >
+                          <div className="mb-3 flex items-start justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-900">
+                                {order.customer_name || 'No customer'}
+                              </div>
+                              <div className="mt-1 text-xs font-medium text-slate-500">
+                                {order.ticket_number || `#${order.id.slice(0, 8)}`}
+                              </div>
+                            </div>
+
+                            <span
+                              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${badgeClass}`}
+                            >
+                              {formatStatus(order.status || 'unassigned')}
+                            </span>
+                          </div>
+
+                          <div className="mb-3">
+                            <span
+                              className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${orderTypeClass}`}
+                            >
+                              {formatOrderType(order.order_type)}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2 text-sm text-slate-600">
+                            <div>
+                              <span className="font-medium text-slate-800">Job Site:</span>{' '}
+                              {order.service_address || order.pickup_address || 'Not set'}
+                            </div>
+
+                            <div>
+                              <span className="font-medium text-slate-800">Bin:</span>{' '}
+                              {assignedBin
+                                ? `${assignedBin.bin_number || 'Bin'} • ${assignedBin.bin_size || order.bin_size || ''}Y`
+                                : order.order_type === 'REMOVAL'
+                                  ? 'No new bin'
+                                  : `${order.bin_size || '—'}Y`}
+                            </div>
+
+                            {(order.order_type === 'EXCHANGE' ||
+                              order.order_type === 'REMOVAL' ||
+                              order.order_type === 'DUMP RETURN') && (
+                              <div>
+                                <span className="font-medium text-slate-800">Old Bin:</span>{' '}
+                                {oldBin
+                                  ? `${oldBin.bin_number || 'Bin'} • ${oldBin.bin_size || ''}Y`
+                                  : 'Not set'}
+                              </div>
+                            )}
+
+                            <div>
+                              <span className="font-medium text-slate-800">Material:</span>{' '}
+                              {order.bin_type || '—'}
+                            </div>
+
+                            <div>
+                              <span className="font-medium text-slate-800">Date:</span>{' '}
+                              {formatDate(order.scheduled_date)}
+                            </div>
+
+                            <div>
+                              <span className="font-medium text-slate-800">Driver:</span>{' '}
+                              {assignedDriver?.name || 'Unassigned'}
+                            </div>
+                          </div>
+
+                          <div className="mt-4">
+                            <select
+                              value={order.driver_id || ''}
+                              onChange={(e) => handleQuickAssign(order.id, e.target.value)}
+                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                            >
+                              <option value="">Assign driver</option>
+                              {drivers
+                                .filter((driver) => driver.status !== 'offline')
+                                .map((driver) => (
+                                  <option key={driver.id} value={driver.id}>
+                                    {driver.name || 'Unnamed Driver'}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              onClick={() => openEditModal(order)}
+                              className="flex-1 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                            >
+                              Edit
+                            </button>
+
+                            <select
+                              value={order.status || 'unassigned'}
+                              onChange={(e) =>
+                                updateOrder(order.id, { status: e.target.value })
+                              }
+                              className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                            >
+                              <option value="unassigned">Unassigned</option>
+                              <option value="assigned">Assigned</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="completed">Completed</option>
+                              <option value="issue">Issue</option>
+                            </select>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {(!groupedOrders[column.key] || groupedOrders[column.key].length === 0) && (
+                      <div
+                        className={`rounded-2xl border border-dashed p-6 text-center text-sm transition ${
+                          isHighlighted
+                            ? dropHintClass
+                            : 'border-slate-200 bg-slate-50 text-slate-400'
+                        }`}
+                      >
+                        {isHighlighted ? `Drop order in ${column.label}` : 'No orders here'}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
