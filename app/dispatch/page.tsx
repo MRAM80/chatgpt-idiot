@@ -10,7 +10,6 @@ type Driver = {
   name: string | null
   phone: string | null
   status: string | null
-  truck_id?: string | null
 }
 
 type Order = {
@@ -150,6 +149,7 @@ export default function DispatchBoardPage() {
   const [pageError, setPageError] = useState('')
   const [draggingOrderId, setDraggingOrderId] = useState<string | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
+  const [openingOrderId, setOpeningOrderId] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
   const [driverFilter, setDriverFilter] = useState('all')
@@ -158,7 +158,7 @@ export default function DispatchBoardPage() {
   async function loadDrivers() {
     const { data, error } = await supabase
       .from('drivers')
-      .select('id,name,phone,status,truck_id')
+      .select('id,name,phone,status')
       .order('name', { ascending: true })
 
     if (error) {
@@ -353,7 +353,8 @@ export default function DispatchBoardPage() {
   }, [orders])
 
   function openOrder(orderId: string) {
-    router.push(`/order?orderId=${orderId}`)
+    setOpeningOrderId(orderId)
+    router.push(`/order?orderId=${encodeURIComponent(orderId)}`)
   }
 
   return (
@@ -519,6 +520,7 @@ export default function DispatchBoardPage() {
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
                       const badgeClass =
                         statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
+                      const isOpening = openingOrderId === order.id
 
                       return (
                         <div
@@ -538,7 +540,9 @@ export default function DispatchBoardPage() {
                           <button
                             type="button"
                             onClick={() => openOrder(order.id)}
-                            className="w-full text-left"
+                            className={`w-full rounded-xl text-left outline-none transition ${
+                              isOpening ? 'opacity-70' : ''
+                            }`}
                           >
                             <div className="mb-3 flex items-start justify-between gap-2">
                               <div>
@@ -560,6 +564,10 @@ export default function DispatchBoardPage() {
                             <div className="text-sm text-slate-600">
                               <span className="font-medium text-slate-800">Driver:</span>{' '}
                               {assignedDriver?.name || 'Unassigned'}
+                            </div>
+
+                            <div className="mt-3 text-xs font-medium text-slate-400">
+                              {isOpening ? 'Opening order...' : 'Click to open full order'}
                             </div>
                           </button>
 

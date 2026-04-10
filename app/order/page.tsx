@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type Driver = {
@@ -186,8 +187,18 @@ function formatServiceTime(value: string | null | undefined) {
   })
 }
 
-export default function OrdersPage() {
+function normalizeAddress(value: string | null | undefined) {
+  return (value || '').trim().toLowerCase()
+}
+
+function generateTicketNumber() {
+  return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
+}
+
+function OrdersPageContent() {
   const supabase = createClient()
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
@@ -206,6 +217,10 @@ export default function OrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
+
+  const modalTitleRef = useRef<HTMLInputElement | null>(null)
+  const modalCardRef = useRef<HTMLDivElement | null>(null)
+  const [modalVisible, setModalVisible] = useState(false)
 
   async function loadOrders() {
     const { data, error } = await supabase
@@ -335,6 +350,31 @@ export default function OrdersPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (showCreateModal || editingOrder) {
+      setModalVisible(false)
+
+      const animationTimer = window.setTimeout(() => {
+        setModalVisible(true)
+        modalCardRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        })
+      }, 20)
+
+      const focusTimer = window.setTimeout(() => {
+        modalTitleRef.current?.focus()
+      }, 140)
+
+      return () => {
+        window.clearTimeout(animationTimer)
+        window.clearTimeout(focusTimer)
+      }
+    } else {
+      setModalVisible(false)
+    }
+  }, [showCreateModal, editingOrder])
+
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
       acc[driver.id] = driver
@@ -404,10 +444,6 @@ export default function OrdersPage() {
     return drivers.filter((driver) => driver.status !== 'offline')
   }, [drivers])
 
-  const inUseBins = useMemo(() => {
-    return bins.filter((bin) => bin.status === 'in_use')
-  }, [bins])
-
   const availableBinsForSelectedSize = useMemo(() => {
     return bins.filter((bin) => {
       if (bin.status !== 'available') return false
@@ -416,6 +452,49 @@ export default function OrdersPage() {
       return true
     })
   }, [bins, form.bin_size, form.order_type, form.old_bin_id])
+
+  const binsAtSelectedJobSite = useMemo(() => {
+    const jobSite = normalizeAddress(form.pickup_address)
+    if (!jobSite) return []
+
+    const linkedBinIds = new Set<string>()
+
+    for (const order of orders) {
+      const orderAddress = normalizeAddress(order.service_address || order.pickup_address)
+
+      if (orderAddress !== jobSite) continue
+
+      if (order.bin_id) linkedBinIds.add(order.bin_id)
+      if (order.old_bin_id) linkedBinIds.add(order.old_bin_id)
+    }
+
+    const combined = bins.filter((bin) => {
+      const byLocation = normalizeAddress(bin.location) === jobSite
+      const byOrderHistory = linkedBinIds.has(bin.id)
+      return byLocation || byOrderHistory
+    })
+
+    const uniqueMap = new Map<string, Bin>()
+    for (const bin of combined) {
+      uniqueMap.set(bin.id, bin)
+    }
+
+    return Array.from(uniqueMap.values())
+  }, [bins, orders, form.pickup_address])
+
+  const jobSiteExistingBins = useMemo(() => {
+    return binsAtSelectedJobSite.filter((bin) => {
+      if (form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL') {
+        return bin.status === 'in_use' || normalizeAddress(bin.location) === normalizeAddress(form.pickup_address)
+      }
+
+      if (form.order_type === 'DUMP RETURN') {
+        return true
+      }
+
+      return false
+    })
+  }, [binsAtSelectedJobSite, form.order_type, form.pickup_address])
 
   const currentAvailableBinCount = useMemo(() => {
     return availableBinsForSelectedSize.length
@@ -456,11 +535,26 @@ export default function OrdersPage() {
     })
   }
 
+  useEffect(() => {
+    const orderId = searchParams.get('orderId')
+    if (!orderId || orders.length === 0) return
+
+    const match = orders.find((order) => order.id === orderId)
+    if (match) {
+      openEditModal(match)
+    }
+  }, [searchParams, orders])
+
   function closeModal() {
     setEditingOrder(null)
     setShowCreateModal(false)
     setForm(emptyForm)
     setPageError('')
+
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('orderId')
+    const next = params.toString()
+    router.replace(next ? `/order?${next}` : '/order')
   }
 
   function handleCustomerChange(customerId: string) {
@@ -512,10 +606,20 @@ export default function OrdersPage() {
     }
   }
 
-  async function setBinStatus(binId: string, status: 'available' | 'in_use') {
+  async function setBinStatus(
+    binId: string,
+    status: 'available' | 'in_use',
+    location?: string | null
+  ) {
+    const payload: Record<string, string | null> = { status }
+
+    if (typeof location !== 'undefined') {
+      payload.location = location
+    }
+
     const { error } = await supabase
       .from('bins')
-      .update({ status })
+      .update(payload)
       .eq('id', binId)
 
     if (error) {
@@ -525,12 +629,12 @@ export default function OrdersPage() {
 
   async function releaseBin(binId: string | null) {
     if (!binId) return
-    await setBinStatus(binId, 'available')
+    await setBinStatus(binId, 'available', 'Yard')
   }
 
-  async function occupyBin(binId: string | null) {
+  async function occupyBin(binId: string | null, location?: string | null) {
     if (!binId) return
-    await setBinStatus(binId, 'in_use')
+    await setBinStatus(binId, 'in_use', location ?? undefined)
   }
 
   async function validateSelectedAvailableBin(
@@ -568,12 +672,13 @@ export default function OrdersPage() {
   async function applyWorkflowAndBuildPayload() {
     const orderType = form.order_type || 'DELIVERY'
     const status = form.status || 'unassigned'
+    const jobSiteAddress = form.pickup_address.trim() || null
 
     const basePayload = {
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || null,
-      pickup_address: form.pickup_address.trim() || null,
-      service_address: form.pickup_address.trim() || null,
+      pickup_address: jobSiteAddress,
+      service_address: jobSiteAddress,
       service_time: form.service_time || null,
       service_window: form.service_window || null,
       bin_size: form.bin_size || null,
@@ -606,7 +711,7 @@ export default function OrdersPage() {
 
     if (orderType === 'EXCHANGE') {
       if (!form.old_bin_id) {
-        throw new Error('Exchange requires an old bin.')
+        throw new Error('Exchange requires the current bin from this Job Site.')
       }
 
       if (!form.bin_id) {
@@ -632,7 +737,7 @@ export default function OrdersPage() {
 
     if (orderType === 'REMOVAL') {
       if (!form.old_bin_id) {
-        throw new Error('Removal requires an old bin.')
+        throw new Error('Removal requires the current bin from this Job Site.')
       }
 
       return {
@@ -647,13 +752,11 @@ export default function OrdersPage() {
     }
 
     if (orderType === 'DUMP RETURN') {
-      const sameBinId = form.old_bin_id || form.bin_id || editingOrder?.bin_id || null
+      const sameBinId = form.old_bin_id || editingOrder?.bin_id || null
 
       if (!sameBinId) {
-        throw new Error('Dump return requires an existing bin.')
+        throw new Error('Dump return requires the existing bin from this Job Site.')
       }
-
-      await occupyBin(sameBinId)
 
       return {
         payload: {
@@ -720,7 +823,7 @@ export default function OrdersPage() {
           previousOldBinId !== releasedBinId &&
           previousOldBinId !== assignedBinId
         ) {
-          await occupyBin(previousOldBinId)
+          await occupyBin(previousOldBinId, editingOrder?.service_address || editingOrder?.pickup_address || null)
         }
 
         if (releasedBinId && releasedBinId !== assignedBinId) {
@@ -728,7 +831,7 @@ export default function OrdersPage() {
         }
 
         if (assignedBinId) {
-          await occupyBin(assignedBinId)
+          await occupyBin(assignedBinId, form.pickup_address.trim() || null)
         }
 
         if (payload.status === 'completed' || payload.status === 'issue') {
@@ -736,18 +839,23 @@ export default function OrdersPage() {
             await releaseBin(payload.old_bin_id)
           } else if (payload.order_type === 'EXCHANGE') {
             await releaseBin(payload.old_bin_id)
-            await occupyBin(payload.bin_id)
+            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
           } else if (payload.order_type === 'DELIVERY') {
-            await occupyBin(payload.bin_id)
+            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
           } else if (payload.order_type === 'DUMP RETURN') {
-            await occupyBin(payload.bin_id)
+            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
           }
         }
 
         await refreshAll()
         closeModal()
       } else {
-        const { error } = await supabase.from(TABLE_NAME).insert([payload])
+        const insertPayload = {
+          ...payload,
+          ticket_number: generateTicketNumber(),
+        }
+
+        const { error } = await supabase.from(TABLE_NAME).insert([insertPayload])
 
         if (error) {
           throw new Error(error.message)
@@ -762,7 +870,7 @@ export default function OrdersPage() {
         }
 
         if (assignedBinId) {
-          await occupyBin(assignedBinId)
+          await occupyBin(assignedBinId, form.pickup_address.trim() || null)
         }
 
         if ((payload.status === 'completed' || payload.status === 'issue') && payload.order_type === 'REMOVAL') {
@@ -812,15 +920,26 @@ export default function OrdersPage() {
 
       if (orderToDelete?.order_type === 'EXCHANGE') {
         if (binId) await releaseBin(binId)
-        if (oldBinId) await occupyBin(oldBinId)
+        if (oldBinId) {
+          await occupyBin(
+            oldBinId,
+            orderToDelete.service_address || orderToDelete.pickup_address || null
+          )
+        }
       }
 
       if (orderToDelete?.order_type === 'REMOVAL' && oldBinId) {
-        await occupyBin(oldBinId)
+        await occupyBin(
+          oldBinId,
+          orderToDelete.service_address || orderToDelete.pickup_address || null
+        )
       }
 
       if (orderToDelete?.order_type === 'DUMP RETURN' && binId) {
-        await occupyBin(binId)
+        await occupyBin(
+          binId,
+          orderToDelete.service_address || orderToDelete.pickup_address || null
+        )
       }
 
       await refreshAll()
@@ -857,12 +976,12 @@ export default function OrdersPage() {
             await releaseBin(order.old_bin_id)
           }
           if (order.bin_id) {
-            await occupyBin(order.bin_id)
+            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
           }
         } else if (order.order_type === 'DELIVERY' && order.bin_id) {
-          await occupyBin(order.bin_id)
+          await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
         } else if (order.order_type === 'DUMP RETURN' && order.bin_id) {
-          await occupyBin(order.bin_id)
+          await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
         }
       }
 
@@ -1175,8 +1294,19 @@ export default function OrdersPage() {
       </div>
 
       {(showCreateModal || editingOrder) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ease-out ${
+            modalVisible ? 'bg-slate-900/40 opacity-100' : 'bg-slate-900/0 opacity-0'
+          }`}
+        >
+          <div
+            ref={modalCardRef}
+            className={`w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl transition-all duration-300 ease-out ${
+              modalVisible
+                ? 'translate-y-0 scale-100 opacity-100'
+                : 'translate-y-4 scale-[0.985] opacity-0'
+            }`}
+          >
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
@@ -1225,6 +1355,7 @@ export default function OrdersPage() {
                   Customer Name
                 </label>
                 <input
+                  ref={modalTitleRef}
                   value={form.customer_name}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, customer_name: e.target.value }))
@@ -1344,6 +1475,7 @@ export default function OrdersPage() {
                       ...prev,
                       order_type: e.target.value,
                       bin_id: '',
+                      old_bin_id: '',
                     }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
@@ -1381,7 +1513,9 @@ export default function OrdersPage() {
                 form.order_type === 'DUMP RETURN') && (
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Old / Existing Bin
+                    {form.order_type === 'DUMP RETURN'
+                      ? 'Bin at this Job Site'
+                      : 'Old / Existing Bin at this Job Site'}
                   </label>
                   <select
                     value={form.old_bin_id}
@@ -1399,10 +1533,11 @@ export default function OrdersPage() {
                     }
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                   >
-                    <option value="">Select current bin</option>
-                    {inUseBins.map((bin) => (
+                    <option value="">Select bin from this Job Site</option>
+                    {jobSiteExistingBins.map((bin) => (
                       <option key={bin.id} value={bin.id}>
                         {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
+                        {bin.location ? ` • ${bin.location}` : ''}
                       </option>
                     ))}
                   </select>
@@ -1422,7 +1557,11 @@ export default function OrdersPage() {
                       }
                       className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                     >
-                      <option value="">Select available bin</option>
+                      <option value="">
+                        {form.order_type === 'EXCHANGE'
+                          ? 'Select replacement bin'
+                          : 'Select available bin'}
+                      </option>
                       {availableBinsForSelectedSize.map((bin) => (
                         <option key={bin.id} value={bin.id}>
                           {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
@@ -1437,6 +1576,19 @@ export default function OrdersPage() {
                     <span className="font-semibold">{currentAvailableBinCount}</span>
                   </div>
                 </>
+              )}
+
+              {form.order_type === 'DUMP RETURN' && (
+                <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                  DUMP RETURN uses the same bin already at the client Job Site. No replacement bin is needed.
+                </div>
+              )}
+
+              {(form.order_type === 'EXCHANGE' || form.order_type === 'DUMP RETURN') && (
+                <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  Bins found at this Job Site:{' '}
+                  <span className="font-semibold">{jobSiteExistingBins.length}</span>
+                </div>
               )}
 
               <div>
@@ -1494,13 +1646,13 @@ export default function OrdersPage() {
                     <p>• Uses the selected available bin and marks it in use.</p>
                   )}
                   {form.order_type === 'EXCHANGE' && (
-                    <p>• Uses the selected replacement bin and releases the old bin.</p>
+                    <p>• Uses the selected replacement bin and releases the old bin from this Job Site.</p>
                   )}
                   {form.order_type === 'REMOVAL' && (
                     <p>• Releases the old bin and does not assign a new one.</p>
                   )}
                   {form.order_type === 'DUMP RETURN' && (
-                    <p>• Keeps the same bin cycling back in use.</p>
+                    <p>• Uses the same bin already at this Job Site and keeps it cycling in use.</p>
                   )}
                 </div>
               </div>
@@ -1526,5 +1678,23 @@ export default function OrdersPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-100">
+          <div className="mx-auto max-w-7xl p-4 md:p-6">
+            <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
+              Loading orders...
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <OrdersPageContent />
+    </Suspense>
   )
 }
