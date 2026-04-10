@@ -225,7 +225,8 @@ export default function OrdersPage() {
   async function loadCustomers() {
     const { data, error } = await supabase
       .from('customers')
-      .select('id,name,phone,email,address')
+      .select('id,name,phone,email,address,status')
+      .eq('status', 'active')
       .order('name', { ascending: true })
 
     if (error) {
@@ -283,6 +284,13 @@ export default function OrdersPage() {
           await loadBins()
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'customers' },
+        async () => {
+          await loadCustomers()
+        }
+      )
       .subscribe()
 
     return () => {
@@ -296,6 +304,10 @@ export default function OrdersPage() {
       return acc
     }, {})
   }, [drivers])
+
+  const selectedCustomer = useMemo(() => {
+    return customers.find((customer) => customer.id === form.customer_id) || null
+  }, [customers, form.customer_id])
 
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -384,7 +396,7 @@ export default function OrdersPage() {
     setForm({
       customer_id: order.customer_id || '',
       customer_name: customerRelation?.name || order.customer_name || '',
-      pickup_address: order.pickup_address || customerRelation?.address || '',
+      pickup_address: order.pickup_address || '',
       bin_size: order.bin_size || binRelation?.bin_size || oldBinRelation?.bin_size || '20',
       bin_type: order.bin_type || binRelation?.bin_type || oldBinRelation?.bin_type || 'Garbage',
       order_type: order.order_type || 'DELIVERY',
@@ -413,7 +425,6 @@ export default function OrdersPage() {
       ...prev,
       customer_id: customerId,
       customer_name: customer?.name || prev.customer_name,
-      pickup_address: customer?.address || prev.pickup_address,
     }))
   }
 
@@ -520,7 +531,7 @@ export default function OrdersPage() {
     const basePayload = {
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || null,
-      pickup_address: form.pickup_address || null,
+      pickup_address: form.pickup_address.trim() || null,
       bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       order_type: orderType,
@@ -627,6 +638,10 @@ export default function OrdersPage() {
     try {
       if (!form.customer_id && !form.customer_name.trim()) {
         throw new Error('Customer is required.')
+      }
+
+      if (!form.pickup_address.trim()) {
+        throw new Error('Service / job site address is required.')
       }
 
       const previousDriverId = editingOrder?.driver_id || null
@@ -827,7 +842,7 @@ export default function OrdersPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Orders</h1>
               <p className="mt-1 text-sm text-slate-500">
-                Create orders with workflow-based bin assignment and release logic
+                Create orders with workflow-based bin assignment and separate job site addresses
               </p>
             </div>
 
@@ -890,7 +905,7 @@ export default function OrdersPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, address, driver, bin, notes"
+              placeholder="Search ticket, customer, job site address, driver, bin, notes"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -955,7 +970,7 @@ export default function OrdersPage() {
                       Customer
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Address
+                      Job Site Address
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Bin
@@ -1018,7 +1033,7 @@ export default function OrdersPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {order.pickup_address || customerRelation?.address || '—'}
+                          {order.pickup_address || '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -1109,7 +1124,7 @@ export default function OrdersPage() {
                   {editingOrder ? 'Edit Order' : 'Create Order'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Workflow logic is applied automatically by order type
+                  Customer company info stays on the customer record. Enter the actual bin placement address here.
                 </p>
               </div>
 
@@ -1160,9 +1175,19 @@ export default function OrdersPage() {
                 />
               </div>
 
+              {selectedCustomer?.address ? (
+                <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  <div className="font-semibold text-slate-900">Customer company / billing address</div>
+                  <div className="mt-1">{selectedCustomer.address}</div>
+                  <div className="mt-2 text-slate-500">
+                    This is only a reference. Enter the real bin placement address below.
+                  </div>
+                </div>
+              ) : null}
+
               <div className="md:col-span-2">
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Pickup Address
+                  Service / Job Site Address
                 </label>
                 <input
                   value={form.pickup_address}
@@ -1170,7 +1195,7 @@ export default function OrdersPage() {
                     setForm((prev) => ({ ...prev, pickup_address: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="Pickup address"
+                  placeholder="Address where the bin will be delivered, exchanged, removed, or returned"
                 />
               </div>
 

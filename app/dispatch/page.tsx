@@ -37,7 +37,7 @@ type Order = {
   updated_at: string | null
 }
 
-const TABLE_NAME = 'orders'
+const TABLE_NAME = 'order'
 
 const BOARD_COLUMNS = [
   { key: 'unassigned', label: 'Unassigned' },
@@ -171,7 +171,7 @@ export default function DispatchBoardPage() {
   }
 
   useEffect(() => {
-    refreshAll()
+    void refreshAll()
 
     const channel = supabase
       .channel('dispatch-board-realtime')
@@ -622,7 +622,7 @@ export default function DispatchBoardPage() {
                 Dispatch Board
               </h1>
               <p className="text-sm text-slate-500">
-                Move orders across dispatch stages and manage assignments in real time
+                Manage driver assignments and job site dispatch stages in real time
               </p>
             </div>
 
@@ -677,7 +677,7 @@ export default function DispatchBoardPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, address, bin, driver, or order type"
+              placeholder="Search ticket, customer, job site address, bin, driver, or order type"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -789,7 +789,7 @@ export default function DispatchBoardPage() {
 
                         <div className="space-y-2 text-sm text-slate-600">
                           <div>
-                            <span className="font-medium text-slate-800">Address:</span>{' '}
+                            <span className="font-medium text-slate-800">Job Site:</span>{' '}
                             {order.pickup_address || 'Not set'}
                           </div>
 
@@ -1039,7 +1039,7 @@ export default function DispatchBoardPage() {
 
               <div className="md:col-span-2">
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Pickup Address
+                  Job Site Address
                 </label>
                 <input
                   value={form.pickup_address}
@@ -1047,6 +1047,7 @@ export default function DispatchBoardPage() {
                     setForm((prev) => ({ ...prev, pickup_address: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="Actual address where the bin work happens"
                 />
               </div>
 

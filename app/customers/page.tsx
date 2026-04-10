@@ -10,11 +10,12 @@ type Customer = {
   phone: string | null
   email: string | null
   address: string | null
+  status: string | null
   created_at: string | null
   updated_at: string | null
 }
 
-type Job = {
+type Order = {
   id: string
   customer_id: string | null
   customer_name: string | null
@@ -22,6 +23,8 @@ type Job = {
   status: string | null
   scheduled_date: string | null
 }
+
+const CUSTOMER_STATUSES = ['active', 'inactive'] as const
 
 const CUSTOMER_STATUS_STYLES: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -35,17 +38,23 @@ function formatDate(date: string | null) {
   return parsed.toLocaleDateString()
 }
 
+function formatStatus(status: string | null | undefined) {
+  if (!status) return 'Active'
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
 export default function CustomersPage() {
   const supabase = createClient()
 
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [pageError, setPageError] = useState('')
 
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
 
@@ -54,6 +63,7 @@ export default function CustomersPage() {
     phone: '',
     email: '',
     address: '',
+    status: 'active',
   }
 
   const [form, setForm] = useState(emptyForm)
@@ -61,7 +71,7 @@ export default function CustomersPage() {
   async function loadCustomers() {
     const { data, error } = await supabase
       .from('customers')
-      .select('id,name,phone,email,address,created_at,updated_at')
+      .select('id,name,phone,email,address,status,created_at,updated_at')
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -72,9 +82,9 @@ export default function CustomersPage() {
     setCustomers((data as Customer[]) || [])
   }
 
-  async function loadJobs() {
+  async function loadOrders() {
     const { data, error } = await supabase
-      .from('jobs')
+      .from('order')
       .select('id,customer_id,customer_name,pickup_address,status,scheduled_date')
 
     if (error) {
@@ -82,18 +92,18 @@ export default function CustomersPage() {
       return
     }
 
-    setJobs((data as Job[]) || [])
+    setOrders((data as Order[]) || [])
   }
 
   async function refreshAll() {
     setLoading(true)
     setPageError('')
-    await Promise.all([loadCustomers(), loadJobs()])
+    await Promise.all([loadCustomers(), loadOrders()])
     setLoading(false)
   }
 
   useEffect(() => {
-    refreshAll()
+    void refreshAll()
 
     const channel = supabase
       .channel('customers-page-realtime')
@@ -106,9 +116,9 @@ export default function CustomersPage() {
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'jobs' },
+        { event: '*', schema: 'public', table: 'order' },
         async () => {
-          await loadJobs()
+          await loadOrders()
         }
       )
       .subscribe()
@@ -122,47 +132,45 @@ export default function CustomersPage() {
     const query = search.trim().toLowerCase()
 
     return customers.filter((customer) => {
-      if (!query) return true
-
-      return (
+      const matchesSearch =
+        !query ||
         (customer.name || '').toLowerCase().includes(query) ||
         (customer.phone || '').toLowerCase().includes(query) ||
         (customer.email || '').toLowerCase().includes(query) ||
         (customer.address || '').toLowerCase().includes(query)
-      )
+
+      const matchesStatus =
+        statusFilter === 'all' || (customer.status || 'active') === statusFilter
+
+      return matchesSearch && matchesStatus
     })
-  }, [customers, search])
+  }, [customers, search, statusFilter])
 
   const customerStats = useMemo(() => {
-    const jobCountByCustomer: Record<string, number> = {}
-    const activeJobCountByCustomer: Record<string, number> = {}
+    const orderCountByCustomer: Record<string, number> = {}
+    const activeOrderCountByCustomer: Record<string, number> = {}
 
-    for (const job of jobs) {
-      if (!job.customer_id) continue
-      jobCountByCustomer[job.customer_id] = (jobCountByCustomer[job.customer_id] || 0) + 1
+    for (const order of orders) {
+      if (!order.customer_id) continue
 
-      if (job.status === 'assigned' || job.status === 'in_progress') {
-        activeJobCountByCustomer[job.customer_id] =
-          (activeJobCountByCustomer[job.customer_id] || 0) + 1
+      orderCountByCustomer[order.customer_id] =
+        (orderCountByCustomer[order.customer_id] || 0) + 1
+
+      if (order.status === 'assigned' || order.status === 'in_progress') {
+        activeOrderCountByCustomer[order.customer_id] =
+          (activeOrderCountByCustomer[order.customer_id] || 0) + 1
       }
     }
 
-    return { jobCountByCustomer, activeJobCountByCustomer }
-  }, [jobs])
+    return { orderCountByCustomer, activeOrderCountByCustomer }
+  }, [orders])
 
   const dashboardCounts = useMemo(() => {
-    let activeCustomers = 0
-
-    for (const customer of customers) {
-      if ((customerStats.jobCountByCustomer[customer.id] || 0) > 0) {
-        activeCustomers += 1
-      }
-    }
-
     return {
       total: customers.length,
-      active: activeCustomers,
-      withOpenJobs: Object.keys(customerStats.activeJobCountByCustomer).length,
+      active: customers.filter((customer) => (customer.status || 'active') === 'active').length,
+      inactive: customers.filter((customer) => customer.status === 'inactive').length,
+      withOpenOrders: Object.keys(customerStats.activeOrderCountByCustomer).length,
     }
   }, [customers, customerStats])
 
@@ -182,6 +190,7 @@ export default function CustomersPage() {
       phone: customer.phone || '',
       email: customer.email || '',
       address: customer.address || '',
+      status: customer.status || 'active',
     })
   }
 
@@ -207,6 +216,7 @@ export default function CustomersPage() {
       phone: form.phone.trim() || null,
       email: form.email.trim() || null,
       address: form.address.trim() || null,
+      status: form.status || 'active',
     }
 
     if (editingCustomer) {
@@ -236,11 +246,11 @@ export default function CustomersPage() {
   }
 
   async function handleDelete(customerId: string) {
-    const relatedJobs = jobs.filter((job) => job.customer_id === customerId)
+    const relatedOrders = orders.filter((order) => order.customer_id === customerId)
 
-    if (relatedJobs.length > 0) {
+    if (relatedOrders.length > 0) {
       window.alert(
-        'This customer has linked jobs. Delete or reassign those jobs first.'
+        'This customer has linked orders. Delete or reassign those orders first.'
       )
       return
     }
@@ -272,7 +282,7 @@ export default function CustomersPage() {
                 Customers
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Manage customer records for jobs, dispatching, and future growth
+                Manage customer companies and contacts separately from job site / bin placement addresses
               </p>
             </div>
 
@@ -298,7 +308,7 @@ export default function CustomersPage() {
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Total Customers
@@ -317,23 +327,45 @@ export default function CustomersPage() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                Inactive Customers
+              </div>
+              <div className="mt-2 text-2xl font-bold text-slate-900">
+                {dashboardCounts.inactive}
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                Customers With Open Jobs
+                Customers With Open Orders
               </div>
               <div className="mt-2 text-2xl font-bold text-blue-900">
-                {dashboardCounts.withOpenJobs}
+                {dashboardCounts.withOpenOrders}
               </div>
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search customer name, phone, email, or address"
+              placeholder="Search customer name, phone, email, or company address"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+            >
+              <option value="all">All Statuses</option>
+              {CUSTOMER_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatStatus(status)}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -358,10 +390,10 @@ export default function CustomersPage() {
                       Contact
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Address
+                      Company / Billing Address
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Jobs
+                      Orders
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Status
@@ -374,12 +406,12 @@ export default function CustomersPage() {
 
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {filteredCustomers.map((customer) => {
-                    const totalJobs = customerStats.jobCountByCustomer[customer.id] || 0
-                    const activeJobs =
-                      customerStats.activeJobCountByCustomer[customer.id] || 0
-                    const status = totalJobs > 0 ? 'active' : 'inactive'
+                    const totalOrders = customerStats.orderCountByCustomer[customer.id] || 0
+                    const activeOrders =
+                      customerStats.activeOrderCountByCustomer[customer.id] || 0
+                    const status = customer.status || 'active'
                     const badgeClass =
-                      CUSTOMER_STATUS_STYLES[status] || CUSTOMER_STATUS_STYLES.inactive
+                      CUSTOMER_STATUS_STYLES[status] || CUSTOMER_STATUS_STYLES.active
 
                     return (
                       <tr key={customer.id} className="hover:bg-slate-50/80">
@@ -402,15 +434,15 @@ export default function CustomersPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div>Total: {totalJobs}</div>
-                          <div className="mt-1 text-slate-500">Open: {activeJobs}</div>
+                          <div>Total: {totalOrders}</div>
+                          <div className="mt-1 text-slate-500">Open: {activeOrders}</div>
                         </td>
 
                         <td className="px-4 py-4 align-top">
                           <span
                             className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
                           >
-                            {status === 'active' ? 'Active' : 'Inactive'}
+                            {formatStatus(status)}
                           </span>
                         </td>
 
@@ -460,9 +492,7 @@ export default function CustomersPage() {
                   {editingCustomer ? 'Edit Customer' : 'Create Customer'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {editingCustomer
-                    ? 'Update customer information'
-                    : 'Add a new customer to your operations system'}
+                  Save company/customer details here. Job site or bin placement address belongs on the order.
                 </p>
               </div>
 
@@ -491,7 +521,7 @@ export default function CustomersPage() {
                     setForm((prev) => ({ ...prev, name: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="Customer name"
+                  placeholder="Customer or company name"
                 />
               </div>
 
@@ -527,7 +557,7 @@ export default function CustomersPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Address
+                  Company / Billing Address
                 </label>
                 <textarea
                   rows={4}
@@ -536,8 +566,32 @@ export default function CustomersPage() {
                     setForm((prev) => ({ ...prev, address: e.target.value }))
                   }
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="Customer address"
+                  placeholder="Company office address or residential billing address"
                 />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Status
+                </label>
+                <select
+                  value={form.status}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, status: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                >
+                  {CUSTOMER_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                Customer address is for the company or billing contact.  
+                The bin placement / job site address should be entered on the order.
               </div>
             </div>
 
