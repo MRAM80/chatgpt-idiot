@@ -25,6 +25,8 @@ type Order = {
   customer_name: string | null
   pickup_address: string | null
   service_address?: string | null
+  service_time?: string | null
+  service_window?: string | null
   bin_id: string | null
   old_bin_id: string | null
   bin_size: string | null
@@ -51,6 +53,15 @@ const BOARD_COLUMNS = [
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
+const SERVICE_WINDOWS = [
+  'Anytime',
+  '7:00 AM - 9:00 AM',
+  '8:00 AM - 12:00 PM',
+  '9:00 AM - 1:00 PM',
+  '12:00 PM - 4:00 PM',
+  '1:00 PM - 5:00 PM',
+  'After 5:00 PM',
+] as const
 
 const statusStyles: Record<string, string> = {
   unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
@@ -109,6 +120,22 @@ function formatDate(date: string | null) {
 
 function formatOrderType(orderType: string | null | undefined) {
   return orderType || 'DELIVERY'
+}
+
+function formatServiceTime(value: string | null | undefined) {
+  if (!value) return '—'
+  const [hourStr, minuteStr] = value.split(':')
+  const hour = Number(hourStr)
+  const minute = Number(minuteStr)
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return value
+
+  const date = new Date()
+  date.setHours(hour, minute, 0, 0)
+
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function StatusHeaderIcon({ statusKey }: { statusKey: string }) {
@@ -187,6 +214,8 @@ export default function DispatchBoardPage() {
   const [form, setForm] = useState({
     customer_name: '',
     pickup_address: '',
+    service_time: '',
+    service_window: 'Anytime',
     bin_size: '20',
     bin_type: 'Garbage',
     order_type: 'DELIVERY',
@@ -232,7 +261,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .select(
-        'id,ticket_number,customer_name,pickup_address,service_address,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
+        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
       )
       .order('scheduled_date', { ascending: true })
 
@@ -419,6 +448,8 @@ export default function DispatchBoardPage() {
         (order.bin_type || '').toLowerCase().includes(q) ||
         (order.bin_size || '').toLowerCase().includes(q) ||
         (order.order_type || '').toLowerCase().includes(q) ||
+        (order.service_time || '').toLowerCase().includes(q) ||
+        (order.service_window || '').toLowerCase().includes(q) ||
         driverName.toLowerCase().includes(q) ||
         binLabel.toLowerCase().includes(q) ||
         oldBinLabel.toLowerCase().includes(q)
@@ -451,6 +482,8 @@ export default function DispatchBoardPage() {
     setForm({
       customer_name: order.customer_name || '',
       pickup_address: order.service_address || order.pickup_address || '',
+      service_time: order.service_time || '',
+      service_window: order.service_window || 'Anytime',
       bin_size: order.bin_size || '20',
       bin_type: order.bin_type || 'Garbage',
       order_type: order.order_type || 'DELIVERY',
@@ -646,6 +679,8 @@ export default function DispatchBoardPage() {
       customer_name: form.customer_name || null,
       pickup_address: form.pickup_address || null,
       service_address: form.pickup_address || null,
+      service_time: form.service_time || null,
+      service_window: form.service_window || null,
       bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       order_type: form.order_type || 'DELIVERY',
@@ -691,7 +726,7 @@ export default function DispatchBoardPage() {
                 Dispatch Board
               </h1>
               <p className="text-sm text-slate-500">
-                Manage driver assignments and job site dispatch stages in real time
+                Manage driver assignments, requested service time, and Job Site dispatch stages in real time
               </p>
             </div>
 
@@ -746,7 +781,7 @@ export default function DispatchBoardPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, job site address, bin, driver, or order type"
+              placeholder="Search ticket, customer, job site address, time, window, bin, driver, or order type"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -907,6 +942,16 @@ export default function DispatchBoardPage() {
                             <div>
                               <span className="font-medium text-slate-800">Job Site:</span>{' '}
                               {order.service_address || order.pickup_address || 'Not set'}
+                            </div>
+
+                            <div>
+                              <span className="font-medium text-slate-800">Service Time:</span>{' '}
+                              {formatServiceTime(order.service_time)}
+                            </div>
+
+                            <div>
+                              <span className="font-medium text-slate-800">Window:</span>{' '}
+                              {order.service_window || '—'}
                             </div>
 
                             <div>
@@ -1116,6 +1161,39 @@ export default function DispatchBoardPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Service Time
+                </label>
+                <input
+                  type="time"
+                  value={form.service_time}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, service_time: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Service Window
+                </label>
+                <select
+                  value={form.service_window}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, service_window: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                >
+                  {SERVICE_WINDOWS.map((windowOption) => (
+                    <option key={windowOption} value={windowOption}>
+                      {windowOption}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {(form.order_type === 'EXCHANGE' ||
                 form.order_type === 'REMOVAL' ||
                 form.order_type === 'DUMP RETURN') && (
@@ -1174,7 +1252,7 @@ export default function DispatchBoardPage() {
 
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                     Available bins for selected size:{' '}
-                    <span className="font-semibold">{availableMatchingCount}</span>
+                    <span className="font-semibold">{availableBinsForSelectedSize.length}</span>
                   </div>
                 </>
               )}

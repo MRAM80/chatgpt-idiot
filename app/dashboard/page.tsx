@@ -10,6 +10,8 @@ type Order = {
   customer_name: string | null
   pickup_address: string | null
   service_address?: string | null
+  service_time?: string | null
+  service_window?: string | null
   bin_type: string | null
   bin_size: string | null
   order_type: string | null
@@ -88,6 +90,75 @@ function isToday(date: string | null) {
   )
 }
 
+function formatServiceTime(value: string | null | undefined) {
+  if (!value) return '—'
+  const [hourStr, minuteStr] = value.split(':')
+  const hour = Number(hourStr)
+  const minute = Number(minuteStr)
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return value
+
+  const date = new Date()
+  date.setHours(hour, minute, 0, 0)
+
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function getWindowPriority(windowValue: string | null | undefined) {
+  if (!windowValue) return 999
+
+  const normalized = windowValue.trim().toLowerCase()
+
+  if (normalized === '7:00 am - 9:00 am') return 1
+  if (normalized === '8:00 am - 12:00 pm') return 2
+  if (normalized === '9:00 am - 1:00 pm') return 3
+  if (normalized === '12:00 pm - 4:00 pm') return 4
+  if (normalized === '1:00 pm - 5:00 pm') return 5
+  if (normalized === 'after 5:00 pm') return 6
+  if (normalized === 'anytime') return 7
+
+  return 50
+}
+
+function getServiceTimeMinutes(value: string | null | undefined) {
+  if (!value) return null
+  const [hourStr, minuteStr] = value.split(':')
+  const hour = Number(hourStr)
+  const minute = Number(minuteStr)
+
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null
+  return hour * 60 + minute
+}
+
+function compareOperationalOrder(a: Order, b: Order) {
+  const aDay = a.scheduled_date ? new Date(a.scheduled_date).getTime() : Number.MAX_SAFE_INTEGER
+  const bDay = b.scheduled_date ? new Date(b.scheduled_date).getTime() : Number.MAX_SAFE_INTEGER
+
+  if (aDay !== bDay) return aDay - bDay
+
+  const aTime = getServiceTimeMinutes(a.service_time)
+  const bTime = getServiceTimeMinutes(b.service_time)
+
+  if (aTime !== null && bTime !== null && aTime !== bTime) {
+    return aTime - bTime
+  }
+
+  if (aTime !== null && bTime === null) return -1
+  if (aTime === null && bTime !== null) return 1
+
+  const aWindow = getWindowPriority(a.service_window)
+  const bWindow = getWindowPriority(b.service_window)
+
+  if (aWindow !== bWindow) return aWindow - bWindow
+
+  const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0
+  const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0
+
+  return bCreated - aCreated
+}
+
 export default function DashboardPage() {
   const supabase = createClient()
 
@@ -106,7 +177,7 @@ export default function DashboardPage() {
       supabase
         .from(TABLE_NAME)
         .select(
-          'id,ticket_number,customer_name,pickup_address,service_address,bin_type,bin_size,order_type,driver_id,scheduled_date,status,created_at'
+          'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_type,bin_size,order_type,driver_id,scheduled_date,status,created_at'
         )
         .order('created_at', { ascending: false }),
 
@@ -223,11 +294,7 @@ export default function DashboardPage() {
           (order.status || 'unassigned') !== 'completed' &&
           (order.status || 'unassigned') !== 'issue'
       )
-      .sort((a, b) => {
-        const aTime = a.scheduled_date ? new Date(a.scheduled_date).getTime() : 0
-        const bTime = b.scheduled_date ? new Date(b.scheduled_date).getTime() : 0
-        return aTime - bTime
-      })
+      .sort(compareOperationalOrder)
       .slice(0, 6)
   }, [orders])
 
@@ -473,6 +540,12 @@ export default function DashboardPage() {
                         Job Site Address
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Service Time
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Window
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                         Driver
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -511,6 +584,12 @@ export default function DashboardPage() {
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
                             {order.service_address || order.pickup_address || '—'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-700">
+                            {formatServiceTime(order.service_time)}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-700">
+                            {order.service_window || '—'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
                             {order.driver_id
@@ -581,12 +660,30 @@ export default function DashboardPage() {
                             {formatStatus(order.status || 'unassigned')}
                           </span>
                         </div>
-                        <div className="mt-3 flex items-center justify-between gap-3">
-                          <div className="text-sm text-slate-600">
+
+                        <div className="mt-3 space-y-1 text-sm text-slate-600">
+                          <div>
+                            <span className="font-medium text-slate-800">Date:</span>{' '}
                             {formatDate(order.scheduled_date)}
                           </div>
+                          <div>
+                            <span className="font-medium text-slate-800">Service Time:</span>{' '}
+                            {formatServiceTime(order.service_time)}
+                          </div>
+                          <div>
+                            <span className="font-medium text-slate-800">Window:</span>{' '}
+                            {order.service_window || '—'}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-3">
                           <div className="text-xs text-slate-500">
                             {formatOrderType(order.order_type)}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {order.driver_id
+                              ? driverMap[order.driver_id]?.name || 'Assigned'
+                              : 'Unassigned'}
                           </div>
                         </div>
                       </div>

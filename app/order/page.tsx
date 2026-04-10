@@ -56,6 +56,8 @@ type Order = {
   customer_name: string | null
   pickup_address: string | null
   service_address?: string | null
+  service_time?: string | null
+  service_window?: string | null
   bin_id: string | null
   old_bin_id: string | null
   bin_size: string | null
@@ -86,6 +88,15 @@ const ORDER_STATUSES = [
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
+const SERVICE_WINDOWS = [
+  'Anytime',
+  '7:00 AM - 9:00 AM',
+  '8:00 AM - 12:00 PM',
+  '9:00 AM - 1:00 PM',
+  '12:00 PM - 4:00 PM',
+  '1:00 PM - 5:00 PM',
+  'After 5:00 PM',
+] as const
 
 const statusClasses: Record<string, string> = {
   unassigned: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -106,6 +117,8 @@ type FormState = {
   customer_id: string
   customer_name: string
   pickup_address: string
+  service_time: string
+  service_window: string
   bin_size: string
   bin_type: string
   order_type: string
@@ -121,6 +134,8 @@ const emptyForm: FormState = {
   customer_id: '',
   customer_name: '',
   pickup_address: '',
+  service_time: '',
+  service_window: 'Anytime',
   bin_size: '20',
   bin_type: 'Garbage',
   order_type: 'DELIVERY',
@@ -155,8 +170,20 @@ function firstRelation<T>(value?: T[] | null): T | null {
   return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
 
-function isActiveWorkflowStatus(status: string | null | undefined) {
-  return ['assigned', 'scheduled', 'in_progress', 'on_route'].includes(status || '')
+function formatServiceTime(value: string | null | undefined) {
+  if (!value) return '—'
+  const [hourStr, minuteStr] = value.split(':')
+  const hour = Number(hourStr)
+  const minute = Number(minuteStr)
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return value
+
+  const date = new Date()
+  date.setHours(hour, minute, 0, 0)
+
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 export default function OrdersPage() {
@@ -190,6 +217,8 @@ export default function OrdersPage() {
         customer_name,
         pickup_address,
         service_address,
+        service_time,
+        service_window,
         bin_id,
         old_bin_id,
         bin_size,
@@ -340,6 +369,8 @@ export default function OrdersPage() {
         (order.bin_type || '').toLowerCase().includes(query) ||
         (order.bin_size || '').toLowerCase().includes(query) ||
         (order.order_type || '').toLowerCase().includes(query) ||
+        (order.service_time || '').toLowerCase().includes(query) ||
+        (order.service_window || '').toLowerCase().includes(query) ||
         driverName.toLowerCase().includes(query) ||
         (order.notes || '').toLowerCase().includes(query) ||
         (order.ticket_number || '').toLowerCase().includes(query) ||
@@ -409,6 +440,8 @@ export default function OrdersPage() {
       customer_id: order.customer_id || '',
       customer_name: customerRelation?.name || order.customer_name || '',
       pickup_address: order.service_address || order.pickup_address || '',
+      service_time: order.service_time || '',
+      service_window: order.service_window || 'Anytime',
       bin_size: order.bin_size || binRelation?.bin_size || oldBinRelation?.bin_size || '20',
       bin_type: order.bin_type || 'Garbage',
       order_type: order.order_type || 'DELIVERY',
@@ -500,12 +533,6 @@ export default function OrdersPage() {
     await setBinStatus(binId, 'in_use')
   }
 
-  async function findBinById(binId: string | null) {
-    if (!binId) return null
-    const found = bins.find((bin) => bin.id === binId) || null
-    return found
-  }
-
   async function validateSelectedAvailableBin(
     selectedBinId: string,
     expectedSize: string,
@@ -547,6 +574,8 @@ export default function OrdersPage() {
       customer_name: form.customer_name || null,
       pickup_address: form.pickup_address.trim() || null,
       service_address: form.pickup_address.trim() || null,
+      service_time: form.service_time || null,
+      service_window: form.service_window || null,
       bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       order_type: orderType,
@@ -851,7 +880,7 @@ export default function OrdersPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Orders</h1>
               <p className="mt-1 text-sm text-slate-500">
-                Create orders with selected bin assignment, active customers only, and a separate Job Site Address
+                Create orders with selected bin assignment, active customers only, Job Site Address, and service time requests
               </p>
             </div>
 
@@ -982,6 +1011,12 @@ export default function OrdersPage() {
                       Job Site Address
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Service Time
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Window
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Bin
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1046,6 +1081,14 @@ export default function OrdersPage() {
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {order.service_address || order.pickup_address || '—'}
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {formatServiceTime(order.service_time)}
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {order.service_window || '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -1140,7 +1183,7 @@ export default function OrdersPage() {
                   {editingOrder ? 'Edit Order' : 'Create Order'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Customer company info stays on the customer record. Enter the actual Job Site Address here.
+                  Customer company info stays on the customer record. Enter the actual Job Site Address and requested service time here.
                 </p>
               </div>
 
@@ -1213,6 +1256,39 @@ export default function OrdersPage() {
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                   placeholder="Address where the bin will be delivered, exchanged, removed, or returned"
                 />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Service Time
+                </label>
+                <input
+                  type="time"
+                  value={form.service_time}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, service_time: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Service Window
+                </label>
+                <select
+                  value={form.service_window}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, service_window: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                >
+                  {SERVICE_WINDOWS.map((windowOption) => (
+                    <option key={windowOption} value={windowOption}>
+                      {windowOption}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
