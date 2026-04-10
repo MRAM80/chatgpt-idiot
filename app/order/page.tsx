@@ -30,6 +30,15 @@ type Bin = {
   location?: string | null
 }
 
+type Profile = {
+  id: string
+  email: string | null
+  role: string | null
+  full_name: string | null
+  company?: string | null
+  is_active?: boolean | null
+}
+
 type OrderCustomerRelation = {
   id: string
   name: string | null
@@ -68,6 +77,8 @@ type Order = {
   scheduled_date: string | null
   status: string | null
   notes: string | null
+  completed_by?: string | null
+  completed_at?: string | null
   created_at: string | null
   updated_at: string | null
   customers?: OrderCustomerRelation[] | null
@@ -163,6 +174,19 @@ function formatDate(date: string | null) {
   return parsed.toLocaleDateString()
 }
 
+function formatDateTime(date: string | null | undefined) {
+  if (!date) return '—'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return date
+  return parsed.toLocaleString([], {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function formatOrderType(orderType: string | null | undefined) {
   return orderType || 'DELIVERY'
 }
@@ -208,6 +232,8 @@ function OrdersPageContent() {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [pageError, setPageError] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [currentUser, setCurrentUser] = useState<Profile | null>(null)
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -221,6 +247,9 @@ function OrdersPageContent() {
   const modalTitleRef = useRef<HTMLInputElement | null>(null)
   const modalCardRef = useRef<HTMLDivElement | null>(null)
   const [modalVisible, setModalVisible] = useState(false)
+
+  const isCompletedEditing = editingOrder?.status === 'completed'
+  const isReadOnlyModal = Boolean(isCompletedEditing)
 
   async function loadOrders() {
     const { data, error } = await supabase
@@ -243,6 +272,8 @@ function OrdersPageContent() {
         scheduled_date,
         status,
         notes,
+        completed_by,
+        completed_at,
         created_at,
         updated_at,
         customers:customer_id ( id, name, address ),
@@ -303,10 +334,37 @@ function OrdersPageContent() {
     setBins((data as Bin[]) || [])
   }
 
+  async function loadUserRole() {
+    const { data: authData, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !authData?.user) return
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('id,email,role,full_name,company,is_active')
+      .eq('id', authData.user.id)
+      .single()
+
+    if (error) {
+      setPageError((prev) => prev || error.message)
+      return
+    }
+
+    const typedProfile = profile as Profile
+    setCurrentUser(typedProfile)
+    setIsAdmin((typedProfile?.role || '').toLowerCase() === 'admin')
+  }
+
   async function refreshAll() {
     setLoading(true)
     setPageError('')
-    await Promise.all([loadOrders(), loadDrivers(), loadCustomers(), loadBins()])
+    await Promise.all([
+      loadOrders(),
+      loadDrivers(),
+      loadCustomers(),
+      loadBins(),
+      loadUserRole(),
+    ])
     setLoading(false)
   }
 
@@ -363,7 +421,9 @@ function OrdersPageContent() {
       }, 20)
 
       const focusTimer = window.setTimeout(() => {
-        modalTitleRef.current?.focus()
+        if (!isReadOnlyModal) {
+          modalTitleRef.current?.focus()
+        }
       }, 140)
 
       return () => {
@@ -373,7 +433,7 @@ function OrdersPageContent() {
     } else {
       setModalVisible(false)
     }
-  }, [showCreateModal, editingOrder])
+  }, [showCreateModal, editingOrder, isReadOnlyModal])
 
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
@@ -411,6 +471,7 @@ function OrdersPageContent() {
         (order.order_type || '').toLowerCase().includes(query) ||
         (order.service_time || '').toLowerCase().includes(query) ||
         (order.service_window || '').toLowerCase().includes(query) ||
+        (order.completed_by || '').toLowerCase().includes(query) ||
         driverName.toLowerCase().includes(query) ||
         (order.notes || '').toLowerCase().includes(query) ||
         (order.ticket_number || '').toLowerCase().includes(query) ||
@@ -485,7 +546,10 @@ function OrdersPageContent() {
   const jobSiteExistingBins = useMemo(() => {
     return binsAtSelectedJobSite.filter((bin) => {
       if (form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL') {
-        return bin.status === 'in_use' || normalizeAddress(bin.location) === normalizeAddress(form.pickup_address)
+        return (
+          bin.status === 'in_use' ||
+          normalizeAddress(bin.location) === normalizeAddress(form.pickup_address)
+        )
       }
 
       if (form.order_type === 'DUMP RETURN') {
@@ -499,6 +563,11 @@ function OrdersPageContent() {
   const currentAvailableBinCount = useMemo(() => {
     return availableBinsForSelectedSize.length
   }, [availableBinsForSelectedSize])
+
+  function getCompletedByLabel() {
+    if (!currentUser) return 'System'
+    return currentUser.full_name || currentUser.email || 'System'
+  }
 
   function openCreateModal() {
     setEditingOrder(null)
@@ -617,10 +686,7 @@ function OrdersPageContent() {
       payload.location = location
     }
 
-    const { error } = await supabase
-      .from('bins')
-      .update(payload)
-      .eq('id', binId)
+    const { error } = await supabase.from('bins').update(payload).eq('id', binId)
 
     if (error) {
       throw new Error(error.message)
@@ -674,6 +740,19 @@ function OrdersPageContent() {
     const status = form.status || 'unassigned'
     const jobSiteAddress = form.pickup_address.trim() || null
 
+    const completionFields =
+      status === 'completed'
+        ? {
+            completed_by:
+              editingOrder?.completed_by || getCompletedByLabel(),
+            completed_at:
+              editingOrder?.completed_at || new Date().toISOString(),
+          }
+        : {
+            completed_by: editingOrder?.completed_by || null,
+            completed_at: editingOrder?.completed_at || null,
+          }
+
     const basePayload = {
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || null,
@@ -688,6 +767,7 @@ function OrdersPageContent() {
       scheduled_date: form.scheduled_date || null,
       status,
       notes: form.notes || null,
+      ...completionFields,
     }
 
     if (orderType === 'DELIVERY') {
@@ -773,6 +853,11 @@ function OrdersPageContent() {
   }
 
   async function handleCreateOrUpdate() {
+    if (isReadOnlyModal) {
+      closeModal()
+      return
+    }
+
     setSaving(true)
     setPageError('')
 
@@ -823,7 +908,10 @@ function OrdersPageContent() {
           previousOldBinId !== releasedBinId &&
           previousOldBinId !== assignedBinId
         ) {
-          await occupyBin(previousOldBinId, editingOrder?.service_address || editingOrder?.pickup_address || null)
+          await occupyBin(
+            previousOldBinId,
+            editingOrder?.service_address || editingOrder?.pickup_address || null
+          )
         }
 
         if (releasedBinId && releasedBinId !== assignedBinId) {
@@ -893,13 +981,18 @@ function OrdersPageContent() {
     binId?: string | null,
     oldBinId?: string | null
   ) {
+    const orderToDelete = orders.find((item) => item.id === orderId)
+
+    if (orderToDelete?.status === 'completed' && !isAdmin) {
+      setPageError('Only admin can delete completed orders.')
+      return
+    }
+
     const confirmed = window.confirm('Delete this order?')
     if (!confirmed) return
 
     setDeletingId(orderId)
     setPageError('')
-
-    const orderToDelete = orders.find((item) => item.id === orderId)
 
     const { error } = await supabase.from(TABLE_NAME).delete().eq('id', orderId)
 
@@ -951,11 +1044,23 @@ function OrdersPageContent() {
   }
 
   async function handleQuickStatus(order: Order, value: string) {
+    if (order.status === 'completed') {
+      setPageError('Completed orders are locked and cannot be edited.')
+      return
+    }
+
     setPageError('')
+
+    const updatePayload: Record<string, string | null> = { status: value }
+
+    if (value === 'completed') {
+      updatePayload.completed_by = order.completed_by || getCompletedByLabel()
+      updatePayload.completed_at = order.completed_at || new Date().toISOString()
+    }
 
     const { error } = await supabase
       .from(TABLE_NAME)
-      .update({ status: value })
+      .update(updatePayload)
       .eq('id', order.id)
 
     if (error) {
@@ -993,7 +1098,7 @@ function OrdersPageContent() {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <div className="mx-auto max-w-[96rem] p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -1062,7 +1167,7 @@ function OrdersPageContent() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, job site address, driver, bin, notes"
+              placeholder="Search ticket, customer, job site address, driver, completed by, notes"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -1114,7 +1219,7 @@ function OrdersPageContent() {
             <div className="p-10 text-center text-sm text-slate-500">No orders found.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
+              <table className="min-w-[1560px] divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1133,13 +1238,10 @@ function OrdersPageContent() {
                       Service Time
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Window
+                      Date
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Bin
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Old Bin
+                      Bin Size
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Material
@@ -1148,10 +1250,13 @@ function OrdersPageContent() {
                       Driver
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Date
+                      Status
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Status
+                      Completed By
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Completed At
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
                       Actions
@@ -1163,8 +1268,6 @@ function OrdersPageContent() {
                   {filteredOrders.map((order) => {
                     const driverRelation = firstRelation(order.drivers)
                     const customerRelation = firstRelation(order.customers)
-                    const bin = firstRelation(order.bins)
-                    const oldBin = firstRelation(order.old_bin)
 
                     const driver =
                       driverRelation?.name ||
@@ -1179,6 +1282,8 @@ function OrdersPageContent() {
                       orderTypeClasses[order.order_type || 'DELIVERY'] ||
                       'bg-slate-100 text-slate-700 border-slate-200'
 
+                    const isCompleted = order.status === 'completed'
+
                     return (
                       <tr key={order.id} className="hover:bg-slate-50/80">
                         <td className="px-4 py-4 align-top">
@@ -1189,7 +1294,9 @@ function OrdersPageContent() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}>
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}
+                          >
                             {formatOrderType(order.order_type)}
                           </span>
                         </td>
@@ -1202,24 +1309,16 @@ function OrdersPageContent() {
                           {order.service_address || order.pickup_address || '—'}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
                           {formatServiceTime(order.service_time)}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {order.service_window || '—'}
+                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                          {formatDate(order.scheduled_date)}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {bin
-                            ? `${bin.bin_number || 'Bin'} • ${bin.bin_size || order.bin_size || ''}Y`
-                            : '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {oldBin
-                            ? `${oldBin.bin_number || 'Bin'} • ${oldBin.bin_size || ''}Y`
-                            : '—'}
+                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                          {order.bin_size ? `${order.bin_size}Y` : '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -1227,10 +1326,6 @@ function OrdersPageContent() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {formatDate(order.scheduled_date)}
-                        </td>
 
                         <td className="px-4 py-4 align-top">
                           <div className="flex flex-col gap-2">
@@ -1240,18 +1335,32 @@ function OrdersPageContent() {
                               {formatStatus(order.status || 'unassigned')}
                             </span>
 
-                            <select
-                              value={order.status || 'unassigned'}
-                              onChange={(e) => handleQuickStatus(order, e.target.value)}
-                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
-                            >
-                              {ORDER_STATUSES.map((status) => (
-                                <option key={status} value={status}>
-                                  {formatStatus(status)}
-                                </option>
-                              ))}
-                            </select>
+                            {isCompleted ? (
+                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                                Locked
+                              </div>
+                            ) : (
+                              <select
+                                value={order.status || 'unassigned'}
+                                onChange={(e) => handleQuickStatus(order, e.target.value)}
+                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                              >
+                                {ORDER_STATUSES.map((status) => (
+                                  <option key={status} value={status}>
+                                    {formatStatus(status)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                          {order.completed_by || '—'}
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                          {formatDateTime(order.completed_at)}
                         </td>
 
                         <td className="px-4 py-4 align-top">
@@ -1260,18 +1369,20 @@ function OrdersPageContent() {
                               onClick={() => openEditModal(order)}
                               className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
                             >
-                              Edit
+                              {isCompleted ? 'Open' : 'Edit'}
                             </button>
 
-                            <button
-                              onClick={() =>
-                                handleDelete(order.id, order.driver_id, order.bin_id, order.old_bin_id)
-                              }
-                              disabled={deletingId === order.id}
-                              className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-                            >
-                              {deletingId === order.id ? 'Deleting...' : 'Delete'}
-                            </button>
+                            {(!isCompleted || isAdmin) && (
+                              <button
+                                onClick={() =>
+                                  handleDelete(order.id, order.driver_id, order.bin_id, order.old_bin_id)
+                                }
+                                disabled={deletingId === order.id}
+                                className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                              >
+                                {deletingId === order.id ? 'Deleting...' : 'Delete'}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1310,10 +1421,16 @@ function OrdersPageContent() {
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
-                  {editingOrder ? 'Edit Order' : 'Create Order'}
+                  {editingOrder
+                    ? isReadOnlyModal
+                      ? 'Order Details'
+                      : 'Edit Order'
+                    : 'Create Order'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Customer company info stays on the customer record. Enter the actual Job Site Address and requested service time here.
+                  {isReadOnlyModal
+                    ? 'This completed order is locked. You can view it, but you cannot edit anything.'
+                    : 'Customer company info stays on the customer record. Enter the actual Job Site Address and requested service time here.'}
                 </p>
               </div>
 
@@ -1331,6 +1448,23 @@ function OrdersPageContent() {
               </div>
             ) : null}
 
+            {editingOrder?.status === 'completed' && (
+              <div className="mb-4 grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Completed By
+                  </div>
+                  <div className="mt-1 font-semibold">{editingOrder.completed_by || '—'}</div>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Completed At
+                  </div>
+                  <div className="mt-1 font-semibold">{formatDateTime(editingOrder.completed_at)}</div>
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -1338,8 +1472,9 @@ function OrdersPageContent() {
                 </label>
                 <select
                   value={form.customer_id}
+                  disabled={isReadOnlyModal}
                   onChange={(e) => handleCustomerChange(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   <option value="">Select customer</option>
                   {customers.map((customer) => (
@@ -1357,10 +1492,11 @@ function OrdersPageContent() {
                 <input
                   ref={modalTitleRef}
                   value={form.customer_name}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, customer_name: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                   placeholder="Customer name"
                 />
               </div>
@@ -1381,10 +1517,11 @@ function OrdersPageContent() {
                 </label>
                 <input
                   value={form.pickup_address}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, pickup_address: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                   placeholder="Address where the bin will be delivered, exchanged, removed, or returned"
                 />
               </div>
@@ -1396,10 +1533,11 @@ function OrdersPageContent() {
                 <input
                   type="time"
                   value={form.service_time}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, service_time: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 />
               </div>
 
@@ -1409,10 +1547,11 @@ function OrdersPageContent() {
                 </label>
                 <select
                   value={form.service_window}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, service_window: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {SERVICE_WINDOWS.map((windowOption) => (
                     <option key={windowOption} value={windowOption}>
@@ -1428,6 +1567,7 @@ function OrdersPageContent() {
                 </label>
                 <select
                   value={form.bin_size}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({
                       ...prev,
@@ -1435,7 +1575,7 @@ function OrdersPageContent() {
                       bin_id: '',
                     }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {BIN_SIZES.map((size) => (
                     <option key={size} value={size}>
@@ -1451,10 +1591,11 @@ function OrdersPageContent() {
                 </label>
                 <select
                   value={form.bin_type}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, bin_type: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {MATERIAL_TYPES.map((type) => (
                     <option key={type} value={type}>
@@ -1470,6 +1611,7 @@ function OrdersPageContent() {
                 </label>
                 <select
                   value={form.order_type}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({
                       ...prev,
@@ -1478,7 +1620,7 @@ function OrdersPageContent() {
                       old_bin_id: '',
                     }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {ORDER_TYPES.map((type) => (
                     <option key={type} value={type}>
@@ -1494,10 +1636,11 @@ function OrdersPageContent() {
                 </label>
                 <select
                   value={form.driver_id}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, driver_id: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   <option value="">Unassigned</option>
                   {assignableDrivers.map((driver) => (
@@ -1519,6 +1662,7 @@ function OrdersPageContent() {
                   </label>
                   <select
                     value={form.old_bin_id}
+                    disabled={isReadOnlyModal}
                     onChange={(e) =>
                       setForm((prev) => ({
                         ...prev,
@@ -1531,7 +1675,7 @@ function OrdersPageContent() {
                               : prev.bin_id,
                       }))
                     }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                   >
                     <option value="">Select bin from this Job Site</option>
                     {jobSiteExistingBins.map((bin) => (
@@ -1552,10 +1696,11 @@ function OrdersPageContent() {
                     </label>
                     <select
                       value={form.bin_id}
+                      disabled={isReadOnlyModal}
                       onChange={(e) =>
                         setForm((prev) => ({ ...prev, bin_id: e.target.value }))
                       }
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                     >
                       <option value="">
                         {form.order_type === 'EXCHANGE'
@@ -1598,10 +1743,11 @@ function OrdersPageContent() {
                 <input
                   type="date"
                   value={form.scheduled_date}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 />
               </div>
 
@@ -1611,10 +1757,11 @@ function OrdersPageContent() {
                 </label>
                 <select
                   value={form.status}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, status: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                 >
                   {ORDER_STATUSES.map((status) => (
                     <option key={status} value={status}>
@@ -1631,10 +1778,11 @@ function OrdersPageContent() {
                 <textarea
                   rows={4}
                   value={form.notes}
+                  disabled={isReadOnlyModal}
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, notes: e.target.value }))
                   }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50 disabled:text-slate-500"
                   placeholder="Special instructions, gate code, contact notes..."
                 />
               </div>
@@ -1663,16 +1811,18 @@ function OrdersPageContent() {
                 onClick={closeModal}
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                {isReadOnlyModal ? 'Close' : 'Cancel'}
               </button>
 
-              <button
-                onClick={handleCreateOrUpdate}
-                disabled={saving}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : editingOrder ? 'Save Changes' : 'Create Order'}
-              </button>
+              {!isReadOnlyModal && (
+                <button
+                  onClick={handleCreateOrUpdate}
+                  disabled={saving}
+                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : editingOrder ? 'Save Changes' : 'Create Order'}
+                </button>
+              )}
             </div>
           </div>
         </div>

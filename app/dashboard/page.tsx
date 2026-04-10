@@ -267,7 +267,7 @@ export default function DashboardPage() {
                 href="/dispatch"
                 className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
               >
-                Open Dispatch Board
+                Dispatch Board
               </Link>
 
               <button
