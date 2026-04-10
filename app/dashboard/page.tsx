@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Order = {
@@ -106,61 +107,9 @@ function formatServiceTime(value: string | null | undefined) {
   })
 }
 
-function getWindowPriority(windowValue: string | null | undefined) {
-  if (!windowValue) return 999
-
-  const normalized = windowValue.trim().toLowerCase()
-
-  if (normalized === '7:00 am - 9:00 am') return 1
-  if (normalized === '8:00 am - 12:00 pm') return 2
-  if (normalized === '9:00 am - 1:00 pm') return 3
-  if (normalized === '12:00 pm - 4:00 pm') return 4
-  if (normalized === '1:00 pm - 5:00 pm') return 5
-  if (normalized === 'after 5:00 pm') return 6
-  if (normalized === 'anytime') return 7
-
-  return 50
-}
-
-function getServiceTimeMinutes(value: string | null | undefined) {
-  if (!value) return null
-  const [hourStr, minuteStr] = value.split(':')
-  const hour = Number(hourStr)
-  const minute = Number(minuteStr)
-
-  if (Number.isNaN(hour) || Number.isNaN(minute)) return null
-  return hour * 60 + minute
-}
-
-function compareOperationalOrder(a: Order, b: Order) {
-  const aDay = a.scheduled_date ? new Date(a.scheduled_date).getTime() : Number.MAX_SAFE_INTEGER
-  const bDay = b.scheduled_date ? new Date(b.scheduled_date).getTime() : Number.MAX_SAFE_INTEGER
-
-  if (aDay !== bDay) return aDay - bDay
-
-  const aTime = getServiceTimeMinutes(a.service_time)
-  const bTime = getServiceTimeMinutes(b.service_time)
-
-  if (aTime !== null && bTime !== null && aTime !== bTime) {
-    return aTime - bTime
-  }
-
-  if (aTime !== null && bTime === null) return -1
-  if (aTime === null && bTime !== null) return 1
-
-  const aWindow = getWindowPriority(a.service_window)
-  const bWindow = getWindowPriority(b.service_window)
-
-  if (aWindow !== bWindow) return aWindow - bWindow
-
-  const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0
-  const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0
-
-  return bCreated - aCreated
-}
-
 export default function DashboardPage() {
   const supabase = createClient()
+  const router = useRouter()
 
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
@@ -208,6 +157,11 @@ export default function DashboardPage() {
     setBins((binsRes.data as Bin[]) || [])
     setCustomers((customersRes.data as Customer[]) || [])
     setLoading(false)
+  }
+
+  async function handleLogOff() {
+    await supabase.auth.signOut()
+    router.push('/login')
   }
 
   useEffect(() => {
@@ -287,41 +241,6 @@ export default function DashboardPage() {
     return [...orders].slice(0, 8)
   }, [orders])
 
-  const upcomingOrders = useMemo(() => {
-    return orders
-      .filter(
-        (order) =>
-          (order.status || 'unassigned') !== 'completed' &&
-          (order.status || 'unassigned') !== 'issue'
-      )
-      .sort(compareOperationalOrder)
-      .slice(0, 6)
-  }, [orders])
-
-  const driverOverview = useMemo(() => {
-    const assignedCounts: Record<string, number> = {}
-
-    for (const order of orders) {
-      if (!order.driver_id) continue
-      if (order.status === 'assigned' || order.status === 'in_progress') {
-        assignedCounts[order.driver_id] = (assignedCounts[order.driver_id] || 0) + 1
-      }
-    }
-
-    return drivers.slice(0, 6).map((driver) => ({
-      ...driver,
-      activeOrders: assignedCounts[driver.id] || 0,
-    }))
-  }, [drivers, orders])
-
-  const binOverview = useMemo(() => {
-    const available = bins.filter((bin) => (bin.status || 'available') === 'available').length
-    const inUse = bins.filter((bin) => bin.status === 'in_use').length
-    const maintenance = bins.filter((bin) => bin.status === 'maintenance').length
-
-    return { available, inUse, maintenance }
-  }, [bins])
-
   const orderTypeSummary = useMemo(() => {
     return {
       delivery: orders.filter((o) => (o.order_type || 'DELIVERY') === 'DELIVERY').length,
@@ -339,7 +258,7 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">SIMPLIITRASH Dashboard</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Professional operations overview for dispatch, orders, drivers, bins, and active customers
+                Professional operations overview for dispatch and orders
               </p>
             </div>
 
@@ -361,6 +280,12 @@ export default function DashboardPage() {
                 className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Refresh
+              </button>
+              <button
+                onClick={handleLogOff}
+                className="rounded-2xl border border-rose-400 bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
+              >
+                Log Off
               </button>
             </div>
           </div>
@@ -412,63 +337,46 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Active Customers
-                </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {metrics.totalCustomers}
-                </div>
-              </div>
-              <Link
-                href="/customers"
-                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
-              >
-                View
-              </Link>
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Link
+            href="/order"
+            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-lg font-bold text-slate-900">Orders</div>
+            <div className="mt-2 text-sm text-slate-500">
+              Create, edit, filter, and manage all operational orders
             </div>
-          </div>
+          </Link>
 
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Total Bins
-                </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {metrics.totalBins}
-                </div>
-              </div>
-              <Link
-                href="/bins"
-                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
-              >
-                View
-              </Link>
+          <Link
+            href="/drivers"
+            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-lg font-bold text-slate-900">Drivers</div>
+            <div className="mt-2 text-sm text-slate-500">
+              Track driver availability, workload, and contact details
             </div>
-          </div>
+          </Link>
 
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Drivers
-                </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">
-                  {metrics.totalDrivers}
-                </div>
-              </div>
-              <Link
-                href="/drivers"
-                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
-              >
-                View
-              </Link>
+          <Link
+            href="/bins"
+            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-lg font-bold text-slate-900">Bins</div>
+            <div className="mt-2 text-sm text-slate-500">
+              Manage inventory, stock status, and yard availability
             </div>
-          </div>
+          </Link>
+
+          <Link
+            href="/customers"
+            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-lg font-bold text-slate-900">Customers</div>
+            <div className="mt-2 text-sm text-slate-500">
+              Keep active customer records organized
+            </div>
+          </Link>
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -509,12 +417,12 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-3">
-          <div className="xl:col-span-2 rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+        <div className="grid gap-6">
+          <div className="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Recent Orders</h2>
-                <p className="text-sm text-slate-500">Latest activity across your operation</p>
+                <h2 className="text-2xl font-bold text-slate-900">Recent Orders</h2>
+                <p className="mt-1 text-sm text-slate-500">Latest activity across your operation</p>
               </div>
               <Link
                 href="/order"
@@ -541,9 +449,6 @@ export default function DashboardPage() {
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                         Service Time
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                        Window
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                         Driver
@@ -589,9 +494,6 @@ export default function DashboardPage() {
                             {formatServiceTime(order.service_time)}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-700">
-                            {order.service_window || '—'}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-slate-700">
                             {order.driver_id
                               ? driverMap[order.driver_id]?.name || 'Assigned'
                               : 'Unassigned'}
@@ -614,204 +516,6 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-
-          <div className="space-y-6">
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">Upcoming Orders</h2>
-                  <p className="text-sm text-slate-500">Next orders to monitor</p>
-                </div>
-                <Link
-                  href="/dispatch"
-                  className="text-sm font-semibold text-slate-700 hover:text-slate-900"
-                >
-                  Open
-                </Link>
-              </div>
-
-              <div className="space-y-3">
-                {upcomingOrders.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No upcoming orders.
-                  </div>
-                ) : (
-                  upcomingOrders.map((order) => {
-                    const badgeClass =
-                      statusClasses[order.status || 'unassigned'] || statusClasses.unassigned
-
-                    return (
-                      <div
-                        key={order.id}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-semibold text-slate-900">
-                              {order.customer_name || 'No customer'}
-                            </div>
-                            <div className="mt-1 text-sm text-slate-500">
-                              {order.service_address || order.pickup_address || 'No address'}
-                            </div>
-                          </div>
-                          <span
-                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
-                          >
-                            {formatStatus(order.status || 'unassigned')}
-                          </span>
-                        </div>
-
-                        <div className="mt-3 space-y-1 text-sm text-slate-600">
-                          <div>
-                            <span className="font-medium text-slate-800">Date:</span>{' '}
-                            {formatDate(order.scheduled_date)}
-                          </div>
-                          <div>
-                            <span className="font-medium text-slate-800">Service Time:</span>{' '}
-                            {formatServiceTime(order.service_time)}
-                          </div>
-                          <div>
-                            <span className="font-medium text-slate-800">Window:</span>{' '}
-                            {order.service_window || '—'}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 flex items-center justify-between gap-3">
-                          <div className="text-xs text-slate-500">
-                            {formatOrderType(order.order_type)}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            {order.driver_id
-                              ? driverMap[order.driver_id]?.name || 'Assigned'
-                              : 'Unassigned'}
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Driver Overview</h2>
-              <p className="mt-1 text-sm text-slate-500">Quick live availability snapshot</p>
-
-              <div className="mt-4 space-y-3">
-                {driverOverview.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No drivers found.
-                  </div>
-                ) : (
-                  driverOverview.map((driver) => {
-                    const badgeClass =
-                      driver.status === 'busy'
-                        ? 'bg-amber-100 text-amber-700 border-amber-200'
-                        : driver.status === 'offline'
-                          ? 'bg-slate-100 text-slate-700 border-slate-200'
-                          : 'bg-emerald-100 text-emerald-700 border-emerald-200'
-
-                    return (
-                      <div
-                        key={driver.id}
-                        className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <div>
-                          <div className="font-semibold text-slate-900">
-                            {driver.name || 'Unnamed Driver'}
-                          </div>
-                          <div className="mt-1 text-sm text-slate-500">
-                            Active orders: {driver.activeOrders}
-                          </div>
-                        </div>
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
-                        >
-                          {formatStatus(driver.status || 'available')}
-                        </span>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Bin Overview</h2>
-              <p className="mt-1 text-sm text-slate-500">Inventory health at a glance</p>
-
-              <div className="mt-4 grid gap-3">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                    Available In Yard
-                  </div>
-                  <div className="mt-2 text-2xl font-bold text-emerald-900">
-                    {binOverview.available}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                    In Use
-                  </div>
-                  <div className="mt-2 text-2xl font-bold text-blue-900">
-                    {binOverview.inUse}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                    Maintenance
-                  </div>
-                  <div className="mt-2 text-2xl font-bold text-amber-900">
-                    {binOverview.maintenance}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-4">
-          <Link
-            href="/order"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-lg font-bold text-slate-900">Orders</div>
-            <div className="mt-2 text-sm text-slate-500">
-              Create, edit, filter, and manage all operational orders
-            </div>
-          </Link>
-
-          <Link
-            href="/drivers"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-lg font-bold text-slate-900">Drivers</div>
-            <div className="mt-2 text-sm text-slate-500">
-              Track driver availability, workload, and contact details
-            </div>
-          </Link>
-
-          <Link
-            href="/bins"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-lg font-bold text-slate-900">Bins</div>
-            <div className="mt-2 text-sm text-slate-500">
-              Manage inventory, stock status, and yard availability
-            </div>
-          </Link>
-
-          <Link
-            href="/customers"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-lg font-bold text-slate-900">Customers</div>
-            <div className="mt-2 text-sm text-slate-500">
-              Keep organized active customer records connected to your orders
-            </div>
-          </Link>
         </div>
       </div>
     </div>
