@@ -95,6 +95,7 @@ const ORDER_STATUSES = [
   'in_progress',
   'completed',
   'issue',
+  'cancelled',
 ] as const
 
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
@@ -116,6 +117,7 @@ const statusClasses: Record<string, string> = {
   in_progress: 'bg-amber-100 text-amber-700 border-amber-200',
   completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   issue: 'bg-rose-100 text-rose-700 border-rose-200',
+  cancelled: 'bg-slate-200 text-slate-700 border-slate-300',
 }
 
 const orderTypeClasses: Record<string, string> = {
@@ -172,19 +174,6 @@ function formatDate(date: string | null) {
   const parsed = new Date(date)
   if (Number.isNaN(parsed.getTime())) return date
   return parsed.toLocaleDateString()
-}
-
-function formatDateTime(date: string | null | undefined) {
-  if (!date) return '—'
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
-  return parsed.toLocaleString([], {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
 }
 
 function formatOrderType(orderType: string | null | undefined) {
@@ -471,7 +460,6 @@ function OrdersPageContent() {
         (order.order_type || '').toLowerCase().includes(query) ||
         (order.service_time || '').toLowerCase().includes(query) ||
         (order.service_window || '').toLowerCase().includes(query) ||
-        (order.completed_by || '').toLowerCase().includes(query) ||
         driverName.toLowerCase().includes(query) ||
         (order.notes || '').toLowerCase().includes(query) ||
         (order.ticket_number || '').toLowerCase().includes(query) ||
@@ -743,10 +731,8 @@ function OrdersPageContent() {
     const completionFields =
       status === 'completed'
         ? {
-            completed_by:
-              editingOrder?.completed_by || getCompletedByLabel(),
-            completed_at:
-              editingOrder?.completed_at || new Date().toISOString(),
+            completed_by: editingOrder?.completed_by || getCompletedByLabel(),
+            completed_at: editingOrder?.completed_at || new Date().toISOString(),
           }
         : {
             completed_by: editingOrder?.completed_by || null,
@@ -922,16 +908,30 @@ function OrdersPageContent() {
           await occupyBin(assignedBinId, form.pickup_address.trim() || null)
         }
 
-        if (payload.status === 'completed' || payload.status === 'issue') {
+        if (
+          payload.status === 'completed' ||
+          payload.status === 'issue' ||
+          payload.status === 'cancelled'
+        ) {
           if (payload.order_type === 'REMOVAL') {
             await releaseBin(payload.old_bin_id)
           } else if (payload.order_type === 'EXCHANGE') {
             await releaseBin(payload.old_bin_id)
-            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
+            if (payload.status !== 'cancelled') {
+              await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
+            } else if (payload.bin_id) {
+              await releaseBin(payload.bin_id)
+            }
           } else if (payload.order_type === 'DELIVERY') {
-            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
+            if (payload.status === 'cancelled') {
+              await releaseBin(payload.bin_id)
+            } else {
+              await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
+            }
           } else if (payload.order_type === 'DUMP RETURN') {
-            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
+            if (payload.bin_id) {
+              await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
+            }
           }
         }
 
@@ -961,7 +961,12 @@ function OrdersPageContent() {
           await occupyBin(assignedBinId, form.pickup_address.trim() || null)
         }
 
-        if ((payload.status === 'completed' || payload.status === 'issue') && payload.order_type === 'REMOVAL') {
+        if (
+          (payload.status === 'completed' ||
+            payload.status === 'issue' ||
+            payload.status === 'cancelled') &&
+          payload.order_type === 'REMOVAL'
+        ) {
           await releaseBin(payload.old_bin_id)
         }
 
@@ -1073,18 +1078,26 @@ function OrdersPageContent() {
         await syncDriverStatuses(order.driver_id)
       }
 
-      if (value === 'completed' || value === 'issue') {
+      if (value === 'completed' || value === 'issue' || value === 'cancelled') {
         if (order.order_type === 'REMOVAL' && order.old_bin_id) {
           await releaseBin(order.old_bin_id)
         } else if (order.order_type === 'EXCHANGE') {
           if (order.old_bin_id && order.old_bin_id !== order.bin_id) {
             await releaseBin(order.old_bin_id)
           }
-          if (order.bin_id) {
+          if (value === 'cancelled') {
+            if (order.bin_id) {
+              await releaseBin(order.bin_id)
+            }
+          } else if (order.bin_id) {
             await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
           }
         } else if (order.order_type === 'DELIVERY' && order.bin_id) {
-          await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
+          if (value === 'cancelled') {
+            await releaseBin(order.bin_id)
+          } else {
+            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
+          }
         } else if (order.order_type === 'DUMP RETURN' && order.bin_id) {
           await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
         }
@@ -1093,6 +1106,25 @@ function OrdersPageContent() {
       await refreshAll()
     } catch (workflowError: any) {
       setPageError(workflowError.message || 'Status changed, but workflow update failed.')
+    }
+  }
+
+  async function handleCancelOrder() {
+    if (!editingOrder) return
+
+    const confirmed = window.confirm('Cancel this order?')
+    if (!confirmed) return
+
+    setSaving(true)
+    setPageError('')
+
+    try {
+      await handleQuickStatus(editingOrder, 'cancelled')
+      closeModal()
+    } catch (error: any) {
+      setPageError(error.message || 'Failed to cancel order.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -1167,7 +1199,7 @@ function OrdersPageContent() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, job site address, driver, completed by, notes"
+              placeholder="Search ticket, customer, job site address, driver, notes"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -1219,7 +1251,7 @@ function OrdersPageContent() {
             <div className="p-10 text-center text-sm text-slate-500">No orders found.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[1560px] divide-y divide-slate-200">
+              <table className="min-w-[1360px] divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1252,15 +1284,6 @@ function OrdersPageContent() {
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Completed By
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Completed At
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Actions
-                    </th>
                   </tr>
                 </thead>
 
@@ -1282,10 +1305,12 @@ function OrdersPageContent() {
                       orderTypeClasses[order.order_type || 'DELIVERY'] ||
                       'bg-slate-100 text-slate-700 border-slate-200'
 
-                    const isCompleted = order.status === 'completed'
-
                     return (
-                      <tr key={order.id} className="hover:bg-slate-50/80">
+                      <tr
+                        key={order.id}
+                        className="cursor-pointer hover:bg-slate-50/80"
+                        onClick={() => openEditModal(order)}
+                      >
                         <td className="px-4 py-4 align-top">
                           <div className="font-semibold text-slate-900">
                             {order.ticket_number || 'Pending'}
@@ -1328,62 +1353,11 @@ function OrdersPageContent() {
                         <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
 
                         <td className="px-4 py-4 align-top">
-                          <div className="flex flex-col gap-2">
-                            <span
-                              className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
-                            >
-                              {formatStatus(order.status || 'unassigned')}
-                            </span>
-
-                            {isCompleted ? (
-                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                                Locked
-                              </div>
-                            ) : (
-                              <select
-                                value={order.status || 'unassigned'}
-                                onChange={(e) => handleQuickStatus(order, e.target.value)}
-                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
-                              >
-                                {ORDER_STATUSES.map((status) => (
-                                  <option key={status} value={status}>
-                                    {formatStatus(status)}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {order.completed_by || '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {formatDateTime(order.completed_at)}
-                        </td>
-
-                        <td className="px-4 py-4 align-top">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => openEditModal(order)}
-                              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                            >
-                              {isCompleted ? 'Open' : 'Edit'}
-                            </button>
-
-                            {(!isCompleted || isAdmin) && (
-                              <button
-                                onClick={() =>
-                                  handleDelete(order.id, order.driver_id, order.bin_id, order.old_bin_id)
-                                }
-                                disabled={deletingId === order.id}
-                                className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-                              >
-                                {deletingId === order.id ? 'Deleting...' : 'Delete'}
-                              </button>
-                            )}
-                          </div>
+                          <span
+                            className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                          >
+                            {formatStatus(order.status || 'unassigned')}
+                          </span>
                         </td>
                       </tr>
                     )
@@ -1420,7 +1394,10 @@ function OrdersPageContent() {
           >
             <div className="mb-6 flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {editingOrder?.ticket_number || 'New Order'}
+                </div>
+                <h2 className="mt-1 text-xl font-bold text-slate-900">
                   {editingOrder
                     ? isReadOnlyModal
                       ? 'Order Details'
@@ -1447,23 +1424,6 @@ function OrdersPageContent() {
                 {pageError}
               </div>
             ) : null}
-
-            {editingOrder?.status === 'completed' && (
-              <div className="mb-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                    Completed By
-                  </div>
-                  <div className="mt-1 font-semibold">{editingOrder.completed_by || '—'}</div>
-                </div>
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                    Completed At
-                  </div>
-                  <div className="mt-1 font-semibold">{formatDateTime(editingOrder.completed_at)}</div>
-                </div>
-              </div>
-            )}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -1807,6 +1767,33 @@ function OrdersPageContent() {
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
+              {editingOrder && !isReadOnlyModal && (
+                <button
+                  onClick={handleCancelOrder}
+                  disabled={saving}
+                  className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                >
+                  Cancel Order
+                </button>
+              )}
+
+              {editingOrder && isAdmin && (
+                <button
+                  onClick={() =>
+                    handleDelete(
+                      editingOrder.id,
+                      editingOrder.driver_id,
+                      editingOrder.bin_id,
+                      editingOrder.old_bin_id
+                    )
+                  }
+                  disabled={deletingId === editingOrder.id}
+                  className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                >
+                  {deletingId === editingOrder.id ? 'Deleting...' : 'Delete'}
+                </button>
+              )}
+
               <button
                 onClick={closeModal}
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
