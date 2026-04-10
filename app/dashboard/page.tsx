@@ -269,18 +269,14 @@ export default function DashboardPage() {
               >
                 Open Dispatch Board
               </Link>
-              <Link
-                href="/order"
-                className="rounded-2xl border border-slate-500 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
-              >
-                Open Orders
-              </Link>
+
               <button
                 onClick={loadDashboard}
                 className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Refresh
               </button>
+              
               <button
                 onClick={handleLogOff}
                 className="rounded-2xl border border-rose-400 bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
