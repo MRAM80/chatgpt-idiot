@@ -9,16 +9,18 @@ type Bin = {
   bin_number: string | null
   bin_size: string | null
   bin_type: string | null
+  location: string | null
   status: string | null
   created_at: string | null
   updated_at: string | null
 }
 
-type Job = {
+type Order = {
   id: string
   bin_id: string | null
   status: string | null
   scheduled_date: string | null
+  service_address: string | null
 }
 
 const BIN_SIZES = ['6', '8', '15', '20', '30', '40'] as const
@@ -50,7 +52,7 @@ export default function BinsPage() {
   const supabase = createClient()
 
   const [bins, setBins] = useState<Bin[]>([])
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -68,47 +70,161 @@ export default function BinsPage() {
     bin_number: '',
     bin_size: '20',
     bin_type: 'Garbage',
+    location: '',
     status: 'available',
   }
 
   const [form, setForm] = useState(emptyForm)
 
+  function getOrderStatusGroup(status: string | null) {
+    return status || ''
+  }
+
+  function isActiveOrder(order: Order) {
+    const status = getOrderStatusGroup(order.status)
+    return (
+      status === 'assigned' ||
+      status === 'scheduled' ||
+      status === 'in_progress'
+    )
+  }
+
+  function getOrdersForBin(binId: string) {
+    return orders.filter((order) => order.bin_id === binId)
+  }
+
+  function getActiveOrdersForBin(binId: string) {
+    return orders.filter((order) => order.bin_id === binId && isActiveOrder(order))
+  }
+
+  function getPrimaryOrderForBin(binId: string) {
+    const active = getActiveOrdersForBin(binId)
+    if (active.length > 0) return active[0]
+
+    const related = getOrdersForBin(binId)
+    if (related.length > 0) return related[0]
+
+    return null
+  }
+
+  function getNextStatusFromOrders(binId: string) {
+    const activeOrders = getActiveOrdersForBin(binId)
+    return activeOrders.length > 0 ? 'in_use' : 'available'
+  }
+
+  function getLocationFromOrders(binId: string) {
+    const primaryOrder = getPrimaryOrderForBin(binId)
+    return primaryOrder?.service_address?.trim() || null
+  }
+
+  async function syncBinFromOrders(binId: string) {
+    const currentBin = bins.find((bin) => bin.id === binId)
+    if (!currentBin) return
+    if (currentBin.status === 'maintenance') return
+
+    const nextStatus = getNextStatusFromOrders(binId)
+    const nextLocation = getLocationFromOrders(binId)
+
+    const currentStatus = currentBin.status || 'available'
+    const currentLocation = currentBin.location || null
+
+    if (currentStatus === nextStatus && currentLocation === nextLocation) return
+
+    const { error } = await supabase
+      .from('bins')
+      .update({
+        status: nextStatus,
+        location: nextLocation,
+      })
+      .eq('id', binId)
+
+    if (error) {
+      setPageError(error.message)
+    }
+  }
+
+  async function syncAllBinsFromOrders(currentBins: Bin[], currentOrders: Order[]) {
+    const updates = currentBins
+      .filter((bin) => (bin.status || 'available') !== 'maintenance')
+      .map(async (bin) => {
+        const activeOrders = currentOrders.filter(
+          (order) =>
+            order.bin_id === bin.id &&
+            (order.status === 'assigned' ||
+              order.status === 'scheduled' ||
+              order.status === 'in_progress')
+        )
+
+        const primaryOrder =
+          activeOrders[0] || currentOrders.find((order) => order.bin_id === bin.id) || null
+
+        const nextStatus = activeOrders.length > 0 ? 'in_use' : 'available'
+        const nextLocation = primaryOrder?.service_address?.trim() || null
+
+        const currentStatus = bin.status || 'available'
+        const currentLocation = bin.location || null
+
+        if (currentStatus === nextStatus && currentLocation === nextLocation) return
+
+        const { error } = await supabase
+          .from('bins')
+          .update({
+            status: nextStatus,
+            location: nextLocation,
+          })
+          .eq('id', bin.id)
+
+        if (error) throw error
+      })
+
+    if (updates.length === 0) return
+    await Promise.all(updates)
+  }
+
   async function loadBins() {
     const { data, error } = await supabase
       .from('bins')
-      .select('id,bin_number,bin_size,bin_type,status,created_at,updated_at')
+      .select('id,bin_number,bin_size,bin_type,location,status,created_at,updated_at')
       .order('created_at', { ascending: false })
 
     if (error) {
       setPageError(error.message)
-      return
+      return [] as Bin[]
     }
 
-    setBins((data as Bin[]) || [])
+    const nextBins = (data as Bin[]) || []
+    setBins(nextBins)
+    return nextBins
   }
 
-  async function loadJobs() {
+  async function loadOrders() {
     const { data, error } = await supabase
-      .from('jobs')
-      .select('id,bin_id,status,scheduled_date')
+      .from('order')
+      .select('id,bin_id,status,scheduled_date,service_address')
 
     if (error) {
       setPageError(error.message)
-      return
+      return [] as Order[]
     }
 
-    setJobs((data as Job[]) || [])
+    const nextOrders = (data as Order[]) || []
+    setOrders(nextOrders)
+    return nextOrders
   }
 
   async function refreshAll() {
     setLoading(true)
     setPageError('')
-    await Promise.all([loadBins(), loadJobs()])
+
+    const [nextBins, nextOrders] = await Promise.all([loadBins(), loadOrders()])
+    await syncAllBinsFromOrders(nextBins, nextOrders)
+    await Promise.all([loadBins(), loadOrders()])
+
     setLoading(false)
   }
 
   useEffect(() => {
-    refreshAll()
+    void refreshAll()
 
     const channel = supabase
       .channel('bins-page-realtime')
@@ -121,9 +237,9 @@ export default function BinsPage() {
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'jobs' },
+        { event: '*', schema: 'public', table: 'order' },
         async () => {
-          await loadJobs()
+          await refreshAll()
         }
       )
       .subscribe()
@@ -134,21 +250,21 @@ export default function BinsPage() {
   }, [])
 
   const binStats = useMemo(() => {
-    const totalJobsByBin: Record<string, number> = {}
-    const activeJobsByBin: Record<string, number> = {}
+    const totalOrdersByBin: Record<string, number> = {}
+    const activeOrdersByBin: Record<string, number> = {}
 
-    for (const job of jobs) {
-      if (!job.bin_id) continue
+    for (const order of orders) {
+      if (!order.bin_id) continue
 
-      totalJobsByBin[job.bin_id] = (totalJobsByBin[job.bin_id] || 0) + 1
+      totalOrdersByBin[order.bin_id] = (totalOrdersByBin[order.bin_id] || 0) + 1
 
-      if (job.status === 'assigned' || job.status === 'in_progress') {
-        activeJobsByBin[job.bin_id] = (activeJobsByBin[job.bin_id] || 0) + 1
+      if (isActiveOrder(order)) {
+        activeOrdersByBin[order.bin_id] = (activeOrdersByBin[order.bin_id] || 0) + 1
       }
     }
 
-    return { totalJobsByBin, activeJobsByBin }
-  }, [jobs])
+    return { totalOrdersByBin, activeOrdersByBin }
+  }, [orders])
 
   const dashboardCounts = useMemo(() => {
     return {
@@ -167,7 +283,8 @@ export default function BinsPage() {
         !query ||
         (bin.bin_number || '').toLowerCase().includes(query) ||
         (bin.bin_size || '').toLowerCase().includes(query) ||
-        (bin.bin_type || '').toLowerCase().includes(query)
+        (bin.bin_type || '').toLowerCase().includes(query) ||
+        (bin.location || '').toLowerCase().includes(query)
 
       const matchesStatus =
         statusFilter === 'all' || (bin.status || 'available') === statusFilter
@@ -197,6 +314,7 @@ export default function BinsPage() {
       bin_number: bin.bin_number || '',
       bin_size: bin.bin_size || '20',
       bin_type: bin.bin_type || 'Garbage',
+      location: bin.location || '',
       status: bin.status || 'available',
     })
   }
@@ -222,6 +340,7 @@ export default function BinsPage() {
       bin_number: form.bin_number.trim(),
       bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
+      location: form.location.trim() || null,
       status: form.status || 'available',
     }
 
@@ -234,7 +353,9 @@ export default function BinsPage() {
       if (error) {
         setPageError(error.message)
       } else {
-        await refreshAll()
+        await loadBins()
+        await syncBinFromOrders(editingBin.id)
+        await Promise.all([loadBins(), loadOrders()])
         closeModal()
       }
     } else {
@@ -252,15 +373,13 @@ export default function BinsPage() {
   }
 
   async function handleDelete(binId: string) {
-    const relatedActiveJobs = jobs.filter(
-      (job) =>
-        job.bin_id === binId &&
-        (job.status === 'assigned' || job.status === 'in_progress')
+    const relatedActiveOrders = orders.filter(
+      (order) => order.bin_id === binId && isActiveOrder(order)
     )
 
-    if (relatedActiveJobs.length > 0) {
+    if (relatedActiveOrders.length > 0) {
       window.alert(
-        'This bin has active jobs linked to it. Complete or reassign those jobs first.'
+        'This bin has active orders linked to it. Complete or reassign those orders first.'
       )
       return
     }
@@ -283,18 +402,28 @@ export default function BinsPage() {
   }
 
   async function handleQuickStatus(bin: Bin, value: string) {
-    const activeJobs = binStats.activeJobsByBin[bin.id] || 0
+    const activeOrders = binStats.activeOrdersByBin[bin.id] || 0
 
-    if (value === 'available' && activeJobs > 0) {
-      window.alert('This bin still has active jobs. Keep it in use or reassign the jobs first.')
+    if (value === 'available' && activeOrders > 0) {
+      window.alert(
+        'This bin still has active orders. Keep it in use or reassign the orders first.'
+      )
       return
     }
 
     setPageError('')
 
+    const updatePayload: { status: string; location?: string | null } = {
+      status: value,
+    }
+
+    if (value === 'available' && activeOrders === 0) {
+      updatePayload.location = getLocationFromOrders(bin.id)
+    }
+
     const { error } = await supabase
       .from('bins')
-      .update({ status: value })
+      .update(updatePayload)
       .eq('id', bin.id)
 
     if (error) {
@@ -314,7 +443,7 @@ export default function BinsPage() {
                 Bin Inventory
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Manage your yard inventory with fixed sizes and operational status
+                Manage your yard inventory with fixed sizes, operational status, and synced order addresses
               </p>
             </div>
 
@@ -382,7 +511,7 @@ export default function BinsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search bin number, size, or type"
+              placeholder="Search bin number, size, type, or location"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -451,6 +580,9 @@ export default function BinsPage() {
                       Type
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Location
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Usage
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -467,8 +599,8 @@ export default function BinsPage() {
 
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {filteredBins.map((bin) => {
-                    const totalJobs = binStats.totalJobsByBin[bin.id] || 0
-                    const activeJobs = binStats.activeJobsByBin[bin.id] || 0
+                    const totalOrders = binStats.totalOrdersByBin[bin.id] || 0
+                    const activeOrders = binStats.activeOrdersByBin[bin.id] || 0
                     const badgeClass =
                       statusClasses[bin.status || 'available'] || statusClasses.available
 
@@ -489,8 +621,12 @@ export default function BinsPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div>Total Jobs: {totalJobs}</div>
-                          <div className="mt-1 text-slate-500">Active: {activeJobs}</div>
+                          {bin.location || '—'}
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          <div>Total Orders: {totalOrders}</div>
+                          <div className="mt-1 text-slate-500">Active: {activeOrders}</div>
                         </td>
 
                         <td className="px-4 py-4 align-top">
@@ -638,6 +774,20 @@ export default function BinsPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Location
+                </label>
+                <input
+                  value={form.location}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, location: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="Auto-updated from assigned order address when linked"
+                />
               </div>
 
               <div>

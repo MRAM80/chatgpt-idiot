@@ -28,6 +28,25 @@ type Bin = {
   status: string | null
 }
 
+type OrderCustomerRelation = {
+  id: string
+  name: string | null
+  address: string | null
+}
+
+type OrderDriverRelation = {
+  id: string
+  name: string | null
+  email?: string | null
+}
+
+type OrderBinRelation = {
+  id: string
+  bin_number: string | null
+  bin_size: string | null
+  bin_type: string | null
+}
+
 type Order = {
   id: string
   ticket_number: string | null
@@ -45,6 +64,10 @@ type Order = {
   notes: string | null
   created_at: string | null
   updated_at: string | null
+  customers?: OrderCustomerRelation[] | null
+  drivers?: OrderDriverRelation[] | null
+  bins?: OrderBinRelation[] | null
+  old_bin?: OrderBinRelation[] | null
 }
 
 const TABLE_NAME = 'order'
@@ -76,6 +99,36 @@ const orderTypeClasses: Record<string, string> = {
   'DUMP RETURN': 'bg-sky-100 text-sky-700 border-sky-200',
 }
 
+type FormState = {
+  customer_id: string
+  customer_name: string
+  pickup_address: string
+  bin_size: string
+  bin_type: string
+  order_type: string
+  driver_id: string
+  scheduled_date: string
+  status: string
+  bin_id: string
+  old_bin_id: string
+  notes: string
+}
+
+const emptyForm: FormState = {
+  customer_id: '',
+  customer_name: '',
+  pickup_address: '',
+  bin_size: '20',
+  bin_type: 'Garbage',
+  order_type: 'DELIVERY',
+  driver_id: '',
+  scheduled_date: '',
+  status: 'unassigned',
+  bin_id: '',
+  old_bin_id: '',
+  notes: '',
+}
+
 function formatStatus(status: string | null | undefined) {
   if (!status) return 'Unassigned'
   return status
@@ -92,8 +145,11 @@ function formatDate(date: string | null) {
 }
 
 function formatOrderType(orderType: string | null | undefined) {
-  if (!orderType) return 'DELIVERY'
-  return orderType
+  return orderType || 'DELIVERY'
+}
+
+function firstRelation<T>(value?: T[] | null): T | null {
+  return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
 
 export default function OrdersPage() {
@@ -115,30 +171,33 @@ export default function OrdersPage() {
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
-
-  const emptyForm = {
-    customer_id: '',
-    customer_name: '',
-    pickup_address: '',
-    bin_size: '20',
-    bin_type: 'Garbage',
-    order_type: 'DELIVERY',
-    driver_id: '',
-    scheduled_date: '',
-    status: 'unassigned',
-    bin_id: '',
-    old_bin_id: '',
-    notes: '',
-  }
-
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState<FormState>(emptyForm)
 
   async function loadOrders() {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select(
-        'id,ticket_number,customer_id,customer_name,pickup_address,bin_id,old_bin_id,bin_size,bin_type,order_type,driver_id,scheduled_date,status,notes,created_at,updated_at'
-      )
+      .select(`
+        id,
+        ticket_number,
+        customer_id,
+        customer_name,
+        pickup_address,
+        bin_id,
+        old_bin_id,
+        bin_size,
+        bin_type,
+        order_type,
+        driver_id,
+        scheduled_date,
+        status,
+        notes,
+        created_at,
+        updated_at,
+        customers:customer_id ( id, name, address ),
+        drivers:driver_id ( id, name ),
+        bins:bin_id ( id, bin_number, bin_size, bin_type ),
+        old_bin:old_bin_id ( id, bin_number, bin_size, bin_type )
+      `)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -146,7 +205,7 @@ export default function OrdersPage() {
       return
     }
 
-    setOrders((data as Order[]) || [])
+    setOrders(((data ?? []) as unknown) as Order[])
   }
 
   async function loadDrivers() {
@@ -199,7 +258,7 @@ export default function OrdersPage() {
   }
 
   useEffect(() => {
-    refreshAll()
+    void refreshAll()
 
     const channel = supabase
       .channel('orders-page-realtime')
@@ -238,30 +297,20 @@ export default function OrdersPage() {
     }, {})
   }, [drivers])
 
-  const customerMap = useMemo(() => {
-    return customers.reduce<Record<string, Customer>>((acc, customer) => {
-      acc[customer.id] = customer
-      return acc
-    }, {})
-  }, [customers])
-
-  const binMap = useMemo(() => {
-    return bins.reduce<Record<string, Bin>>((acc, bin) => {
-      acc[bin.id] = bin
-      return acc
-    }, {})
-  }, [bins])
-
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase()
 
     return orders.filter((order) => {
-      const driverName = order.driver_id ? driverMap[order.driver_id]?.name || '' : ''
-      const customerName =
-        order.customer_name ||
-        (order.customer_id ? customerMap[order.customer_id]?.name || '' : '')
-      const binLabel = order.bin_id ? binMap[order.bin_id]?.bin_number || '' : ''
-      const oldBinLabel = order.old_bin_id ? binMap[order.old_bin_id]?.bin_number || '' : ''
+      const driverRelation = firstRelation(order.drivers)
+      const customerRelation = firstRelation(order.customers)
+      const binRelation = firstRelation(order.bins)
+      const oldBinRelation = firstRelation(order.old_bin)
+
+      const driverName =
+        driverRelation?.name || (order.driver_id ? driverMap[order.driver_id]?.name || '' : '')
+      const customerName = customerRelation?.name || order.customer_name || ''
+      const binLabel = binRelation?.bin_number || ''
+      const oldBinLabel = oldBinRelation?.bin_number || ''
 
       const matchesSearch =
         !query ||
@@ -287,7 +336,7 @@ export default function OrdersPage() {
 
       return matchesSearch && matchesStatus && matchesDriver && matchesOrderType
     })
-  }, [orders, search, statusFilter, driverFilter, orderTypeFilter, driverMap, customerMap, binMap])
+  }, [orders, search, statusFilter, driverFilter, orderTypeFilter, driverMap])
 
   const counts = useMemo(() => {
     return {
@@ -299,6 +348,24 @@ export default function OrdersPage() {
     }
   }, [orders])
 
+  const assignableDrivers = useMemo(() => {
+    return drivers.filter((driver) => driver.status !== 'offline')
+  }, [drivers])
+
+  const inUseBins = useMemo(() => {
+    return bins.filter((bin) => bin.status === 'in_use')
+  }, [bins])
+
+  const currentAvailableBinCount = useMemo(() => {
+    return bins.filter(
+      (bin) =>
+        bin.status === 'available' &&
+        bin.bin_size === form.bin_size &&
+        bin.bin_type === form.bin_type &&
+        bin.id !== form.old_bin_id
+    ).length
+  }, [bins, form.bin_size, form.bin_type, form.old_bin_id])
+
   function openCreateModal() {
     setEditingOrder(null)
     setForm(emptyForm)
@@ -307,15 +374,19 @@ export default function OrdersPage() {
   }
 
   function openEditModal(order: Order) {
+    const customerRelation = firstRelation(order.customers)
+    const binRelation = firstRelation(order.bins)
+    const oldBinRelation = firstRelation(order.old_bin)
+
     setEditingOrder(order)
     setShowCreateModal(false)
     setPageError('')
     setForm({
       customer_id: order.customer_id || '',
-      customer_name: order.customer_name || '',
-      pickup_address: order.pickup_address || '',
-      bin_size: order.bin_size || '20',
-      bin_type: order.bin_type || 'Garbage',
+      customer_name: customerRelation?.name || order.customer_name || '',
+      pickup_address: order.pickup_address || customerRelation?.address || '',
+      bin_size: order.bin_size || binRelation?.bin_size || oldBinRelation?.bin_size || '20',
+      bin_type: order.bin_type || binRelation?.bin_type || oldBinRelation?.bin_type || 'Garbage',
       order_type: order.order_type || 'DELIVERY',
       driver_id: order.driver_id || '',
       scheduled_date: order.scheduled_date
@@ -414,17 +485,13 @@ export default function OrdersPage() {
   ): Promise<Bin | null> {
     if (keepCurrentBinId) {
       const keepBin = bins.find((bin) => bin.id === keepCurrentBinId)
-      if (
-        keepBin &&
-        keepBin.bin_size === size &&
-        keepBin.bin_type === type
-      ) {
+      if (keepBin && keepBin.bin_size === size && keepBin.bin_type === type) {
         await occupyBin(keepBin.id)
         return keepBin
       }
     }
 
-    let query = supabase
+    const { data, error } = await supabase
       .from('bins')
       .select('id,bin_number,bin_size,bin_type,status')
       .eq('bin_size', size)
@@ -432,8 +499,6 @@ export default function OrdersPage() {
       .eq('status', 'available')
       .order('bin_number', { ascending: true })
       .limit(20)
-
-    const { data, error } = await query
 
     if (error) {
       throw new Error(error.message)
@@ -484,7 +549,8 @@ export default function OrdersPage() {
           old_bin_id: null,
         },
         assignedBinId: matchedBin.id,
-        releasedBinId: editingOrder?.bin_id && editingOrder.bin_id !== matchedBin.id ? editingOrder.bin_id : null,
+        releasedBinId:
+          editingOrder?.bin_id && editingOrder.bin_id !== matchedBin.id ? editingOrder.bin_id : null,
       }
     }
 
@@ -559,8 +625,8 @@ export default function OrdersPage() {
     setPageError('')
 
     try {
-      if (!form.customer_name.trim()) {
-        throw new Error('Customer name is required.')
+      if (!form.customer_id && !form.customer_name.trim()) {
+        throw new Error('Customer is required.')
       }
 
       const previousDriverId = editingOrder?.driver_id || null
@@ -660,7 +726,12 @@ export default function OrdersPage() {
     }
   }
 
-  async function handleDelete(orderId: string, driverId?: string | null, binId?: string | null, oldBinId?: string | null) {
+  async function handleDelete(
+    orderId: string,
+    driverId?: string | null,
+    binId?: string | null,
+    oldBinId?: string | null
+  ) {
     const confirmed = window.confirm('Delete this order?')
     if (!confirmed) return
 
@@ -747,24 +818,6 @@ export default function OrdersPage() {
       setPageError(workflowError.message || 'Status changed, but workflow update failed.')
     }
   }
-
-  const assignableDrivers = useMemo(() => {
-    return drivers.filter((driver) => driver.status !== 'offline')
-  }, [drivers])
-
-  const currentAvailableBinCount = useMemo(() => {
-    return bins.filter(
-      (bin) =>
-        bin.status === 'available' &&
-        bin.bin_size === form.bin_size &&
-        bin.bin_type === form.bin_type &&
-        bin.id !== form.old_bin_id
-    ).length
-  }, [bins, form.bin_size, form.bin_type, form.old_bin_id])
-
-  const inUseBins = useMemo(() => {
-    return bins.filter((bin) => bin.status === 'in_use')
-  }, [bins])
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -927,13 +980,16 @@ export default function OrdersPage() {
 
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {filteredOrders.map((order) => {
-                    const driver = order.driver_id ? driverMap[order.driver_id] : null
-                    const customer =
-                      order.customer_name ||
-                      (order.customer_id ? customerMap[order.customer_id]?.name : null) ||
-                      'No customer'
-                    const bin = order.bin_id ? binMap[order.bin_id] : null
-                    const oldBin = order.old_bin_id ? binMap[order.old_bin_id] : null
+                    const driverRelation = firstRelation(order.drivers)
+                    const customerRelation = firstRelation(order.customers)
+                    const bin = firstRelation(order.bins)
+                    const oldBin = firstRelation(order.old_bin)
+
+                    const driver =
+                      driverRelation?.name ||
+                      (order.driver_id ? driverMap[order.driver_id]?.name : null) ||
+                      'Unassigned'
+                    const customer = customerRelation?.name || order.customer_name || 'No customer'
 
                     const badgeClass =
                       statusClasses[order.status || 'unassigned'] || statusClasses.unassigned
@@ -962,12 +1018,12 @@ export default function OrdersPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {order.pickup_address || '—'}
+                          {order.pickup_address || customerRelation?.address || '—'}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {bin
-                            ? `${bin.bin_number || 'Bin'} • ${order.bin_size || ''}Y ${order.bin_type || ''}`
+                            ? `${bin.bin_number || 'Bin'} • ${bin.bin_size || order.bin_size || ''}Y ${bin.bin_type || order.bin_type || ''}`
                             : '—'}
                         </td>
 
@@ -977,9 +1033,7 @@ export default function OrdersPage() {
                             : '—'}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {driver?.name || 'Unassigned'}
-                        </td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {formatDate(order.scheduled_date)}
@@ -1229,12 +1283,12 @@ export default function OrdersPage() {
                 </div>
               )}
 
-              {form.order_type === 'DELIVERY' || form.order_type === 'EXCHANGE' ? (
+              {(form.order_type === 'DELIVERY' || form.order_type === 'EXCHANGE') && (
                 <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                   Matching available bins:{' '}
                   <span className="font-semibold">{currentAvailableBinCount}</span>
                 </div>
-              ) : null}
+              )}
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-slate-700">
