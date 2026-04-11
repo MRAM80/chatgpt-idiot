@@ -60,22 +60,6 @@ const columnHeaderStyles: Record<string, string> = {
   issue: 'border-rose-200 bg-rose-100 text-rose-700',
 }
 
-const columnHighlightStyles: Record<string, string> = {
-  unassigned: 'bg-slate-50 ring-slate-400 shadow-lg',
-  assigned: 'bg-blue-50 ring-blue-400 shadow-lg',
-  in_progress: 'bg-amber-50 ring-amber-400 shadow-lg',
-  completed: 'bg-emerald-50 ring-emerald-400 shadow-lg',
-  issue: 'bg-rose-50 ring-rose-400 shadow-lg',
-}
-
-const dropHintStyles: Record<string, string> = {
-  unassigned: 'border-slate-300 bg-white/70 text-slate-700',
-  assigned: 'border-blue-300 bg-white/70 text-blue-700',
-  in_progress: 'border-amber-300 bg-white/70 text-amber-700',
-  completed: 'border-emerald-300 bg-white/70 text-emerald-700',
-  issue: 'border-rose-300 bg-white/70 text-rose-700',
-}
-
 function formatStatus(status: string | null | undefined) {
   if (!status) return 'Unassigned'
   if (status === 'in_progress') return 'In Progress'
@@ -178,8 +162,6 @@ export default function DispatchBoardPage() {
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
-  const [draggingOrderId, setDraggingOrderId] = useState<string | null>(null)
-  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
   const [driverFilter, setDriverFilter] = useState('all')
@@ -331,7 +313,10 @@ export default function DispatchBoardPage() {
     const currentOrder = orders.find((order) => order.id === id)
     if (!currentOrder) return false
 
-    if (currentOrder.status === 'completed' && Object.prototype.hasOwnProperty.call(values, 'status')) {
+    if (
+      currentOrder.status === 'completed' &&
+      Object.prototype.hasOwnProperty.call(values, 'status')
+    ) {
       return false
     }
 
@@ -358,21 +343,6 @@ export default function DispatchBoardPage() {
 
     await refreshAll()
     return true
-  }
-
-  async function handleDrop(newStatus: string) {
-    if (!draggingOrderId) return
-
-    const currentOrder = orders.find((order) => order.id === draggingOrderId)
-    if (currentOrder?.status === 'completed') {
-      setDraggingOrderId(null)
-      setDragOverColumn(null)
-      return
-    }
-
-    await updateOrder(draggingOrderId, { status: newStatus })
-    setDraggingOrderId(null)
-    setDragOverColumn(null)
   }
 
   async function handleAssignFromModal(orderId: string, driverId: string) {
@@ -418,7 +388,9 @@ export default function DispatchBoardPage() {
 
   const stats = useMemo(() => {
     const total = orders.length
-    const unassigned = orders.filter((order) => (order.status || 'unassigned') === 'unassigned').length
+    const unassigned = orders.filter(
+      (order) => (order.status || 'unassigned') === 'unassigned'
+    ).length
     const assigned = orders.filter((order) => order.status === 'assigned').length
     const inProgress = orders.filter((order) => order.status === 'in_progress').length
     const completed = orders.filter((order) => order.status === 'completed').length
@@ -540,32 +512,13 @@ export default function DispatchBoardPage() {
         ) : (
           <div className="grid gap-4 xl:grid-cols-5">
             {BOARD_COLUMNS.map((column) => {
-              const isHighlighted = !!draggingOrderId && dragOverColumn === column.key
               const headerClass =
                 columnHeaderStyles[column.key] || columnHeaderStyles.unassigned
-              const highlightClass =
-                columnHighlightStyles[column.key] || 'bg-sky-50 ring-sky-400 shadow-lg'
-              const dropHintClass =
-                dropHintStyles[column.key] || 'border-sky-300 bg-white/70 text-sky-700'
 
               return (
                 <div
                   key={column.key}
-                  onDragOver={(e) => {
-                    e.preventDefault()
-                    if (dragOverColumn !== column.key) setDragOverColumn(column.key)
-                  }}
-                  onDragEnter={(e) => {
-                    e.preventDefault()
-                    setDragOverColumn(column.key)
-                  }}
-                  onDragLeave={() => {
-                    if (dragOverColumn === column.key) setDragOverColumn(null)
-                  }}
-                  onDrop={() => handleDrop(column.key)}
-                  className={`min-h-[520px] rounded-3xl p-4 shadow-sm ring-1 transition-all duration-150 ${
-                    isHighlighted ? highlightClass : 'bg-white ring-slate-200'
-                  }`}
+                  className="min-h-[520px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200 transition-all duration-150"
                 >
                   <div
                     className={`mb-4 flex items-center justify-between rounded-2xl border px-3 py-3 ${headerClass}`}
@@ -582,14 +535,6 @@ export default function DispatchBoardPage() {
                     </span>
                   </div>
 
-                  {isHighlighted && (
-                    <div
-                      className={`mb-3 rounded-2xl border border-dashed px-3 py-2 text-center text-xs font-semibold ${dropHintClass}`}
-                    >
-                      Drop here to move order to {column.label}
-                    </div>
-                  )}
-
                   <div className="space-y-3">
                     {(groupedOrders[column.key] || []).map((order) => {
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
@@ -597,23 +542,8 @@ export default function DispatchBoardPage() {
                       return (
                         <div
                           key={order.id}
-                          draggable={order.status !== 'completed'}
-                          onDragStart={() => {
-                            if (order.status === 'completed') return
-                            setDraggingOrderId(order.id)
-                          }}
-                          onDragEnd={() => {
-                            setDraggingOrderId(null)
-                            setDragOverColumn(null)
-                          }}
                           onClick={() => openOrder(order.id)}
-                          className={`rounded-2xl border bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-                            draggingOrderId === order.id
-                              ? 'cursor-grabbing border-sky-300 opacity-60 ring-2 ring-sky-200'
-                              : order.status === 'completed'
-                              ? 'cursor-pointer border-slate-200'
-                              : 'cursor-grab border-slate-200'
-                          }`}
+                          className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                         >
                           <div className="space-y-2">
                             <div>
@@ -639,14 +569,8 @@ export default function DispatchBoardPage() {
                     })}
 
                     {(!groupedOrders[column.key] || groupedOrders[column.key].length === 0) && (
-                      <div
-                        className={`rounded-2xl border border-dashed p-6 text-center text-sm transition ${
-                          isHighlighted
-                            ? dropHintClass
-                            : 'border-slate-200 bg-slate-50 text-slate-400'
-                        }`}
-                      >
-                        {isHighlighted ? `Drop order in ${column.label}` : 'No orders here'}
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 transition">
+                        No orders here
                       </div>
                     )}
                   </div>
@@ -742,7 +666,10 @@ export default function DispatchBoardPage() {
                 <DetailItem label="Created At" value={formatDateTime(selectedOrder.created_at)} />
                 <DetailItem label="Updated At" value={formatDateTime(selectedOrder.updated_at)} />
                 <DetailItem label="Completed By" value={selectedOrder.completed_by} />
-                <DetailItem label="Completed At" value={formatDateTime(selectedOrder.completed_at)} />
+                <DetailItem
+                  label="Completed At"
+                  value={formatDateTime(selectedOrder.completed_at)}
+                />
               </div>
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
