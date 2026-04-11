@@ -112,6 +112,13 @@ function buildGoogleMapsLink(orders: Order[]) {
 }
 
 export default function DriverPage() {
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+    }
+  }, [])
+
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
