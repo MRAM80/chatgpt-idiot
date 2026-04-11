@@ -1,18 +1,14 @@
 'use client'
 
-import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Driver = {
   id: string
   name: string | null
-  email: string | null
   phone: string | null
   status: string | null
-  truck_id?: string | null
-  auth_user_id?: string | null
 }
 
 type Order = {
@@ -65,13 +61,6 @@ function formatDate(dateValue: string | null | undefined) {
   return date.toLocaleDateString()
 }
 
-function formatDateTime(dateValue: string | null | undefined) {
-  if (!dateValue) return '—'
-  const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) return String(dateValue)
-  return date.toLocaleString()
-}
-
 function displayValue(value: unknown) {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'string') {
@@ -120,113 +109,48 @@ function buildGoogleMapsLink(orders: Order[]) {
   return `https://www.google.com/maps/dir/?${params.toString()}`
 }
 
-export default function DriverPage() {
-  const router = useRouter()
+function DriverAppContent() {
   const supabase = useMemo(() => createClient(), [])
+  const searchParams = useSearchParams()
+  const driverId = searchParams.get('driverId') || ''
 
   const [driver, setDriver] = useState<Driver | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
 
-  async function resolveDriver() {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      router.push('/login')
-      return null
-    }
-
-    const { data: driverByAuth, error: driverByAuthError } = await supabase
-      .from('drivers')
-      .select('id,name,email,phone,status,truck_id,auth_user_id')
-      .eq('auth_user_id', user.id)
-      .maybeSingle()
-
-    if (driverByAuthError) {
-      setPageError(driverByAuthError.message)
-      return null
-    }
-
-    if (driverByAuth) {
-      await supabase
-        .from('drivers')
-        .update({ last_login_at: new Date().toISOString() })
-        .eq('id', driverByAuth.id)
-
-      return driverByAuth as Driver
-    }
-
-    const normalizedEmail = (user.email || '').trim().toLowerCase()
-
-    if (!normalizedEmail) {
-      setPageError('This account is not linked to a driver profile.')
-      return null
-    }
-
-    const { data: driverByEmail, error: driverByEmailError } = await supabase
-      .from('drivers')
-      .select('id,name,email,phone,status,truck_id,auth_user_id')
-      .ilike('email', normalizedEmail)
-      .maybeSingle()
-
-    if (driverByEmailError) {
-      setPageError(driverByEmailError.message)
-      return null
-    }
-
-    if (!driverByEmail) {
-      setPageError('This account is not linked to a driver profile.')
-      return null
-    }
-
-    const { error: linkError } = await supabase
-      .from('drivers')
-      .update({
-        auth_user_id: user.id,
-        last_login_at: new Date().toISOString(),
-      })
-      .eq('id', driverByEmail.id)
-
-    if (linkError) {
-      setPageError(linkError.message)
-      return null
-    }
-
-    return {
-      ...driverByEmail,
-      auth_user_id: user.id,
-    } as Driver
-  }
-
   async function loadPage() {
-    setLoading(true)
-    setPageError('')
-
-    const resolvedDriver = await resolveDriver()
-
-    if (!resolvedDriver) {
+    if (!driverId) {
+      setPageError('Missing driverId in URL.')
       setLoading(false)
       return
     }
 
-    setDriver(resolvedDriver)
+    setPageError('')
+    setLoading(true)
 
-    const { data: orderData, error: ordersError } = await supabase
-      .from(TABLE_NAME)
-      .select(
-        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
-      )
-      .eq('driver_id', resolvedDriver.id)
-      .order('route_position', { ascending: true })
-      .order('scheduled_date', { ascending: true })
-      .order('created_at', { ascending: true })
+    const [{ data: driverData, error: driverError }, { data: orderData, error: ordersError }] =
+      await Promise.all([
+        supabase.from('drivers').select('id,name,phone,status').eq('id', driverId).single(),
+        supabase
+          .from(TABLE_NAME)
+          .select(
+            'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
+          )
+          .eq('driver_id', driverId)
+          .neq('status', 'completed')
+          .order('route_position', { ascending: true })
+          .order('scheduled_date', { ascending: true })
+          .order('created_at', { ascending: true }),
+      ])
+
+    if (driverError) {
+      setPageError(driverError.message)
+      setLoading(false)
+      return
+    }
 
     if (ordersError) {
       setPageError(ordersError.message)
@@ -234,6 +158,7 @@ export default function DriverPage() {
       return
     }
 
+    setDriver((driverData as Driver) || null)
     setOrders((orderData as Order[]) || [])
     setLoading(false)
   }
@@ -242,7 +167,7 @@ export default function DriverPage() {
     void loadPage()
 
     const channel = supabase
-      .channel('driver-page-realtime')
+      .channel(`driver-app-${driverId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: TABLE_NAME },
@@ -262,19 +187,19 @@ export default function DriverPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [supabase])
+  }, [supabase, driverId])
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadPage()
+    }, 60000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [driverId])
 
   const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
-
-  const stats = useMemo(() => {
-    const total = orders.length
-    const completed = orders.filter((order) => order.status === 'completed').length
-    const issues = orders.filter((order) => order.status === 'issue').length
-    const inProgress = orders.filter((order) => order.status === 'in_progress').length
-    const remaining = orders.filter((order) => order.status !== 'completed').length
-
-    return { total, completed, issues, inProgress, remaining }
-  }, [orders])
 
   const currentStopId = useMemo(() => {
     const firstInProgress = orders.find((order) => order.status === 'in_progress')
@@ -295,7 +220,6 @@ export default function DriverPage() {
 
     const payload: Record<string, unknown> = {
       status: nextStatus,
-      updated_at: new Date().toISOString(),
     }
 
     if (nextStatus === 'completed') {
@@ -316,39 +240,24 @@ export default function DriverPage() {
       return
     }
 
+    if (nextStatus === 'completed') {
+      setOrders((current) => current.filter((order) => order.id !== orderId))
+      setSavingOrderId(null)
+      return
+    }
+
     setOrders((current) =>
       current.map((order) =>
         order.id === orderId
           ? {
               ...order,
               status: nextStatus,
-              updated_at: String(payload.updated_at),
-              completed_at:
-                nextStatus === 'completed' ? String(payload.completed_at) : null,
-              completed_by:
-                nextStatus === 'completed' ? String(payload.completed_by) : null,
             }
           : order
       )
     )
 
     setSavingOrderId(null)
-  }
-
-  async function copyPageLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
-      setPageError('Could not copy page link.')
-    }
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
   }
 
   function toggleExpanded(orderId: string) {
@@ -368,7 +277,7 @@ export default function DriverPage() {
                 {driver?.name || 'Driver'}
               </h1>
               <p className="mt-2 text-sm text-slate-500">
-                Live route connected to dispatch
+                Route connected to dispatch
               </p>
             </div>
 
@@ -381,14 +290,6 @@ export default function DriverPage() {
                 Refresh
               </button>
 
-              <button
-                type="button"
-                onClick={copyPageLink}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                {copied ? 'Copied!' : 'Copy Link'}
-              </button>
-
               {routeLink ? (
                 <a
                   href={routeLink}
@@ -396,17 +297,9 @@ export default function DriverPage() {
                   rel="noreferrer"
                   className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
                 >
-                  Open Full Route
+                  Open Route in Maps
                 </a>
               ) : null}
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-              >
-                Logout
-              </button>
             </div>
           </div>
 
@@ -415,43 +308,6 @@ export default function DriverPage() {
               {pageError}
             </div>
           ) : null}
-
-          <div className="mt-6 grid gap-4 md:grid-cols-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Total Stops
-              </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{stats.total}</div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Remaining
-              </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{stats.remaining}</div>
-            </div>
-
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-blue-700">
-                In Progress
-              </div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">{stats.inProgress}</div>
-            </div>
-
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">
-                Completed
-              </div>
-              <div className="mt-2 text-2xl font-bold text-emerald-900">{stats.completed}</div>
-            </div>
-
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-rose-700">
-                Issues
-              </div>
-              <div className="mt-2 text-2xl font-bold text-rose-900">{stats.issues}</div>
-            </div>
-          </div>
         </div>
 
         {loading ? (
@@ -460,7 +316,7 @@ export default function DriverPage() {
           </div>
         ) : orders.length === 0 ? (
           <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            No assigned orders for this driver.
+            No active orders for this driver.
           </div>
         ) : (
           <div className="space-y-4">
@@ -507,40 +363,22 @@ export default function DriverPage() {
                         {order.ticket_number || `#${order.id.slice(0, 8)}`}
                       </div>
 
-                      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mt-3 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Service Address
+                            Address
                           </div>
                           <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(order.service_address)}
+                            {displayValue(stopAddress)}
                           </div>
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Pickup Address
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(order.pickup_address)}
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Service Window
+                            Time
                           </div>
                           <div className="mt-2 text-sm text-slate-900">
                             {displayValue(order.service_window || order.service_time)}
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Scheduled Date
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {formatDate(order.scheduled_date)}
                           </div>
                         </div>
                       </div>
@@ -555,7 +393,7 @@ export default function DriverPage() {
                             rel="noreferrer"
                             className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                           >
-                            Open This Stop
+                            Open in Maps
                           </a>
                         ) : null}
 
@@ -565,7 +403,7 @@ export default function DriverPage() {
                           disabled={isSaving || order.status === 'completed'}
                           className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {isSaving ? 'Saving...' : 'Start Stop'}
+                          {isSaving ? 'Saving...' : 'Start Order'}
                         </button>
 
                         <button
@@ -574,7 +412,7 @@ export default function DriverPage() {
                           disabled={isSaving || order.status === 'completed'}
                           className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {isSaving ? 'Saving...' : 'Mark Completed'}
+                          {isSaving ? 'Saving...' : 'Complete Order'}
                         </button>
 
                         <button
@@ -628,46 +466,10 @@ export default function DriverPage() {
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin ID
+                          Scheduled Date
                         </div>
                         <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_id)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Old Bin ID
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.old_bin_id)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Route Position
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.route_position)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Completed By
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.completed_by)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Completed At
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {formatDateTime(order.completed_at)}
+                          {formatDate(order.scheduled_date)}
                         </div>
                       </div>
 
@@ -686,16 +488,25 @@ export default function DriverPage() {
             })}
           </div>
         )}
-
-        <div className="mt-6 flex justify-center">
-          <Link
-            href="/login"
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            Back to Login
-          </Link>
-        </div>
       </div>
     </div>
+  )
+}
+
+export default function DriverAppPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-100">
+          <div className="mx-auto max-w-6xl p-4 md:p-6">
+            <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
+              Loading driver app...
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <DriverAppContent />
+    </Suspense>
   )
 }
