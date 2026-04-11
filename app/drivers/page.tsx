@@ -72,10 +72,6 @@ function formatDateTime(date: string | null | undefined) {
   return parsed.toLocaleString()
 }
 
-function getOrderAddress(order: Order) {
-  return order.service_address || order.pickup_address || '—'
-}
-
 function shortId(value: string | null | undefined) {
   if (!value) return '—'
   return value.slice(0, 8)
@@ -93,6 +89,7 @@ export default function DriversPage() {
   const [savingTruck, setSavingTruck] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deletingTruckId, setDeletingTruckId] = useState<string | null>(null)
+  const [resettingLinkId, setResettingLinkId] = useState<string | null>(null)
   const [pageError, setPageError] = useState('')
 
   const [search, setSearch] = useState('')
@@ -472,6 +469,35 @@ export default function DriversPage() {
     setDeletingId(null)
   }
 
+  async function handleResetLink(driver: Driver) {
+    if (!driver.auth_user_id) return
+
+    const confirmed = window.confirm(
+      `Reset login link for ${driver.name || 'this driver'}?\n\nThis will remove the current auth connection.`
+    )
+    if (!confirmed) return
+
+    setResettingLinkId(driver.id)
+    setPageError('')
+
+    const { error } = await supabase
+      .from('drivers')
+      .update({
+        auth_user_id: null,
+        last_login_at: null,
+      })
+      .eq('id', driver.id)
+
+    if (error) {
+      setPageError(error.message)
+      setResettingLinkId(null)
+      return
+    }
+
+    await refreshAll()
+    setResettingLinkId(null)
+  }
+
   async function handleQuickStatus(driver: Driver, value: string) {
     const activeOrders = driverStats.activeOrdersByDriver[driver.id] || 0
 
@@ -595,7 +621,7 @@ export default function DriversPage() {
                 Drivers
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Manage drivers, truck alignment, and dispatch readiness
+                Manage drivers, truck alignment, dispatch readiness, and login access
               </p>
             </div>
 
@@ -851,13 +877,23 @@ export default function DriversPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex justify-end gap-2 flex-wrap">
                             <Link
                               href="/driver"
                               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                             >
                               Driver App
                             </Link>
+
+                            {isLinked ? (
+                              <button
+                                onClick={() => handleResetLink(driver)}
+                                disabled={resettingLinkId === driver.id}
+                                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                              >
+                                {resettingLinkId === driver.id ? 'Resetting...' : 'Reset Link'}
+                              </button>
+                            ) : null}
 
                             <button
                               onClick={() => openEditDriverModal(driver)}
