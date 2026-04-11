@@ -331,6 +331,10 @@ export default function DispatchBoardPage() {
     const currentOrder = orders.find((order) => order.id === id)
     if (!currentOrder) return false
 
+    if (currentOrder.status === 'completed' && Object.prototype.hasOwnProperty.call(values, 'status')) {
+      return false
+    }
+
     const previousDriverId = currentOrder.driver_id
 
     const { error } = await supabase.from(TABLE_NAME).update(values).eq('id', id)
@@ -358,12 +362,23 @@ export default function DispatchBoardPage() {
 
   async function handleDrop(newStatus: string) {
     if (!draggingOrderId) return
+
+    const currentOrder = orders.find((order) => order.id === draggingOrderId)
+    if (currentOrder?.status === 'completed') {
+      setDraggingOrderId(null)
+      setDragOverColumn(null)
+      return
+    }
+
     await updateOrder(draggingOrderId, { status: newStatus })
     setDraggingOrderId(null)
     setDragOverColumn(null)
   }
 
   async function handleQuickAssign(orderId: string, driverId: string) {
+    const currentOrder = orders.find((order) => order.id === orderId)
+    if (!currentOrder || currentOrder.status === 'completed') return
+
     await updateOrder(orderId, {
       driver_id: driverId || null,
       status: driverId ? 'in_progress' : 'unassigned',
@@ -584,77 +599,42 @@ export default function DispatchBoardPage() {
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
 
                       return (
-                        <div
+                        <button
                           key={order.id}
+                          type="button"
                           draggable
                           onDragStart={() => setDraggingOrderId(order.id)}
                           onDragEnd={() => {
                             setDraggingOrderId(null)
                             setDragOverColumn(null)
                           }}
-                          className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                          onClick={() => openOrder(order.id)}
+                          className={`block w-full rounded-2xl border bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                             draggingOrderId === order.id
                               ? 'cursor-grabbing border-sky-300 opacity-60 ring-2 ring-sky-200'
                               : 'cursor-grab border-slate-200'
                           }`}
                         >
-                          <button
-                            type="button"
-                            onClick={() => openOrder(order.id)}
-                            className="w-full rounded-xl text-left outline-none"
-                          >
-                            <div className="space-y-3">
-                              <div>
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                  Client
-                                </div>
-                                <div className="mt-1 text-sm font-semibold text-slate-900">
-                                  {order.customer_name || 'No customer'}
-                                </div>
+                          <div className="space-y-2">
+                            <div>
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                Client
                               </div>
-
-                              <div>
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                  Driver
-                                </div>
-                                <div className="mt-1 text-sm text-slate-700">
-                                  {assignedDriver?.name || 'Unassigned'}
-                                </div>
+                              <div className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">
+                                {order.customer_name || 'No customer'}
                               </div>
                             </div>
-                          </button>
 
-                          <div className="mt-4 space-y-2">
-                            <select
-                              value={order.driver_id || ''}
-                              onChange={(e) => handleQuickAssign(order.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                            >
-                              <option value="">Assign driver</option>
-                              {drivers
-                                .filter((driver) => driver.status !== 'offline')
-                                .map((driver) => (
-                                  <option key={driver.id} value={driver.id}>
-                                    {driver.name || 'Unnamed Driver'}
-                                  </option>
-                                ))}
-                            </select>
-
-                            <select
-                              value={order.status || 'unassigned'}
-                              onChange={(e) => updateOrder(order.id, { status: e.target.value })}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                            >
-                              <option value="unassigned">Unassigned</option>
-                              <option value="assigned">Assigned</option>
-                              <option value="in_progress">In Progress</option>
-                              <option value="completed">Completed</option>
-                              <option value="issue">Issue</option>
-                            </select>
+                            <div>
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                Driver
+                              </div>
+                              <div className="mt-1 line-clamp-1 text-sm text-slate-700">
+                                {assignedDriver?.name || 'Unassigned'}
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        </button>
                       )
                     })}
 
@@ -779,7 +759,8 @@ export default function DispatchBoardPage() {
                   <select
                     value={selectedOrder.driver_id || ''}
                     onChange={(e) => handleQuickAssign(selectedOrder.id, e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                    disabled={selectedOrder.status === 'completed'}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
                   >
                     <option value="">Assign driver</option>
                     {drivers
@@ -801,7 +782,8 @@ export default function DispatchBoardPage() {
                     onChange={(e) =>
                       updateOrder(selectedOrder.id, { status: e.target.value })
                     }
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                    disabled={selectedOrder.status === 'completed'}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
                   >
                     <option value="unassigned">Unassigned</option>
                     <option value="assigned">Assigned</option>
@@ -809,6 +791,11 @@ export default function DispatchBoardPage() {
                     <option value="completed">Completed</option>
                     <option value="issue">Issue</option>
                   </select>
+                  {selectedOrder.status === 'completed' ? (
+                    <p className="mt-2 text-xs font-medium text-emerald-700">
+                      Completed orders are read-only for dispatch.
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>
