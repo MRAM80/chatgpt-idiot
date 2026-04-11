@@ -19,9 +19,9 @@ type Order = {
   service_address?: string | null
   service_time?: string | null
   service_window?: string | null
-  bin_id: string | null
-  old_bin_id: string | null
-  bin_size: string | null
+  bin_id: string | number | null
+  old_bin_id: string | number | null
+  bin_size: string | number | null
   bin_type: string | null
   order_type: string | null
   scheduled_date: string | null
@@ -72,15 +72,30 @@ function formatStatus(status: string | null | undefined) {
 function formatDate(dateValue: string | null | undefined) {
   if (!dateValue) return '—'
   const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) return dateValue
+  if (Number.isNaN(date.getTime())) return String(dateValue)
   return date.toLocaleDateString()
 }
 
 function formatDateTime(dateValue: string | null | undefined) {
   if (!dateValue) return '—'
   const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) return dateValue
+  if (Number.isNaN(date.getTime())) return String(dateValue)
   return date.toLocaleString()
+}
+
+function displayValue(value: unknown) {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') {
+    return value.trim() ? value : '—'
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
 }
 
 function StatusHeaderIcon({ statusKey }: { statusKey: string }) {
@@ -143,14 +158,14 @@ function DetailItem({
   value,
 }: {
   label: string
-  value: string | null | undefined
+  value: unknown
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {label}
       </div>
-      <div className="mt-2 text-sm text-slate-900">{value && value.trim() ? value : '—'}</div>
+      <div className="mt-2 text-sm text-slate-900">{displayValue(value)}</div>
     </div>
   )
 }
@@ -605,7 +620,7 @@ export default function DispatchBoardPage() {
                   Ticket Number
                 </div>
                 <div className="mt-1 text-2xl font-bold text-slate-900">
-                  {selectedOrder.ticket_number || `#${selectedOrder.id.slice(0, 8)}`}
+                  {displayValue(selectedOrder.ticket_number || `#${selectedOrder.id.slice(0, 8)}`)}
                 </div>
                 <div className="mt-2 text-sm text-slate-500">
                   Order details opened from Dispatch Board
@@ -633,13 +648,15 @@ export default function DispatchBoardPage() {
 
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
                   Driver:{' '}
-                  {selectedOrder.driver_id
-                    ? driverMap[selectedOrder.driver_id]?.name || 'Assigned'
-                    : 'Unassigned'}
+                  {displayValue(
+                    selectedOrder.driver_id
+                      ? driverMap[selectedOrder.driver_id]?.name || 'Assigned'
+                      : 'Unassigned'
+                  )}
                 </span>
 
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                  Type: {selectedOrder.order_type || '—'}
+                  Type: {displayValue(selectedOrder.order_type)}
                 </span>
               </div>
 
@@ -666,10 +683,7 @@ export default function DispatchBoardPage() {
                 <DetailItem label="Created At" value={formatDateTime(selectedOrder.created_at)} />
                 <DetailItem label="Updated At" value={formatDateTime(selectedOrder.updated_at)} />
                 <DetailItem label="Completed By" value={selectedOrder.completed_by} />
-                <DetailItem
-                  label="Completed At"
-                  value={formatDateTime(selectedOrder.completed_at)}
-                />
+                <DetailItem label="Completed At" value={formatDateTime(selectedOrder.completed_at)} />
               </div>
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -677,7 +691,7 @@ export default function DispatchBoardPage() {
                   Notes
                 </div>
                 <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
-                  {selectedOrder.notes?.trim() ? selectedOrder.notes : '—'}
+                  {displayValue(selectedOrder.notes)}
                 </div>
               </div>
 
