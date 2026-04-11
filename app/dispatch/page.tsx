@@ -375,7 +375,7 @@ export default function DispatchBoardPage() {
     setDragOverColumn(null)
   }
 
-  async function handleQuickAssign(orderId: string, driverId: string) {
+  async function handleAssignFromModal(orderId: string, driverId: string) {
     const currentOrder = orders.find((order) => order.id === orderId)
     if (!currentOrder || currentOrder.status === 'completed') return
 
@@ -553,18 +553,14 @@ export default function DispatchBoardPage() {
                   key={column.key}
                   onDragOver={(e) => {
                     e.preventDefault()
-                    if (dragOverColumn !== column.key) {
-                      setDragOverColumn(column.key)
-                    }
+                    if (dragOverColumn !== column.key) setDragOverColumn(column.key)
                   }}
                   onDragEnter={(e) => {
                     e.preventDefault()
                     setDragOverColumn(column.key)
                   }}
                   onDragLeave={() => {
-                    if (dragOverColumn === column.key) {
-                      setDragOverColumn(null)
-                    }
+                    if (dragOverColumn === column.key) setDragOverColumn(null)
                   }}
                   onDrop={() => handleDrop(column.key)}
                   className={`min-h-[520px] rounded-3xl p-4 shadow-sm ring-1 transition-all duration-150 ${
@@ -599,19 +595,23 @@ export default function DispatchBoardPage() {
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
 
                       return (
-                        <button
+                        <div
                           key={order.id}
-                          type="button"
-                          draggable
-                          onDragStart={() => setDraggingOrderId(order.id)}
+                          draggable={order.status !== 'completed'}
+                          onDragStart={() => {
+                            if (order.status === 'completed') return
+                            setDraggingOrderId(order.id)
+                          }}
                           onDragEnd={() => {
                             setDraggingOrderId(null)
                             setDragOverColumn(null)
                           }}
                           onClick={() => openOrder(order.id)}
-                          className={`block w-full rounded-2xl border bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                          className={`rounded-2xl border bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                             draggingOrderId === order.id
                               ? 'cursor-grabbing border-sky-300 opacity-60 ring-2 ring-sky-200'
+                              : order.status === 'completed'
+                              ? 'cursor-pointer border-slate-200'
                               : 'cursor-grab border-slate-200'
                           }`}
                         >
@@ -634,7 +634,7 @@ export default function DispatchBoardPage() {
                               </div>
                             </div>
                           </div>
-                        </button>
+                        </div>
                       )
                     })}
 
@@ -667,8 +667,14 @@ export default function DispatchBoardPage() {
       </div>
 
       {modalOpen && selectedOrder ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px] animate-[fadeIn_.18s_ease-out]">
-          <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl ring-1 ring-slate-200 animate-[modalIn_.2s_ease-out]">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
+          onClick={closeOrderModal}
+        >
+          <div
+            className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl ring-1 ring-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -736,10 +742,7 @@ export default function DispatchBoardPage() {
                 <DetailItem label="Created At" value={formatDateTime(selectedOrder.created_at)} />
                 <DetailItem label="Updated At" value={formatDateTime(selectedOrder.updated_at)} />
                 <DetailItem label="Completed By" value={selectedOrder.completed_by} />
-                <DetailItem
-                  label="Completed At"
-                  value={formatDateTime(selectedOrder.completed_at)}
-                />
+                <DetailItem label="Completed At" value={formatDateTime(selectedOrder.completed_at)} />
               </div>
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -758,7 +761,7 @@ export default function DispatchBoardPage() {
                   </label>
                   <select
                     value={selectedOrder.driver_id || ''}
-                    onChange={(e) => handleQuickAssign(selectedOrder.id, e.target.value)}
+                    onChange={(e) => handleAssignFromModal(selectedOrder.id, e.target.value)}
                     disabled={selectedOrder.status === 'completed'}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
                   >
@@ -779,9 +782,7 @@ export default function DispatchBoardPage() {
                   </label>
                   <select
                     value={selectedOrder.status || 'unassigned'}
-                    onChange={(e) =>
-                      updateOrder(selectedOrder.id, { status: e.target.value })
-                    }
+                    onChange={(e) => updateOrder(selectedOrder.id, { status: e.target.value })}
                     disabled={selectedOrder.status === 'completed'}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
                   >
@@ -791,6 +792,7 @@ export default function DispatchBoardPage() {
                     <option value="completed">Completed</option>
                     <option value="issue">Issue</option>
                   </select>
+
                   {selectedOrder.status === 'completed' ? (
                     <p className="mt-2 text-xs font-medium text-emerald-700">
                       Completed orders are read-only for dispatch.
@@ -801,7 +803,7 @@ export default function DispatchBoardPage() {
             </div>
 
             <div className="border-t border-slate-200 bg-slate-50 px-6 py-4">
-              <div className="flex flex-wrap justify-end gap-3">
+              <div className="flex justify-end">
                 <button
                   type="button"
                   onClick={closeOrderModal}
@@ -812,28 +814,6 @@ export default function DispatchBoardPage() {
               </div>
             </div>
           </div>
-
-          <style jsx global>{`
-            @keyframes fadeIn {
-              from {
-                opacity: 0;
-              }
-              to {
-                opacity: 1;
-              }
-            }
-
-            @keyframes modalIn {
-              from {
-                opacity: 0;
-                transform: translateY(10px) scale(0.985);
-              }
-              to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-              }
-            }
-          `}</style>
         </div>
       ) : null}
     </div>
