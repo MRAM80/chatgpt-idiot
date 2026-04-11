@@ -173,7 +173,6 @@ export default function DispatchBoardPage() {
 
   const [dragState, setDragState] = useState<DragState>(null)
   const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
-  const [copiedDriverId, setCopiedDriverId] = useState<string | null>(null)
 
   async function loadDrivers() {
     const { data, error } = await supabase
@@ -632,22 +631,6 @@ export default function DispatchBoardPage() {
     await moveOrderToColumn(movingOrderId, targetColumnKey, beforeId)
   }
 
-  async function copyDriverRouteLink(driverId: string) {
-    try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : ''
-      const link = `${origin}/driver-route?driverId=${encodeURIComponent(driverId)}`
-
-      await navigator.clipboard.writeText(link)
-      setCopiedDriverId(driverId)
-
-      window.setTimeout(() => {
-        setCopiedDriverId((current) => (current === driverId ? null : current))
-      }, 2000)
-    } catch {
-      setPageError('Could not copy driver link.')
-    }
-  }
-
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-[1800px] p-4 md:p-6">
@@ -758,25 +741,6 @@ export default function DispatchBoardPage() {
                         {columnOrders.length}
                       </span>
                     </div>
-
-                    {column.key !== 'unassigned' ? (
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => copyDriverRouteLink(column.key)}
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-                        >
-                          {copiedDriverId === column.key ? 'Copied!' : 'Copy Driver Link'}
-                        </button>
-
-                        <Link
-                          href={`/driver-route?driverId=${encodeURIComponent(column.key)}`}
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-                        >
-                          Open Route
-                        </Link>
-                      </div>
-                    ) : null}
                   </div>
 
                   <div

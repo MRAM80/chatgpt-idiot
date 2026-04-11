@@ -19,14 +19,83 @@ export default function LoginPage() {
 
     const supabase = createClient()
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
-    if (error) {
-      setError(error.message)
+    if (signInError) {
+      setError(signInError.message)
       setLoading(false)
+      return
+    }
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      setError(userError?.message || 'Could not load signed in user.')
+      setLoading(false)
+      return
+    }
+
+    let linkedDriverId: string | null = null
+
+    const { data: driverByAuth, error: driverByAuthError } = await supabase
+      .from('drivers')
+      .select('id, auth_user_id, email')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+
+    if (driverByAuthError) {
+      setError(driverByAuthError.message)
+      setLoading(false)
+      return
+    }
+
+    if (driverByAuth?.id) {
+      linkedDriverId = driverByAuth.id
+    } else {
+      const normalizedEmail = (user.email || '').trim().toLowerCase()
+
+      if (normalizedEmail) {
+        const { data: driverByEmail, error: driverByEmailError } = await supabase
+          .from('drivers')
+          .select('id, auth_user_id, email')
+          .ilike('email', normalizedEmail)
+          .maybeSingle()
+
+        if (driverByEmailError) {
+          setError(driverByEmailError.message)
+          setLoading(false)
+          return
+        }
+
+        if (driverByEmail?.id) {
+          const { error: linkError } = await supabase
+            .from('drivers')
+            .update({
+              auth_user_id: user.id,
+              last_login_at: new Date().toISOString(),
+            })
+            .eq('id', driverByEmail.id)
+
+          if (linkError) {
+            setError(linkError.message)
+            setLoading(false)
+            return
+          }
+
+          linkedDriverId = driverByEmail.id
+        }
+      }
+    }
+
+    if (linkedDriverId) {
+      router.push('/driver')
+      router.refresh()
       return
     }
 
@@ -85,7 +154,7 @@ export default function LoginPage() {
             </div>
 
             <div className="text-sm text-slate-400">
-              SIMPLIITRASH Admin Access
+              SIMPLIITRASH Secure Access
             </div>
           </div>
         </div>
@@ -110,7 +179,7 @@ export default function LoginPage() {
                   Welcome back
                 </h2>
                 <p className="mt-2 text-sm text-slate-500">
-                  Sign in to access your dispatch dashboard and operations tools.
+                  Sign in to access your dashboard or driver route.
                 </p>
               </div>
 
@@ -159,7 +228,7 @@ export default function LoginPage() {
               </form>
 
               <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                Secure access for administrators and dispatch managers.
+                Secure access for dispatch managers and drivers.
               </div>
             </div>
           </div>
