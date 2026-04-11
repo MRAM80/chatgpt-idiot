@@ -34,7 +34,19 @@ type Order = {
   completed_at?: string | null
 }
 
+type BoardColumn = {
+  key: string
+  label: string
+  type: 'unassigned' | 'driver'
+}
+
+type DragState = {
+  orderId: string
+  fromColumnKey: string
+} | null
+
 const TABLE_NAME = 'order'
+const ROUTE_STORAGE_KEY = 'simpliitrash_dispatch_route_order_v1'
 
 const statusStyles: Record<string, string> = {
   unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
@@ -99,6 +111,57 @@ function DetailItem({
   )
 }
 
+function DragHandleIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+      <path d="M7 4.5A1.5 1.5 0 1 1 4 4.5a1.5 1.5 0 0 1 3 0Zm0 5.5A1.5 1.5 0 1 1 4 10a1.5 1.5 0 0 1 3 0Zm-1.5 7A1.5 1.5 0 1 0 5.5 14a1.5 1.5 0 0 0 0 3Zm10-12.5a1.5 1.5 0 1 1-3 0a1.5 1.5 0 0 1 3 0Zm-1.5 7a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3Zm1.5 4a1.5 1.5 0 1 1-3 0a1.5 1.5 0 0 1 3 0Z" />
+    </svg>
+  )
+}
+
+function loadStoredRouteOrder(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(ROUTE_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function persistRouteOrder(orderIds: string[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(orderIds))
+}
+
+function mergeRouteOrder(storedIds: string[], currentOrders: Order[]) {
+  const currentIds = currentOrders.map((order) => order.id)
+  const validStored = storedIds.filter((id) => currentIds.includes(id))
+  const missing = currentIds.filter((id) => !validStored.includes(id))
+  return [...validStored, ...missing]
+}
+
+function reorderIds(orderIds: string[], movingId: string, beforeId?: string | null) {
+  const withoutMoving = orderIds.filter((id) => id !== movingId)
+
+  if (!beforeId) {
+    return [...withoutMoving, movingId]
+  }
+
+  const insertIndex = withoutMoving.indexOf(beforeId)
+  if (insertIndex === -1) {
+    return [...withoutMoving, movingId]
+  }
+
+  return [
+    ...withoutMoving.slice(0, insertIndex),
+    movingId,
+    ...withoutMoving.slice(insertIndex),
+  ]
+}
+
 export default function DispatchBoardPage() {
   const supabase = useMemo(() => createClient(), [])
 
@@ -110,6 +173,10 @@ export default function DispatchBoardPage() {
   const [search, setSearch] = useState('')
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+
+  const [routeOrder, setRouteOrder] = useState<string[]>([])
+  const [dragState, setDragState] = useState<DragState>(null)
+  const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
 
   async function loadDrivers() {
     const { data, error } = await supabase
@@ -199,6 +266,20 @@ export default function DispatchBoardPage() {
     }
   }, [modalOpen])
 
+  useEffect(() => {
+    const stored = loadStoredRouteOrder()
+    setRouteOrder((current) => {
+      if (current.length > 0) return current
+      return mergeRouteOrder(stored, orders)
+    })
+  }, [orders])
+
+  useEffect(() => {
+    if (routeOrder.length > 0) {
+      persistRouteOrder(routeOrder)
+    }
+  }, [routeOrder])
+
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
       acc[driver.id] = driver
@@ -215,9 +296,9 @@ export default function DispatchBoardPage() {
     return orders.find((order) => order.id === selectedOrderId) || null
   }, [orders, selectedOrderId])
 
-  const boardColumns = useMemo(() => {
+  const boardColumns = useMemo<BoardColumn[]>(() => {
     return [
-      { key: 'unassigned', label: 'Unassigned', type: 'unassigned' as const },
+      { key: 'unassigned', label: 'Unassigned', type: 'unassigned' },
       ...activeDrivers.map((driver) => ({
         key: driver.id,
         label: driver.name || 'Unnamed Driver',
@@ -327,17 +408,33 @@ export default function DispatchBoardPage() {
     })
   }, [orders, search, driverMap])
 
-  const groupedOrders = useMemo(() => {
-    return boardColumns.reduce<Record<string, Order[]>>((acc, column) => {
-      acc[column.key] = filteredOrders.filter((order) => {
-        if (column.key === 'unassigned') {
-          return !order.driver_id
-        }
-        return order.driver_id === column.key
-      })
+  const mergedRouteOrder = useMemo(() => {
+    return mergeRouteOrder(routeOrder, filteredOrders)
+  }, [routeOrder, filteredOrders])
+
+  const routeIndexMap = useMemo(() => {
+    return mergedRouteOrder.reduce<Record<string, number>>((acc, id, index) => {
+      acc[id] = index
       return acc
     }, {})
-  }, [filteredOrders, boardColumns])
+  }, [mergedRouteOrder])
+
+  const groupedOrders = useMemo(() => {
+    return boardColumns.reduce<Record<string, Order[]>>((acc, column) => {
+      const matchingOrders = filteredOrders.filter((order) => {
+        if (column.key === 'unassigned') return !order.driver_id
+        return order.driver_id === column.key
+      })
+
+      acc[column.key] = [...matchingOrders].sort((a, b) => {
+        const aIndex = routeIndexMap[a.id] ?? Number.MAX_SAFE_INTEGER
+        const bIndex = routeIndexMap[b.id] ?? Number.MAX_SAFE_INTEGER
+        return aIndex - bIndex
+      })
+
+      return acc
+    }, {})
+  }, [filteredOrders, boardColumns, routeIndexMap])
 
   const stats = useMemo(() => {
     const total = orders.length
@@ -357,6 +454,71 @@ export default function DispatchBoardPage() {
   function closeOrderModal() {
     setModalOpen(false)
     setSelectedOrderId(null)
+  }
+
+  function handleDragStart(
+    event: React.DragEvent<HTMLButtonElement>,
+    orderId: string,
+    fromColumnKey: string
+  ) {
+    event.stopPropagation()
+    setDragState({ orderId, fromColumnKey })
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', orderId)
+  }
+
+  function handleDragEnd() {
+    setDragState(null)
+    setDropTarget(null)
+  }
+
+  function allowDrop(
+    event: React.DragEvent<HTMLDivElement>,
+    columnKey: string,
+    beforeId: string | null
+  ) {
+    event.preventDefault()
+    if (!dragState) return
+    setDropTarget({ columnKey, beforeId })
+  }
+
+  async function moveOrderToColumn(
+    movingOrderId: string,
+    targetColumnKey: string,
+    beforeId: string | null
+  ) {
+    const movingOrder = orders.find((order) => order.id === movingOrderId)
+    if (!movingOrder || movingOrder.status === 'completed') return
+
+    const nextDriverId = targetColumnKey === 'unassigned' ? null : targetColumnKey
+    const driverChanged = movingOrder.driver_id !== nextDriverId
+
+    if (driverChanged) {
+      const ok = await updateOrder(movingOrderId, {
+        driver_id: nextDriverId,
+        status: nextDriverId ? 'assigned' : 'unassigned',
+      })
+      if (!ok) return
+    }
+
+    const currentBaseOrder = mergeRouteOrder(routeOrder, orders)
+    const nextOrder = reorderIds(currentBaseOrder, movingOrderId, beforeId)
+    setRouteOrder(nextOrder)
+  }
+
+  async function handleDrop(
+    event: React.DragEvent<HTMLDivElement>,
+    targetColumnKey: string,
+    beforeId: string | null
+  ) {
+    event.preventDefault()
+    if (!dragState) return
+
+    const movingOrderId = dragState.orderId
+    setDropTarget(null)
+    setDragState(null)
+
+    await moveOrderToColumn(movingOrderId, targetColumnKey, beforeId)
   }
 
   return (
@@ -469,49 +631,91 @@ export default function DispatchBoardPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-3">
+                  <div
+                    className={`space-y-2 rounded-2xl p-1 transition ${
+                      dropTarget?.columnKey === column.key && dropTarget.beforeId === null
+                        ? 'bg-sky-50'
+                        : ''
+                    }`}
+                    onDragOver={(e) => allowDrop(e, column.key, null)}
+                    onDrop={(e) => handleDrop(e, column.key, null)}
+                  >
                     {columnOrders.map((order) => {
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
+                      const showTopDrop =
+                        dropTarget?.columnKey === column.key && dropTarget.beforeId === order.id
 
                       return (
-                        <div
-                          key={order.id}
-                          onClick={() => openOrder(order.id)}
-                          className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                        >
-                          <div className="space-y-2">
-                            <div>
-                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                Client
-                              </div>
-                              <div className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">
-                                {order.customer_name || 'No customer'}
-                              </div>
-                            </div>
+                        <div key={order.id}>
+                          <div
+                            onDragOver={(e) => allowDrop(e, column.key, order.id)}
+                            onDrop={(e) => handleDrop(e, column.key, order.id)}
+                            className={`mb-2 rounded-xl border-2 border-dashed px-2 py-1 text-center text-[11px] font-semibold transition ${
+                              showTopDrop
+                                ? 'border-sky-300 bg-sky-50 text-sky-700'
+                                : 'border-transparent bg-transparent text-transparent'
+                            }`}
+                          >
+                            Drop here
+                          </div>
 
-                            {column.key === 'unassigned' ? (
-                              <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                  Driver
-                                </div>
-                                <div className="mt-1 line-clamp-1 text-sm text-slate-700">
-                                  {assignedDriver?.name || 'Unassigned'}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            <div className="flex items-center justify-between gap-2 pt-1">
-                              <span
-                                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                                  statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
-                                }`}
+                          <div
+                            onClick={() => openOrder(order.id)}
+                            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                          >
+                            <div className="flex items-start gap-3">
+                              <button
+                                type="button"
+                                draggable={order.status !== 'completed'}
+                                onClick={(e) => e.stopPropagation()}
+                                onDragStart={(e) => handleDragStart(e, order.id, column.key)}
+                                onDragEnd={handleDragEnd}
+                                disabled={order.status === 'completed'}
+                                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                title={
+                                  order.status === 'completed'
+                                    ? 'Completed orders cannot be reordered'
+                                    : 'Drag to reorder or move to another driver'
+                                }
                               >
-                                {formatStatus(order.status || 'unassigned')}
-                              </span>
+                                <DragHandleIcon />
+                              </button>
 
-                              <span className="text-[11px] text-slate-400">
-                                {order.ticket_number || `#${order.id.slice(0, 8)}`}
-                              </span>
+                              <div className="min-w-0 flex-1 space-y-2">
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                    Client
+                                  </div>
+                                  <div className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">
+                                    {order.customer_name || 'No customer'}
+                                  </div>
+                                </div>
+
+                                {column.key === 'unassigned' ? (
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                      Driver
+                                    </div>
+                                    <div className="mt-1 line-clamp-1 text-sm text-slate-700">
+                                      {assignedDriver?.name || 'Unassigned'}
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                <div className="flex items-center justify-between gap-2 pt-1">
+                                  <span
+                                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                                      statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
+                                    }`}
+                                  >
+                                    {formatStatus(order.status || 'unassigned')}
+                                  </span>
+
+                                  <span className="text-[11px] text-slate-400">
+                                    {order.ticket_number || `#${order.id.slice(0, 8)}`}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
