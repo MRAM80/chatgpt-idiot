@@ -650,7 +650,7 @@ export default function BinsPage() {
 
   const selectedBinOrders = useMemo(() => {
     if (!editingBin) return []
-    return [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest)
+    return [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest).slice(0, 20)
   }, [editingBin, orders])
 
   return (
@@ -1036,16 +1036,6 @@ export default function BinsPage() {
                       label="Order History Count"
                       value={String(selectedBinState?.totalOrders || 0)}
                     />
-
-                    <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                      <div className="font-semibold text-slate-900">Operational Logic</div>
-                      <div className="mt-2 space-y-1">
-                        <p>• Delivery completed: bin stays at client site and remains In Use.</p>
-                        <p>• Dump Return completed: bin goes back to the same client site and remains In Use.</p>
-                        <p>• Exchange completed: new bin stays at the client site; picked up bin goes to Dump / Return to Yard.</p>
-                        <p>• Removal completed: picked up bin goes to Dump / Return to Yard before it can become Available.</p>
-                      </div>
-                    </div>
 
                     <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white">
                       <div className="border-b border-slate-200 px-4 py-3">
