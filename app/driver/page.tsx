@@ -253,7 +253,7 @@ export default function DriverPage() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       void loadPage()
-    }, 60000)
+    }, 300000)
 
     return () => {
       window.clearInterval(interval)
