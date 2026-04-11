@@ -1,14 +1,16 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Driver = {
   id: string
   name: string | null
+  email?: string | null
   phone: string | null
   status: string | null
+  auth_user_id?: string | null
 }
 
 type Order = {
@@ -109,10 +111,9 @@ function buildGoogleMapsLink(orders: Order[]) {
   return `https://www.google.com/maps/dir/?${params.toString()}`
 }
 
-function DriverAppContent() {
+export default function DriverPage() {
+  const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
-  const searchParams = useSearchParams()
-  const driverId = searchParams.get('driverId') || ''
 
   const [driver, setDriver] = useState<Driver | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
@@ -121,36 +122,97 @@ function DriverAppContent() {
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
 
-  async function loadPage() {
-    if (!driverId) {
-      setPageError('Missing driverId in URL.')
-      setLoading(false)
-      return
+  async function resolveDriver() {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      router.push('/login')
+      return null
     }
 
+    const { data: driverByAuth, error: driverByAuthError } = await supabase
+      .from('drivers')
+      .select('id,name,email,phone,status,auth_user_id')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+
+    if (driverByAuthError) {
+      setPageError(driverByAuthError.message)
+      return null
+    }
+
+    if (driverByAuth) {
+      return driverByAuth as Driver
+    }
+
+    const normalizedEmail = (user.email || '').trim().toLowerCase()
+
+    if (!normalizedEmail) {
+      setPageError('This account is not linked to a driver profile.')
+      return null
+    }
+
+    const { data: driverByEmail, error: driverByEmailError } = await supabase
+      .from('drivers')
+      .select('id,name,email,phone,status,auth_user_id')
+      .ilike('email', normalizedEmail)
+      .maybeSingle()
+
+    if (driverByEmailError) {
+      setPageError(driverByEmailError.message)
+      return null
+    }
+
+    if (!driverByEmail) {
+      setPageError('This account is not linked to a driver profile.')
+      return null
+    }
+
+    const { error: linkError } = await supabase
+      .from('drivers')
+      .update({
+        auth_user_id: user.id,
+        last_login_at: new Date().toISOString(),
+      })
+      .eq('id', driverByEmail.id)
+
+    if (linkError) {
+      setPageError(linkError.message)
+      return null
+    }
+
+    return {
+      ...driverByEmail,
+      auth_user_id: user.id,
+    } as Driver
+  }
+
+  async function loadPage() {
     setPageError('')
     setLoading(true)
 
-    const [{ data: driverData, error: driverError }, { data: orderData, error: ordersError }] =
-      await Promise.all([
-        supabase.from('drivers').select('id,name,phone,status').eq('id', driverId).single(),
-        supabase
-          .from(TABLE_NAME)
-          .select(
-            'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
-          )
-          .eq('driver_id', driverId)
-          .neq('status', 'completed')
-          .order('route_position', { ascending: true })
-          .order('scheduled_date', { ascending: true })
-          .order('created_at', { ascending: true }),
-      ])
+    const resolvedDriver = await resolveDriver()
 
-    if (driverError) {
-      setPageError(driverError.message)
+    if (!resolvedDriver) {
       setLoading(false)
       return
     }
+
+    setDriver(resolvedDriver)
+
+    const { data: orderData, error: ordersError } = await supabase
+      .from(TABLE_NAME)
+      .select(
+        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
+      )
+      .eq('driver_id', resolvedDriver.id)
+      .neq('status', 'completed')
+      .order('route_position', { ascending: true })
+      .order('scheduled_date', { ascending: true })
+      .order('created_at', { ascending: true })
 
     if (ordersError) {
       setPageError(ordersError.message)
@@ -158,7 +220,6 @@ function DriverAppContent() {
       return
     }
 
-    setDriver((driverData as Driver) || null)
     setOrders((orderData as Order[]) || [])
     setLoading(false)
   }
@@ -167,7 +228,7 @@ function DriverAppContent() {
     void loadPage()
 
     const channel = supabase
-      .channel(`driver-app-${driverId}`)
+      .channel('driver-page-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: TABLE_NAME },
@@ -187,7 +248,7 @@ function DriverAppContent() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [supabase, driverId])
+  }, [supabase])
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -197,7 +258,7 @@ function DriverAppContent() {
     return () => {
       window.clearInterval(interval)
     }
-  }, [driverId])
+  }, [])
 
   const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
 
@@ -490,23 +551,5 @@ function DriverAppContent() {
         )}
       </div>
     </div>
-  )
-}
-
-export default function DriverAppPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-slate-100">
-          <div className="mx-auto max-w-6xl p-4 md:p-6">
-            <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-              Loading driver app...
-            </div>
-          </div>
-        </div>
-      }
-    >
-      <DriverAppContent />
-    </Suspense>
   )
 }
