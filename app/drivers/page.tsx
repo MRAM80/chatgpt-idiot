@@ -878,13 +878,6 @@ export default function DriversPage() {
 
                         <td className="px-4 py-4 align-top">
                           <div className="flex justify-end gap-2 flex-wrap">
-                            <Link
-                              href="/driver"
-                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                            >
-                              Driver App
-                            </Link>
-
                             {isLinked ? (
                               <button
                                 onClick={() => handleResetLink(driver)}
