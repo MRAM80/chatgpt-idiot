@@ -36,28 +36,12 @@ type Order = {
 
 const TABLE_NAME = 'order'
 
-const BOARD_COLUMNS = [
-  { key: 'unassigned', label: 'Unassigned' },
-  { key: 'assigned', label: 'Assigned' },
-  { key: 'in_progress', label: 'In Progress' },
-  { key: 'completed', label: 'Completed' },
-  { key: 'issue', label: 'Issue' },
-] as const
-
 const statusStyles: Record<string, string> = {
   unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
   assigned: 'border-blue-200 bg-blue-50 text-blue-700',
   in_progress: 'border-amber-200 bg-amber-50 text-amber-700',
   completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   issue: 'border-rose-200 bg-rose-50 text-rose-700',
-}
-
-const columnHeaderStyles: Record<string, string> = {
-  unassigned: 'border-slate-200 bg-slate-100 text-slate-700',
-  assigned: 'border-blue-200 bg-blue-100 text-blue-700',
-  in_progress: 'border-amber-200 bg-amber-100 text-amber-700',
-  completed: 'border-emerald-200 bg-emerald-100 text-emerald-700',
-  issue: 'border-rose-200 bg-rose-100 text-rose-700',
 }
 
 function formatStatus(status: string | null | undefined) {
@@ -98,61 +82,6 @@ function displayValue(value: unknown) {
   }
 }
 
-function StatusHeaderIcon({ statusKey }: { statusKey: string }) {
-  const common = 'h-4 w-4 shrink-0'
-
-  if (statusKey === 'unassigned') {
-    return (
-      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
-        <circle cx="10" cy="10" r="5.5" />
-      </svg>
-    )
-  }
-
-  if (statusKey === 'assigned') {
-    return (
-      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
-        <path d="M10 2.5a3.25 3.25 0 1 1 0 6.5a3.25 3.25 0 0 1 0-6.5Z" />
-        <path d="M4.5 15.25c0-2.15 2.36-3.75 5.5-3.75s5.5 1.6 5.5 3.75v.75H4.5v-.75Z" />
-      </svg>
-    )
-  }
-
-  if (statusKey === 'in_progress') {
-    return (
-      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
-        <path
-          fillRule="evenodd"
-          d="M10 3.25a6.75 6.75 0 1 0 6.75 6.75A6.758 6.758 0 0 0 10 3.25Zm.75 2.75a.75.75 0 0 0-1.5 0v4.25c0 .24.115.465.31.606l2.5 1.8a.75.75 0 1 0 .88-1.214l-2.19-1.577V6Z"
-          clipRule="evenodd"
-        />
-      </svg>
-    )
-  }
-
-  if (statusKey === 'completed') {
-    return (
-      <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
-        <path
-          fillRule="evenodd"
-          d="M16.704 5.29a.75.75 0 0 1 .006 1.06l-7.2 7.286a.75.75 0 0 1-1.07.002L4.79 9.977a.75.75 0 1 1 1.06-1.06l3.116 3.115l6.678-6.758a.75.75 0 0 1 1.06.016Z"
-          clipRule="evenodd"
-        />
-      </svg>
-    )
-  }
-
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className={common} aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M10 2.75a7.25 7.25 0 1 0 0 14.5a7.25 7.25 0 0 0 0-14.5Zm0 3a.75.75 0 0 1 .75.75v4a.75.75 0 0 1-1.5 0v-4A.75.75 0 0 1 10 5.75Zm0 7a1 1 0 1 0 0 2a1 1 0 0 0 0-2Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  )
-}
-
 function DetailItem({
   label,
   value,
@@ -179,9 +108,6 @@ export default function DispatchBoardPage() {
   const [pageError, setPageError] = useState('')
 
   const [search, setSearch] = useState('')
-  const [driverFilter, setDriverFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -189,6 +115,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from('drivers')
       .select('id,name,phone,status')
+      .neq('status', 'offline')
       .order('name', { ascending: true })
 
     if (error) {
@@ -208,6 +135,7 @@ export default function DispatchBoardPage() {
         'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at,completed_by,completed_at'
       )
       .order('scheduled_date', { ascending: true })
+      .order('created_at', { ascending: true })
 
     if (error) {
       setPageError(error.message)
@@ -278,10 +206,25 @@ export default function DispatchBoardPage() {
     }, {})
   }, [drivers])
 
+  const activeDrivers = useMemo(() => {
+    return drivers.filter((driver) => driver.status !== 'offline')
+  }, [drivers])
+
   const selectedOrder = useMemo(() => {
     if (!selectedOrderId) return null
     return orders.find((order) => order.id === selectedOrderId) || null
   }, [orders, selectedOrderId])
+
+  const boardColumns = useMemo(() => {
+    return [
+      { key: 'unassigned', label: 'Unassigned', type: 'unassigned' as const },
+      ...activeDrivers.map((driver) => ({
+        key: driver.id,
+        label: driver.name || 'Unnamed Driver',
+        type: 'driver' as const,
+      })),
+    ]
+  }, [activeDrivers])
 
   async function syncDriverStatuses(driverId: string) {
     const { data: orderData, error: ordersError } = await supabase
@@ -366,7 +309,7 @@ export default function DispatchBoardPage() {
 
     await updateOrder(orderId, {
       driver_id: driverId || null,
-      status: driverId ? 'in_progress' : 'unassigned',
+      status: driverId ? 'assigned' : 'unassigned',
     })
   }
 
@@ -375,43 +318,36 @@ export default function DispatchBoardPage() {
       const q = search.trim().toLowerCase()
       const driverName = driverMap[order.driver_id || '']?.name || ''
 
-      const matchesSearch =
+      return (
         !q ||
         (order.ticket_number || '').toLowerCase().includes(q) ||
         (order.customer_name || '').toLowerCase().includes(q) ||
         driverName.toLowerCase().includes(q)
-
-      const matchesDriver =
-        driverFilter === 'all' || (order.driver_id || '') === driverFilter
-
-      const normalizedStatus = order.status || 'unassigned'
-      const matchesStatus =
-        statusFilter === 'all' || normalizedStatus === statusFilter
-
-      return matchesSearch && matchesDriver && matchesStatus
+      )
     })
-  }, [orders, search, driverFilter, statusFilter, driverMap])
+  }, [orders, search, driverMap])
 
   const groupedOrders = useMemo(() => {
-    return BOARD_COLUMNS.reduce<Record<string, Order[]>>((acc, column) => {
-      acc[column.key] = filteredOrders.filter(
-        (order) => (order.status || 'unassigned') === column.key
-      )
+    return boardColumns.reduce<Record<string, Order[]>>((acc, column) => {
+      acc[column.key] = filteredOrders.filter((order) => {
+        if (column.key === 'unassigned') {
+          return !order.driver_id
+        }
+        return order.driver_id === column.key
+      })
       return acc
     }, {})
-  }, [filteredOrders])
+  }, [filteredOrders, boardColumns])
 
   const stats = useMemo(() => {
     const total = orders.length
-    const unassigned = orders.filter(
-      (order) => (order.status || 'unassigned') === 'unassigned'
-    ).length
-    const assigned = orders.filter((order) => order.status === 'assigned').length
+    const unassigned = orders.filter((order) => !order.driver_id).length
+    const assignedDrivers = activeDrivers.length
     const inProgress = orders.filter((order) => order.status === 'in_progress').length
     const completed = orders.filter((order) => order.status === 'completed').length
 
-    return { total, unassigned, assigned, inProgress, completed }
-  }, [orders])
+    return { total, unassigned, assignedDrivers, inProgress, completed }
+  }, [orders, activeDrivers])
 
   function openOrder(orderId: string) {
     setSelectedOrderId(orderId)
@@ -425,7 +361,7 @@ export default function DispatchBoardPage() {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <div className="mx-auto max-w-[1800px] p-4 md:p-6">
         <div className="mb-6 flex flex-col gap-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
@@ -433,7 +369,7 @@ export default function DispatchBoardPage() {
                 Dispatch Board
               </h1>
               <p className="text-sm text-slate-500">
-                Cleaner dispatch view for high-volume daily operations
+                Driver-based route planning and daily workflow monitoring
               </p>
             </div>
 
@@ -458,24 +394,28 @@ export default function DispatchBoardPage() {
               </div>
               <div className="mt-2 text-2xl font-bold text-slate-900">{stats.total}</div>
             </div>
+
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
                 Unassigned
               </div>
               <div className="mt-2 text-2xl font-bold text-slate-900">{stats.unassigned}</div>
             </div>
+
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
               <div className="text-xs font-medium uppercase tracking-wide text-blue-700">
-                Assigned
+                Active Drivers
               </div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">{stats.assigned}</div>
+              <div className="mt-2 text-2xl font-bold text-blue-900">{stats.assignedDrivers}</div>
             </div>
+
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <div className="text-xs font-medium uppercase tracking-wide text-amber-700">
                 In Progress
               </div>
               <div className="mt-2 text-2xl font-bold text-amber-900">{stats.inProgress}</div>
             </div>
+
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">
                 Completed
@@ -484,39 +424,13 @@ export default function DispatchBoardPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-1">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search ticket, customer, or driver"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-400"
             />
-
-            <select
-              value={driverFilter}
-              onChange={(e) => setDriverFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-            >
-              <option value="all">All Drivers</option>
-              {drivers.map((driver) => (
-                <option key={driver.id} value={driver.id}>
-                  {driver.name || 'Unnamed Driver'}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-            >
-              <option value="all">All Statuses</option>
-              {BOARD_COLUMNS.map((column) => (
-                <option key={column.key} value={column.key}>
-                  {column.label}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
 
@@ -525,33 +439,38 @@ export default function DispatchBoardPage() {
             Loading dispatch board...
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-5">
-            {BOARD_COLUMNS.map((column) => {
-              const headerClass =
-                columnHeaderStyles[column.key] || columnHeaderStyles.unassigned
+          <div
+            className="grid gap-4"
+            style={{
+              gridTemplateColumns: `repeat(${Math.max(boardColumns.length, 1)}, minmax(260px, 1fr))`,
+            }}
+          >
+            {boardColumns.map((column) => {
+              const columnOrders = groupedOrders[column.key] || []
 
               return (
                 <div
                   key={column.key}
-                  className="min-h-[520px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200 transition-all duration-150"
+                  className="min-h-[520px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
                 >
-                  <div
-                    className={`mb-4 flex items-center justify-between rounded-2xl border px-3 py-3 ${headerClass}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <StatusHeaderIcon statusKey={column.key} />
-                      <h2 className="text-sm font-semibold uppercase tracking-wide">
+                  <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
                         {column.label}
                       </h2>
+
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                        {columnOrders.length}
+                      </span>
                     </div>
 
-                    <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold">
-                      {groupedOrders[column.key]?.length || 0}
-                    </span>
+                    <div className="mt-2 text-xs text-slate-500">
+                      {column.key === 'unassigned' ? 'Waiting for driver' : 'Route for today'}
+                    </div>
                   </div>
 
                   <div className="space-y-3">
-                    {(groupedOrders[column.key] || []).map((order) => {
+                    {columnOrders.map((order) => {
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
 
                       return (
@@ -570,21 +489,37 @@ export default function DispatchBoardPage() {
                               </div>
                             </div>
 
-                            <div>
-                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                Driver
+                            {column.key === 'unassigned' ? (
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                  Driver
+                                </div>
+                                <div className="mt-1 line-clamp-1 text-sm text-slate-700">
+                                  {assignedDriver?.name || 'Unassigned'}
+                                </div>
                               </div>
-                              <div className="mt-1 line-clamp-1 text-sm text-slate-700">
-                                {assignedDriver?.name || 'Unassigned'}
-                              </div>
+                            ) : null}
+
+                            <div className="flex items-center justify-between gap-2 pt-1">
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                                  statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
+                                }`}
+                              >
+                                {formatStatus(order.status || 'unassigned')}
+                              </span>
+
+                              <span className="text-[11px] text-slate-400">
+                                {order.ticket_number || `#${order.id.slice(0, 8)}`}
+                              </span>
                             </div>
                           </div>
                         </div>
                       )
                     })}
 
-                    {(!groupedOrders[column.key] || groupedOrders[column.key].length === 0) && (
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 transition">
+                    {columnOrders.length === 0 && (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
                         No orders here
                       </div>
                     )}
@@ -706,14 +641,12 @@ export default function DispatchBoardPage() {
                     disabled={selectedOrder.status === 'completed'}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
                   >
-                    <option value="">Assign driver</option>
-                    {drivers
-                      .filter((driver) => driver.status !== 'offline')
-                      .map((driver) => (
-                        <option key={driver.id} value={driver.id}>
-                          {driver.name || 'Unnamed Driver'}
-                        </option>
-                      ))}
+                    <option value="">Unassigned</option>
+                    {activeDrivers.map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.name || 'Unnamed Driver'}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
