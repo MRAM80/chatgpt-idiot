@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -31,6 +30,8 @@ type Order = {
   notes: string | null
   created_at: string | null
   updated_at: string | null
+  completed_by?: string | null
+  completed_at?: string | null
 }
 
 const TABLE_NAME = 'order'
@@ -82,6 +83,20 @@ function formatStatus(status: string | null | undefined) {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function formatDate(dateValue: string | null | undefined) {
+  if (!dateValue) return '—'
+  const date = new Date(dateValue)
+  if (Number.isNaN(date.getTime())) return dateValue
+  return date.toLocaleDateString()
+}
+
+function formatDateTime(dateValue: string | null | undefined) {
+  if (!dateValue) return '—'
+  const date = new Date(dateValue)
+  if (Number.isNaN(date.getTime())) return dateValue
+  return date.toLocaleString()
 }
 
 function StatusHeaderIcon({ statusKey }: { statusKey: string }) {
@@ -139,8 +154,24 @@ function StatusHeaderIcon({ statusKey }: { statusKey: string }) {
   )
 }
 
+function DetailItem({
+  label,
+  value,
+}: {
+  label: string
+  value: string | null | undefined
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-2 text-sm text-slate-900">{value && value.trim() ? value : '—'}</div>
+    </div>
+  )
+}
+
 export default function DispatchBoardPage() {
-  const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
   const [orders, setOrders] = useState<Order[]>([])
@@ -149,11 +180,13 @@ export default function DispatchBoardPage() {
   const [pageError, setPageError] = useState('')
   const [draggingOrderId, setDraggingOrderId] = useState<string | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
-  const [openingOrderId, setOpeningOrderId] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
   const [driverFilter, setDriverFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   async function loadDrivers() {
     const { data, error } = await supabase
@@ -175,7 +208,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .select(
-        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at'
+        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at,completed_by,completed_at'
       )
       .order('scheduled_date', { ascending: true })
 
@@ -220,12 +253,38 @@ export default function DispatchBoardPage() {
     }
   }, [supabase])
 
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setModalOpen(false)
+        setSelectedOrderId(null)
+      }
+    }
+
+    if (modalOpen) {
+      document.body.style.overflow = 'hidden'
+      window.addEventListener('keydown', handleEscape)
+    } else {
+      document.body.style.overflow = ''
+    }
+
+    return () => {
+      document.body.style.overflow = ''
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [modalOpen])
+
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
       acc[driver.id] = driver
       return acc
     }, {})
   }, [drivers])
+
+  const selectedOrder = useMemo(() => {
+    if (!selectedOrderId) return null
+    return orders.find((order) => order.id === selectedOrderId) || null
+  }, [orders, selectedOrderId])
 
   async function syncDriverStatuses(driverId: string) {
     const { data: orderData, error: ordersError } = await supabase
@@ -353,8 +412,13 @@ export default function DispatchBoardPage() {
   }, [orders])
 
   function openOrder(orderId: string) {
-    setOpeningOrderId(orderId)
-    router.push(`/order?orderId=${encodeURIComponent(orderId)}`)
+    setSelectedOrderId(orderId)
+    setModalOpen(true)
+  }
+
+  function closeOrderModal() {
+    setModalOpen(false)
+    setSelectedOrderId(null)
   }
 
   return (
@@ -518,9 +582,6 @@ export default function DispatchBoardPage() {
                   <div className="space-y-3">
                     {(groupedOrders[column.key] || []).map((order) => {
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
-                      const badgeClass =
-                        statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
-                      const isOpening = openingOrderId === order.id
 
                       return (
                         <div
@@ -540,34 +601,26 @@ export default function DispatchBoardPage() {
                           <button
                             type="button"
                             onClick={() => openOrder(order.id)}
-                            className={`w-full rounded-xl text-left outline-none transition ${
-                              isOpening ? 'opacity-70' : ''
-                            }`}
+                            className="w-full rounded-xl text-left outline-none"
                           >
-                            <div className="mb-3 flex items-start justify-between gap-2">
+                            <div className="space-y-3">
                               <div>
-                                <div className="text-sm font-semibold text-slate-900">
-                                  {order.ticket_number || `#${order.id.slice(0, 8)}`}
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                  Client
                                 </div>
-                                <div className="mt-1 text-sm text-slate-600">
+                                <div className="mt-1 text-sm font-semibold text-slate-900">
                                   {order.customer_name || 'No customer'}
                                 </div>
                               </div>
 
-                              <span
-                                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${badgeClass}`}
-                              >
-                                {formatStatus(order.status || 'unassigned')}
-                              </span>
-                            </div>
-
-                            <div className="text-sm text-slate-600">
-                              <span className="font-medium text-slate-800">Driver:</span>{' '}
-                              {assignedDriver?.name || 'Unassigned'}
-                            </div>
-
-                            <div className="mt-3 text-xs font-medium text-slate-400">
-                              {isOpening ? 'Opening order...' : 'Click to open full order'}
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                  Driver
+                                </div>
+                                <div className="mt-1 text-sm text-slate-700">
+                                  {assignedDriver?.name || 'Unassigned'}
+                                </div>
+                              </div>
                             </div>
                           </button>
 
@@ -588,28 +641,18 @@ export default function DispatchBoardPage() {
                                 ))}
                             </select>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <button
-                                type="button"
-                                onClick={() => openOrder(order.id)}
-                                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                              >
-                                Open Order
-                              </button>
-
-                              <select
-                                value={order.status || 'unassigned'}
-                                onChange={(e) => updateOrder(order.id, { status: e.target.value })}
-                                onClick={(e) => e.stopPropagation()}
-                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                              >
-                                <option value="unassigned">Unassigned</option>
-                                <option value="assigned">Assigned</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="completed">Completed</option>
-                                <option value="issue">Issue</option>
-                              </select>
-                            </div>
+                            <select
+                              value={order.status || 'unassigned'}
+                              onChange={(e) => updateOrder(order.id, { status: e.target.value })}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                            >
+                              <option value="unassigned">Unassigned</option>
+                              <option value="assigned">Assigned</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="completed">Completed</option>
+                              <option value="issue">Issue</option>
+                            </select>
                           </div>
                         </div>
                       )
@@ -642,6 +685,170 @@ export default function DispatchBoardPage() {
           </Link>
         </div>
       </div>
+
+      {modalOpen && selectedOrder ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px] animate-[fadeIn_.18s_ease-out]">
+          <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl ring-1 ring-slate-200 animate-[modalIn_.2s_ease-out]">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Ticket Number
+                </div>
+                <div className="mt-1 text-2xl font-bold text-slate-900">
+                  {selectedOrder.ticket_number || `#${selectedOrder.id.slice(0, 8)}`}
+                </div>
+                <div className="mt-2 text-sm text-slate-500">
+                  Order details opened from Dispatch Board
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeOrderModal}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              <div className="mb-6 flex flex-wrap items-center gap-3">
+                <span
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                    statusStyles[selectedOrder.status || 'unassigned'] || statusStyles.unassigned
+                  }`}
+                >
+                  {formatStatus(selectedOrder.status || 'unassigned')}
+                </span>
+
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                  Driver:{' '}
+                  {selectedOrder.driver_id
+                    ? driverMap[selectedOrder.driver_id]?.name || 'Assigned'
+                    : 'Unassigned'}
+                </span>
+
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                  Type: {selectedOrder.order_type || '—'}
+                </span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <DetailItem label="Customer" value={selectedOrder.customer_name} />
+                <DetailItem
+                  label="Driver"
+                  value={
+                    selectedOrder.driver_id
+                      ? driverMap[selectedOrder.driver_id]?.name || 'Assigned'
+                      : 'Unassigned'
+                  }
+                />
+                <DetailItem label="Pickup Address" value={selectedOrder.pickup_address} />
+                <DetailItem label="Service Address" value={selectedOrder.service_address} />
+                <DetailItem label="Scheduled Date" value={formatDate(selectedOrder.scheduled_date)} />
+                <DetailItem label="Service Time" value={selectedOrder.service_time} />
+                <DetailItem label="Service Window" value={selectedOrder.service_window} />
+                <DetailItem label="Order Type" value={selectedOrder.order_type} />
+                <DetailItem label="Bin Size" value={selectedOrder.bin_size} />
+                <DetailItem label="Bin Type" value={selectedOrder.bin_type} />
+                <DetailItem label="Bin ID" value={selectedOrder.bin_id} />
+                <DetailItem label="Old Bin ID" value={selectedOrder.old_bin_id} />
+                <DetailItem label="Created At" value={formatDateTime(selectedOrder.created_at)} />
+                <DetailItem label="Updated At" value={formatDateTime(selectedOrder.updated_at)} />
+                <DetailItem label="Completed By" value={selectedOrder.completed_by} />
+                <DetailItem
+                  label="Completed At"
+                  value={formatDateTime(selectedOrder.completed_at)}
+                />
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Notes
+                </div>
+                <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
+                  {selectedOrder.notes?.trim() ? selectedOrder.notes : '—'}
+                </div>
+              </div>
+
+              <div className="mt-6 grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Assign Driver
+                  </label>
+                  <select
+                    value={selectedOrder.driver_id || ''}
+                    onChange={(e) => handleQuickAssign(selectedOrder.id, e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  >
+                    <option value="">Assign driver</option>
+                    {drivers
+                      .filter((driver) => driver.status !== 'offline')
+                      .map((driver) => (
+                        <option key={driver.id} value={driver.id}>
+                          {driver.name || 'Unnamed Driver'}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Update Status
+                  </label>
+                  <select
+                    value={selectedOrder.status || 'unassigned'}
+                    onChange={(e) =>
+                      updateOrder(selectedOrder.id, { status: e.target.value })
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  >
+                    <option value="unassigned">Unassigned</option>
+                    <option value="assigned">Assigned</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="issue">Issue</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 bg-slate-50 px-6 py-4">
+              <div className="flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeOrderModal}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <style jsx global>{`
+            @keyframes fadeIn {
+              from {
+                opacity: 0;
+              }
+              to {
+                opacity: 1;
+              }
+            }
+
+            @keyframes modalIn {
+              from {
+                opacity: 0;
+                transform: translateY(10px) scale(0.985);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+              }
+            }
+          `}</style>
+        </div>
+      ) : null}
     </div>
   )
 }
