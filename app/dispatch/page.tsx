@@ -26,6 +26,7 @@ type Order = {
   order_type: string | null
   scheduled_date: string | null
   driver_id: string | null
+  route_position?: number | null
   status: string | null
   notes: string | null
   created_at: string | null
@@ -46,7 +47,6 @@ type DragState = {
 } | null
 
 const TABLE_NAME = 'order'
-const ROUTE_STORAGE_KEY = 'simpliitrash_dispatch_route_order_v1'
 
 const statusStyles: Record<string, string> = {
   unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
@@ -119,30 +119,6 @@ function DragHandleIcon() {
   )
 }
 
-function loadStoredRouteOrder(): string[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(ROUTE_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function persistRouteOrder(orderIds: string[]) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(orderIds))
-}
-
-function mergeRouteOrder(storedIds: string[], currentOrders: Order[]) {
-  const currentIds = currentOrders.map((order) => order.id)
-  const validStored = storedIds.filter((id) => currentIds.includes(id))
-  const missing = currentIds.filter((id) => !validStored.includes(id))
-  return [...validStored, ...missing]
-}
-
 function reorderIds(orderIds: string[], movingId: string, beforeId?: string | null) {
   const withoutMoving = orderIds.filter((id) => id !== movingId)
 
@@ -162,6 +138,27 @@ function reorderIds(orderIds: string[], movingId: string, beforeId?: string | nu
   ]
 }
 
+function mergeDriverRouteOrder(currentOrders: Order[]) {
+  const assigned = currentOrders
+    .filter((order) => !!order.driver_id)
+    .sort((a, b) => {
+      const driverCompare = String(a.driver_id || '').localeCompare(String(b.driver_id || ''))
+      if (driverCompare !== 0) return driverCompare
+
+      const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
+      const bPos = b.route_position ?? Number.MAX_SAFE_INTEGER
+      if (aPos !== bPos) return aPos - bPos
+
+      const aDate = a.scheduled_date || ''
+      const bDate = b.scheduled_date || ''
+      if (aDate !== bDate) return aDate.localeCompare(bDate)
+
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    })
+
+  return assigned.map((order) => order.id)
+}
+
 export default function DispatchBoardPage() {
   const supabase = useMemo(() => createClient(), [])
 
@@ -174,9 +171,9 @@ export default function DispatchBoardPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
 
-  const [routeOrder, setRouteOrder] = useState<string[]>([])
   const [dragState, setDragState] = useState<DragState>(null)
   const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
+  const [copiedDriverId, setCopiedDriverId] = useState<string | null>(null)
 
   async function loadDrivers() {
     const { data, error } = await supabase
@@ -199,7 +196,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .select(
-        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at,completed_by,completed_at'
+        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
       )
       .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
@@ -265,20 +262,6 @@ export default function DispatchBoardPage() {
       window.removeEventListener('keydown', handleEscape)
     }
   }, [modalOpen])
-
-  useEffect(() => {
-    const stored = loadStoredRouteOrder()
-    setRouteOrder((current) => {
-      if (current.length > 0) return current
-      return mergeRouteOrder(stored, orders)
-    })
-  }, [orders])
-
-  useEffect(() => {
-    if (routeOrder.length > 0) {
-      persistRouteOrder(routeOrder)
-    }
-  }, [routeOrder])
 
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
@@ -346,6 +329,39 @@ export default function DispatchBoardPage() {
     }
   }
 
+  async function normalizeRoutePositionsForDriver(driverId: string) {
+    const driverOrders = orders
+      .filter((order) => order.driver_id === driverId)
+      .sort((a, b) => {
+        const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
+        const bPos = b.route_position ?? Number.MAX_SAFE_INTEGER
+        if (aPos !== bPos) return aPos - bPos
+
+        const aDate = a.scheduled_date || ''
+        const bDate = b.scheduled_date || ''
+        if (aDate !== bDate) return aDate.localeCompare(bDate)
+
+        return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+      })
+
+    for (let index = 0; index < driverOrders.length; index += 1) {
+      const order = driverOrders[index]
+      const nextPosition = index + 1
+
+      if ((order.route_position ?? null) !== nextPosition) {
+        const { error } = await supabase
+          .from(TABLE_NAME)
+          .update({ route_position: nextPosition })
+          .eq('id', order.id)
+
+        if (error) {
+          setPageError(error.message)
+          return
+        }
+      }
+    }
+  }
+
   async function updateOrder(id: string, values: Partial<Order>) {
     setPageError('')
 
@@ -388,10 +404,38 @@ export default function DispatchBoardPage() {
     const currentOrder = orders.find((order) => order.id === orderId)
     if (!currentOrder || currentOrder.status === 'completed') return
 
-    await updateOrder(orderId, {
-      driver_id: driverId || null,
-      status: driverId ? 'assigned' : 'unassigned',
+    if (!driverId) {
+      const ok = await updateOrder(orderId, {
+        driver_id: null,
+        route_position: null,
+        status: 'unassigned',
+      })
+      if (!ok) return
+
+      if (currentOrder.driver_id) {
+        await normalizeRoutePositionsForDriver(currentOrder.driver_id)
+        await refreshAll()
+      }
+      return
+    }
+
+    const maxRoute = orders
+      .filter((order) => order.driver_id === driverId)
+      .reduce((max, order) => Math.max(max, order.route_position || 0), 0)
+
+    const ok = await updateOrder(orderId, {
+      driver_id: driverId,
+      route_position: maxRoute + 1,
+      status: 'assigned',
     })
+
+    if (!ok) return
+
+    if (currentOrder.driver_id && currentOrder.driver_id !== driverId) {
+      await normalizeRoutePositionsForDriver(currentOrder.driver_id)
+    }
+
+    await refreshAll()
   }
 
   const filteredOrders = useMemo(() => {
@@ -408,16 +452,12 @@ export default function DispatchBoardPage() {
     })
   }, [orders, search, driverMap])
 
-  const mergedRouteOrder = useMemo(() => {
-    return mergeRouteOrder(routeOrder, filteredOrders)
-  }, [routeOrder, filteredOrders])
-
   const routeIndexMap = useMemo(() => {
-    return mergedRouteOrder.reduce<Record<string, number>>((acc, id, index) => {
+    return mergeDriverRouteOrder(filteredOrders).reduce<Record<string, number>>((acc, id, index) => {
       acc[id] = index
       return acc
     }, {})
-  }, [mergedRouteOrder])
+  }, [filteredOrders])
 
   const groupedOrders = useMemo(() => {
     return boardColumns.reduce<Record<string, Order[]>>((acc, column) => {
@@ -427,6 +467,13 @@ export default function DispatchBoardPage() {
       })
 
       acc[column.key] = [...matchingOrders].sort((a, b) => {
+        if (column.key === 'unassigned') {
+          const aDate = a.scheduled_date || ''
+          const bDate = b.scheduled_date || ''
+          if (aDate !== bDate) return aDate.localeCompare(bDate)
+          return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+        }
+
         const aIndex = routeIndexMap[a.id] ?? Number.MAX_SAFE_INTEGER
         const bIndex = routeIndexMap[b.id] ?? Number.MAX_SAFE_INTEGER
         return aIndex - bIndex
@@ -482,6 +529,27 @@ export default function DispatchBoardPage() {
     setDropTarget({ columnKey, beforeId })
   }
 
+  async function saveDriverRouteOrder(driverId: string, orderedIds: string[]) {
+    for (let index = 0; index < orderedIds.length; index += 1) {
+      const orderId = orderedIds[index]
+      const { error } = await supabase
+        .from(TABLE_NAME)
+        .update({
+          driver_id: driverId,
+          route_position: index + 1,
+          status: 'assigned',
+        })
+        .eq('id', orderId)
+
+      if (error) {
+        setPageError(error.message)
+        return false
+      }
+    }
+
+    return true
+  }
+
   async function moveOrderToColumn(
     movingOrderId: string,
     targetColumnKey: string,
@@ -490,20 +558,63 @@ export default function DispatchBoardPage() {
     const movingOrder = orders.find((order) => order.id === movingOrderId)
     if (!movingOrder || movingOrder.status === 'completed') return
 
+    const previousDriverId = movingOrder.driver_id
     const nextDriverId = targetColumnKey === 'unassigned' ? null : targetColumnKey
-    const driverChanged = movingOrder.driver_id !== nextDriverId
 
-    if (driverChanged) {
+    if (!nextDriverId) {
       const ok = await updateOrder(movingOrderId, {
-        driver_id: nextDriverId,
-        status: nextDriverId ? 'assigned' : 'unassigned',
+        driver_id: null,
+        route_position: null,
+        status: 'unassigned',
       })
       if (!ok) return
+
+      if (previousDriverId) {
+        await normalizeRoutePositionsForDriver(previousDriverId)
+      }
+
+      await refreshAll()
+      return
     }
 
-    const currentBaseOrder = mergeRouteOrder(routeOrder, orders)
-    const nextOrder = reorderIds(currentBaseOrder, movingOrderId, beforeId)
-    setRouteOrder(nextOrder)
+    const targetOrders = orders
+      .filter((order) => order.driver_id === nextDriverId && order.id !== movingOrderId)
+      .sort((a, b) => {
+        const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
+        const bPos = b.route_position ?? Number.MAX_SAFE_INTEGER
+        return aPos - bPos
+      })
+
+    const targetIds = targetOrders.map((order) => order.id)
+    const reorderedIds = reorderIds(targetIds, movingOrderId, beforeId)
+
+    const updateMovingOrder = await supabase
+      .from(TABLE_NAME)
+      .update({
+        driver_id: nextDriverId,
+        status: 'assigned',
+      })
+      .eq('id', movingOrderId)
+
+    if (updateMovingOrder.error) {
+      setPageError(updateMovingOrder.error.message)
+      return
+    }
+
+    const saved = await saveDriverRouteOrder(nextDriverId, reorderedIds)
+    if (!saved) return
+
+    if (previousDriverId && previousDriverId !== nextDriverId) {
+      await normalizeRoutePositionsForDriver(previousDriverId)
+    }
+
+    await syncDriverStatuses(nextDriverId)
+
+    if (previousDriverId && previousDriverId !== nextDriverId) {
+      await syncDriverStatuses(previousDriverId)
+    }
+
+    await refreshAll()
   }
 
   async function handleDrop(
@@ -519,6 +630,22 @@ export default function DispatchBoardPage() {
     setDragState(null)
 
     await moveOrderToColumn(movingOrderId, targetColumnKey, beforeId)
+  }
+
+  async function copyDriverRouteLink(driverId: string) {
+    try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const link = `${origin}/driver-route?driverId=${encodeURIComponent(driverId)}`
+
+      await navigator.clipboard.writeText(link)
+      setCopiedDriverId(driverId)
+
+      window.setTimeout(() => {
+        setCopiedDriverId((current) => (current === driverId ? null : current))
+      }, 2000)
+    } catch {
+      setPageError('Could not copy driver link.')
+    }
   }
 
   return (
@@ -616,19 +743,40 @@ export default function DispatchBoardPage() {
                   className="min-h-[520px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
                 >
                   <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
-                        {column.label}
-                      </h2>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
+                          {column.label}
+                        </h2>
+
+                        <div className="mt-2 text-xs text-slate-500">
+                          {column.key === 'unassigned' ? 'Waiting for driver' : 'Route for today'}
+                        </div>
+                      </div>
 
                       <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
                         {columnOrders.length}
                       </span>
                     </div>
 
-                    <div className="mt-2 text-xs text-slate-500">
-                      {column.key === 'unassigned' ? 'Waiting for driver' : 'Route for today'}
-                    </div>
+                    {column.key !== 'unassigned' ? (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => copyDriverRouteLink(column.key)}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          {copiedDriverId === column.key ? 'Copied!' : 'Copy Driver Link'}
+                        </button>
+
+                        <Link
+                          href={`/driver-route?driverId=${encodeURIComponent(column.key)}`}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          Open Route
+                        </Link>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div
@@ -682,13 +830,21 @@ export default function DispatchBoardPage() {
                               </button>
 
                               <div className="min-w-0 flex-1 space-y-2">
-                                <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                    Client
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                      Client
+                                    </div>
+                                    <div className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">
+                                      {order.customer_name || 'No customer'}
+                                    </div>
                                   </div>
-                                  <div className="mt-1 line-clamp-2 text-sm font-semibold text-slate-900">
-                                    {order.customer_name || 'No customer'}
-                                  </div>
+
+                                  {column.key !== 'unassigned' ? (
+                                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                      Stop {order.route_position || '—'}
+                                    </span>
+                                  ) : null}
                                 </div>
 
                                 {column.key === 'unassigned' ? (
@@ -797,6 +953,10 @@ export default function DispatchBoardPage() {
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
                   Type: {displayValue(selectedOrder.order_type)}
                 </span>
+
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                  Route Position: {displayValue(selectedOrder.route_position)}
+                </span>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
@@ -819,6 +979,7 @@ export default function DispatchBoardPage() {
                 <DetailItem label="Bin Type" value={selectedOrder.bin_type} />
                 <DetailItem label="Bin ID" value={selectedOrder.bin_id} />
                 <DetailItem label="Old Bin ID" value={selectedOrder.old_bin_id} />
+                <DetailItem label="Route Position" value={selectedOrder.route_position} />
                 <DetailItem label="Created At" value={formatDateTime(selectedOrder.created_at)} />
                 <DetailItem label="Updated At" value={formatDateTime(selectedOrder.updated_at)} />
                 <DetailItem label="Completed By" value={selectedOrder.completed_by} />
