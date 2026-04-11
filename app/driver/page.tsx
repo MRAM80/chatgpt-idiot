@@ -337,9 +337,6 @@ export default function DriverPage() {
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
                 {driver?.name || 'Driver'}
               </h1>
-              <p className="mt-2 text-sm text-slate-500">
-                Route connected to dispatch
-              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -350,17 +347,6 @@ export default function DriverPage() {
               >
                 Refresh
               </button>
-
-              {routeLink ? (
-                <a
-                  href={routeLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                >
-                  Open Route in Maps
-                </a>
-              ) : null}
             </div>
           </div>
 
@@ -403,7 +389,7 @@ export default function DriverPage() {
 
                         {isCurrentStop ? (
                           <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                            Current Stop
+                            Current Order
                           </span>
                         ) : null}
 
