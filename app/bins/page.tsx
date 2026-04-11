@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type Bin = {
@@ -31,6 +31,7 @@ const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const BIN_STATUSES = ['available', 'in_use', 'maintenance'] as const
 
 const ACTIVE_ORDER_STATUSES = ['assigned', 'scheduled', 'in_progress', 'on_route'] as const
+const CLOSED_ORDER_STATUSES = ['completed', 'issue'] as const
 
 const statusClasses: Record<string, string> = {
   available: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -53,10 +54,42 @@ function formatDate(date: string | null) {
   return parsed.toLocaleDateString()
 }
 
+function formatDateTime(date: string | null) {
+  if (!date) return '—'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return date
+  return parsed.toLocaleString([], {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function sortOrdersNewest(a: Order, b: Order) {
   const aDate = new Date(a.scheduled_date || a.created_at || 0).getTime()
   const bDate = new Date(b.scheduled_date || b.created_at || 0).getTime()
   return bDate - aDate
+}
+
+function ReadOnlyField({
+  label,
+  value,
+  className = '',
+}: {
+  label: string
+  value: string
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      <label className="mb-2 block text-sm font-medium text-slate-700">{label}</label>
+      <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        {value || '—'}
+      </div>
+    </div>
+  )
 }
 
 export default function BinsPage() {
@@ -76,6 +109,8 @@ export default function BinsPage() {
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingBin, setEditingBin] = useState<Bin | null>(null)
+  const [modalVisible, setModalVisible] = useState(false)
+  const modalCardRef = useRef<HTMLDivElement | null>(null)
 
   const emptyForm = {
     bin_number: '',
@@ -86,40 +121,133 @@ export default function BinsPage() {
   const [form, setForm] = useState(emptyForm)
 
   const isAdmin = userRole === 'admin'
+  const isReadOnlyModal = Boolean(editingBin && !isAdmin)
 
   function isActiveOrder(order: Order) {
-    return ACTIVE_ORDER_STATUSES.includes((order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number])
+    return ACTIVE_ORDER_STATUSES.includes(
+      (order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number]
+    )
+  }
+
+  function isClosedOrder(order: Order) {
+    return CLOSED_ORDER_STATUSES.includes(
+      (order.status || '') as (typeof CLOSED_ORDER_STATUSES)[number]
+    )
   }
 
   function getOrdersForBin(binId: string) {
     return orders.filter((order) => order.bin_id === binId || order.old_bin_id === binId)
   }
 
-  function getActiveServiceOrdersForBin(binId: string) {
-    return orders.filter((order) => order.bin_id === binId && isActiveOrder(order))
-  }
-
   function getLatestOrderForBin(binId: string) {
     return [...getOrdersForBin(binId)].sort(sortOrdersNewest)[0] || null
   }
 
-  function getCurrentLocationFromOrders(binId: string) {
-    const activeOrder = [...getActiveServiceOrdersForBin(binId)].sort(sortOrdersNewest)[0] || null
-
-    if (activeOrder?.service_address?.trim()) {
-      return activeOrder.service_address.trim()
+  function getBinServiceState(bin: Bin, currentOrders: Order[] = orders) {
+    if ((bin.status || 'available') === 'maintenance') {
+      return {
+        nextStatus: 'maintenance',
+        nextLocation: bin.location || 'Yard',
+        latestOrder: getLatestOrderForBinFromSet(bin.id, currentOrders),
+        totalOrders: getOrdersForBinFromSet(bin.id, currentOrders).length,
+        activeOrders: getActiveServiceOrdersForBinFromSet(bin.id, currentOrders).length,
+      }
     }
 
-    return 'Yard'
+    const linkedOrders = getOrdersForBinFromSet(bin.id, currentOrders)
+    const activeServiceOrders = getActiveServiceOrdersForBinFromSet(bin.id, currentOrders)
+    const latestOrder = [...linkedOrders].sort(sortOrdersNewest)[0] || null
+
+    if (activeServiceOrders.length > 0) {
+      const latestActive = [...activeServiceOrders].sort(sortOrdersNewest)[0]
+      return {
+        nextStatus: 'in_use',
+        nextLocation: latestActive.service_address?.trim() || 'On Service',
+        latestOrder,
+        totalOrders: linkedOrders.length,
+        activeOrders: activeServiceOrders.length,
+      }
+    }
+
+    if (latestOrder && isClosedOrder(latestOrder)) {
+      const type = latestOrder.order_type || ''
+      const siteAddress = latestOrder.service_address?.trim() || 'Client Site'
+
+      if (type === 'DELIVERY' && latestOrder.bin_id === bin.id) {
+        return {
+          nextStatus: 'in_use',
+          nextLocation: siteAddress,
+          latestOrder,
+          totalOrders: linkedOrders.length,
+          activeOrders: 0,
+        }
+      }
+
+      if (type === 'DUMP RETURN' && latestOrder.bin_id === bin.id) {
+        return {
+          nextStatus: 'in_use',
+          nextLocation: siteAddress,
+          latestOrder,
+          totalOrders: linkedOrders.length,
+          activeOrders: 0,
+        }
+      }
+
+      if (type === 'EXCHANGE') {
+        if (latestOrder.bin_id === bin.id) {
+          return {
+            nextStatus: 'in_use',
+            nextLocation: siteAddress,
+            latestOrder,
+            totalOrders: linkedOrders.length,
+            activeOrders: 0,
+          }
+        }
+
+        if (latestOrder.old_bin_id === bin.id) {
+          return {
+            nextStatus: 'in_use',
+            nextLocation: 'Dump / Return to Yard',
+            latestOrder,
+            totalOrders: linkedOrders.length,
+            activeOrders: 0,
+          }
+        }
+      }
+
+      if (type === 'REMOVAL' && latestOrder.old_bin_id === bin.id) {
+        return {
+          nextStatus: 'in_use',
+          nextLocation: 'Dump / Return to Yard',
+          latestOrder,
+          totalOrders: linkedOrders.length,
+          activeOrders: 0,
+        }
+      }
+    }
+
+    const normalizedLocation = (bin.location || '').trim().toLowerCase()
+    const isInYard = normalizedLocation === '' || normalizedLocation === 'yard'
+
+    return {
+      nextStatus: isInYard ? 'available' : 'in_use',
+      nextLocation: isInYard ? 'Yard' : bin.location || 'Client Site',
+      latestOrder,
+      totalOrders: linkedOrders.length,
+      activeOrders: 0,
+    }
   }
 
-  function getNextStatusFromOrders(binId: string, currentStatus: string | null) {
-    if ((currentStatus || 'available') === 'maintenance') {
-      return 'maintenance'
-    }
+  function getOrdersForBinFromSet(binId: string, orderSet: Order[]) {
+    return orderSet.filter((order) => order.bin_id === binId || order.old_bin_id === binId)
+  }
 
-    const activeOrders = getActiveServiceOrdersForBin(binId)
-    return activeOrders.length > 0 ? 'in_use' : 'available'
+  function getLatestOrderForBinFromSet(binId: string, orderSet: Order[]) {
+    return [...getOrdersForBinFromSet(binId, orderSet)].sort(sortOrdersNewest)[0] || null
+  }
+
+  function getActiveServiceOrdersForBinFromSet(binId: string, orderSet: Order[]) {
+    return orderSet.filter((order) => order.bin_id === binId && isActiveOrder(order))
   }
 
   async function loadCurrentUserRole() {
@@ -141,13 +269,23 @@ export default function BinsPage() {
         return
       }
 
-      const { data: profileData } = await supabase
+      const { data: profileById } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', user.id)
         .maybeSingle()
 
-      const profileRole = profileData?.role as string | undefined
+      let profileRole = profileById?.role as string | undefined
+
+      if (!profileRole && user.email) {
+        const { data: profileByEmail } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('email', user.email)
+          .maybeSingle()
+
+        profileRole = profileByEmail?.role as string | undefined
+      }
 
       if (profileRole === 'admin' || profileRole === 'dispatcher') {
         setUserRole(profileRole)
@@ -163,19 +301,17 @@ export default function BinsPage() {
     const currentBin = bins.find((bin) => bin.id === binId)
     if (!currentBin) return
 
-    const nextStatus = getNextStatusFromOrders(binId, currentBin.status)
-    const nextLocation = getCurrentLocationFromOrders(binId)
-
+    const state = getBinServiceState(currentBin)
     const currentStatus = currentBin.status || 'available'
     const currentLocation = currentBin.location || 'Yard'
 
-    if (currentStatus === nextStatus && currentLocation === nextLocation) return
+    if (currentStatus === state.nextStatus && currentLocation === state.nextLocation) return
 
     const { error } = await supabase
       .from('bins')
       .update({
-        status: nextStatus,
-        location: nextLocation,
+        status: state.nextStatus,
+        location: state.nextLocation,
       })
       .eq('id', binId)
 
@@ -186,32 +322,18 @@ export default function BinsPage() {
 
   async function syncAllBinsFromOrders(currentBins: Bin[], currentOrders: Order[]) {
     const updates = currentBins.map(async (bin) => {
-      const activeOrders = currentOrders.filter(
-        (order) =>
-          order.bin_id === bin.id &&
-          ACTIVE_ORDER_STATUSES.includes((order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number])
-      )
-
-      const nextStatus =
-        (bin.status || 'available') === 'maintenance'
-          ? 'maintenance'
-          : activeOrders.length > 0
-            ? 'in_use'
-            : 'available'
-
-      const latestActive = [...activeOrders].sort(sortOrdersNewest)[0] || null
-      const nextLocation = latestActive?.service_address?.trim() || 'Yard'
+      const state = getBinServiceState(bin, currentOrders)
 
       const currentStatus = bin.status || 'available'
       const currentLocation = bin.location || 'Yard'
 
-      if (currentStatus === nextStatus && currentLocation === nextLocation) return
+      if (currentStatus === state.nextStatus && currentLocation === state.nextLocation) return
 
       const { error } = await supabase
         .from('bins')
         .update({
-          status: nextStatus,
-          location: nextLocation,
+          status: state.nextStatus,
+          location: state.nextLocation,
         })
         .eq('id', bin.id)
 
@@ -290,6 +412,26 @@ export default function BinsPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (showCreateModal || editingBin) {
+      setModalVisible(false)
+
+      const animationTimer = window.setTimeout(() => {
+        setModalVisible(true)
+        modalCardRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      }, 20)
+
+      return () => {
+        window.clearTimeout(animationTimer)
+      }
+    } else {
+      setModalVisible(false)
+    }
+  }, [showCreateModal, editingBin])
+
   const binStats = useMemo(() => {
     const totalOrdersByBin: Record<string, number> = {}
     const activeOrdersByBin: Record<string, number> = {}
@@ -346,8 +488,7 @@ export default function BinsPage() {
     setShowCreateModal(true)
   }
 
-  function openEditModal(bin: Bin) {
-    if (!isAdmin) return
+  function openDetailsModal(bin: Bin) {
     setEditingBin(bin)
     setShowCreateModal(false)
     setPageError('')
@@ -380,11 +521,16 @@ export default function BinsPage() {
       return
     }
 
+    const location =
+      form.status === 'available'
+        ? 'Yard'
+        : editingBin?.location || 'Yard'
+
     const payload = {
       bin_number: form.bin_number.trim(),
       bin_size: form.bin_size || null,
       status: form.status || 'available',
-      location: form.status === 'available' ? 'Yard' : null,
+      location,
     }
 
     if (editingBin) {
@@ -444,6 +590,7 @@ export default function BinsPage() {
       setPageError(error.message)
     } else {
       await refreshAll()
+      closeModal()
     }
 
     setDeletingId(null)
@@ -460,6 +607,16 @@ export default function BinsPage() {
     if (value === 'available' && activeOrders > 0) {
       window.alert(
         'This bin still has active service orders. Reassign or complete the order first.'
+      )
+      return
+    }
+
+    const currentLocation = (bin.location || '').trim()
+    const canBecomeAvailable = currentLocation.toLowerCase() === 'yard'
+
+    if (value === 'available' && !canBecomeAvailable) {
+      window.alert(
+        'A bin can only become Available when it is back in the Yard.'
       )
       return
     }
@@ -486,9 +643,19 @@ export default function BinsPage() {
     }
   }
 
+  const selectedBinState = useMemo(() => {
+    if (!editingBin) return null
+    return getBinServiceState(editingBin)
+  }, [editingBin, orders])
+
+  const selectedBinOrders = useMemo(() => {
+    if (!editingBin) return []
+    return [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest)
+  }, [editingBin, orders])
+
   return (
     <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <div className="mx-auto max-w-[92rem] p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -496,7 +663,7 @@ export default function BinsPage() {
                 Bin Inventory
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                Track yard stock, live bin availability, and current service location from active orders
+                Track yard stock, live bin availability, and client site location from service orders
               </p>
             </div>
 
@@ -527,7 +694,7 @@ export default function BinsPage() {
 
           {!isAdmin && (
             <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-              Dispatcher view: stock is view-only. Bin create, edit, delete, and manual status changes are admin-only.
+              Dispatcher view: bin details are visible, but create, edit, delete, and manual status changes are admin-only.
             </div>
           )}
 
@@ -616,7 +783,7 @@ export default function BinsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
+              <table className="w-full min-w-[980px] divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -637,22 +804,21 @@ export default function BinsPage() {
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Added
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Actions
-                    </th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {filteredBins.map((bin) => {
-                    const totalOrders = binStats.totalOrdersByBin[bin.id] || 0
-                    const activeOrders = binStats.activeOrdersByBin[bin.id] || 0
-                    const latestOrder = getLatestOrderForBin(bin.id)
+                    const state = getBinServiceState(bin)
                     const badgeClass =
-                      statusClasses[bin.status || 'available'] || statusClasses.available
+                      statusClasses[state.nextStatus] || statusClasses.available
 
                     return (
-                      <tr key={bin.id} className="hover:bg-slate-50/80">
+                      <tr
+                        key={bin.id}
+                        className="cursor-pointer hover:bg-slate-50/80"
+                        onClick={() => openDetailsModal(bin)}
+                      >
                         <td className="px-4 py-4 align-top">
                           <div className="font-semibold text-slate-900">
                             {bin.bin_number || 'No bin number'}
@@ -664,79 +830,34 @@ export default function BinsPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div>{bin.location || 'Yard'}</div>
-                          {activeOrders > 0 ? (
-                            <div className="mt-1 text-xs text-slate-500">
-                              Active service location
-                            </div>
-                          ) : (
-                            <div className="mt-1 text-xs text-slate-500">
-                              In yard
-                            </div>
-                          )}
+                          <div>{state.nextLocation || 'Yard'}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {state.nextStatus === 'available'
+                              ? 'Ready in yard'
+                              : 'Not available for new service'}
+                          </div>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div>Total Orders: {totalOrders}</div>
-                          <div className="mt-1 text-slate-500">Active: {activeOrders}</div>
-                          {latestOrder?.scheduled_date ? (
+                          <div>Total Orders: {state.totalOrders}</div>
+                          <div className="mt-1 text-slate-500">Active: {state.activeOrders}</div>
+                          {state.latestOrder?.scheduled_date ? (
                             <div className="mt-1 text-xs text-slate-500">
-                              Last: {formatDate(latestOrder.scheduled_date)}
+                              Last: {formatDate(state.latestOrder.scheduled_date)}
                             </div>
                           ) : null}
                         </td>
 
                         <td className="px-4 py-4 align-top">
-                          <div className="flex flex-col gap-2">
-                            <span
-                              className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
-                            >
-                              {formatStatus(bin.status || 'available')}
-                            </span>
-
-                            {isAdmin ? (
-                              <select
-                                value={bin.status || 'available'}
-                                onChange={(e) => handleQuickStatus(bin, e.target.value)}
-                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
-                              >
-                                {BIN_STATUSES.map((status) => (
-                                  <option key={status} value={status}>
-                                    {formatStatus(status)}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : null}
-                          </div>
+                          <span
+                            className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                          >
+                            {formatStatus(state.nextStatus)}
+                          </span>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {formatDate(bin.created_at)}
-                        </td>
-
-                        <td className="px-4 py-4 align-top">
-                          <div className="flex justify-end gap-2">
-                            {isAdmin ? (
-                              <>
-                                <button
-                                  onClick={() => openEditModal(bin)}
-                                  className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                                >
-                                  Edit
-                                </button>
-
-                                <button
-                                  onClick={() => handleDelete(bin.id)}
-                                  disabled={deletingId === bin.id}
-                                  className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-                                >
-                                  {deletingId === bin.id ? 'Deleting...' : 'Delete'}
-                                </button>
-                              </>
-                            ) : (
-                              <span className="text-sm text-slate-400">View Only</span>
-                            )}
-                          </div>
                         </td>
                       </tr>
                     )
@@ -757,108 +878,273 @@ export default function BinsPage() {
         </div>
       </div>
 
-      {(showCreateModal || editingBin) && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="mb-6 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  {editingBin ? 'Edit Bin' : 'Create Bin'}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Bin inventory stores size only. Material type belongs to the order.
-                </p>
-              </div>
-
-              <button
-                onClick={closeModal}
-                className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
-              >
-                Close
-              </button>
-            </div>
-
-            {pageError ? (
-              <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {pageError}
-              </div>
-            ) : null}
-
-            <div className="grid gap-4">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Bin Number
-                </label>
-                <input
-                  value={form.bin_number}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, bin_number: e.target.value }))
-                  }
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  placeholder="BIN-001"
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
+      {(showCreateModal || editingBin) && (
+        <div
+          className={`fixed inset-0 z-50 overflow-y-auto transition-all duration-300 ease-out ${
+            modalVisible ? 'bg-slate-900/40 opacity-100' : 'bg-slate-900/0 opacity-0'
+          }`}
+        >
+          <div className="flex min-h-full items-start justify-center p-4 md:p-6">
+            <div
+              ref={modalCardRef}
+              className={`my-6 w-full max-w-3xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl transition-all duration-300 ease-out ${
+                modalVisible
+                  ? 'translate-y-0 scale-100 opacity-100'
+                  : 'translate-y-4 scale-[0.985] opacity-0'
+              }`}
+            >
+              <div className="mb-6 flex items-start justify-between gap-4">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Bin Size
-                  </label>
-                  <select
-                    value={form.bin_size}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, bin_size: e.target.value }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  >
-                    {BIN_SIZES.map((size) => (
-                      <option key={size} value={size}>
-                        {size} Yard
-                      </option>
-                    ))}
-                  </select>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {editingBin?.bin_number || 'New Bin'}
+                  </div>
+                  <h2 className="mt-1 text-xl font-bold text-slate-900">
+                    {showCreateModal ? 'Create Bin' : 'Bin Details'}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {isAdmin
+                      ? 'View and manage bin inventory, status, and service location.'
+                      : 'View bin information, status, and order history.'}
+                  </p>
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Status
-                  </label>
-                  <select
-                    value={form.status}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, status: e.target.value }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                  >
-                    {BIN_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {formatStatus(status)}
-                      </option>
-                    ))}
-                  </select>
+                <button
+                  onClick={closeModal}
+                  className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  Close
+                </button>
+              </div>
+
+              {pageError ? (
+                <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {pageError}
                 </div>
-              </div>
+              ) : null}
 
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                Location is synced automatically from the active service order. If the bin is not assigned to an active service order, it will stay in the <strong>Yard</strong>.
-              </div>
-            </div>
+              {showCreateModal ? (
+                <>
+                  <div className="grid gap-4">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Bin Number
+                      </label>
+                      <input
+                        value={form.bin_number}
+                        onChange={(e) =>
+                          setForm((prev) => ({ ...prev, bin_number: e.target.value }))
+                        }
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        placeholder="BIN-001"
+                      />
+                    </div>
 
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={closeModal}
-                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Bin Size
+                        </label>
+                        <select
+                          value={form.bin_size}
+                          onChange={(e) =>
+                            setForm((prev) => ({ ...prev, bin_size: e.target.value }))
+                          }
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        >
+                          {BIN_SIZES.map((size) => (
+                            <option key={size} value={size}>
+                              {size} Yard
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-              <button
-                onClick={handleCreateOrUpdate}
-                disabled={saving}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : editingBin ? 'Save Changes' : 'Create Bin'}
-              </button>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Status
+                        </label>
+                        <select
+                          value={form.status}
+                          onChange={(e) =>
+                            setForm((prev) => ({ ...prev, status: e.target.value }))
+                          }
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        >
+                          {BIN_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {formatStatus(status)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      A bin is only truly available when it is back in the <strong>Yard</strong>.
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex justify-end gap-3">
+                    <button
+                      onClick={closeModal}
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      onClick={handleCreateOrUpdate}
+                      disabled={saving}
+                      className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      {saving ? 'Saving...' : 'Create Bin'}
+                    </button>
+                  </div>
+                </>
+              ) : editingBin ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <ReadOnlyField
+                      label="Bin Number"
+                      value={editingBin.bin_number || '—'}
+                    />
+                    <ReadOnlyField
+                      label="Bin Size"
+                      value={editingBin.bin_size ? `${editingBin.bin_size} Yard` : '—'}
+                    />
+
+                    <ReadOnlyField
+                      label="Current Location"
+                      value={selectedBinState?.nextLocation || editingBin.location || 'Yard'}
+                      className="md:col-span-2"
+                    />
+
+                    <ReadOnlyField
+                      label="Status"
+                      value={formatStatus(selectedBinState?.nextStatus || editingBin.status || 'available')}
+                    />
+                    <ReadOnlyField
+                      label="Added"
+                      value={formatDate(editingBin.created_at)}
+                    />
+
+                    <ReadOnlyField
+                      label="Last Updated"
+                      value={formatDateTime(editingBin.updated_at)}
+                    />
+                    <ReadOnlyField
+                      label="Order History Count"
+                      value={String(selectedBinState?.totalOrders || 0)}
+                    />
+
+                    <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                      <div className="font-semibold text-slate-900">Operational Logic</div>
+                      <div className="mt-2 space-y-1">
+                        <p>• Delivery completed: bin stays at client site and remains In Use.</p>
+                        <p>• Dump Return completed: bin goes back to the same client site and remains In Use.</p>
+                        <p>• Exchange completed: new bin stays at the client site; picked up bin goes to Dump / Return to Yard.</p>
+                        <p>• Removal completed: picked up bin goes to Dump / Return to Yard before it can become Available.</p>
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white">
+                      <div className="border-b border-slate-200 px-4 py-3">
+                        <h3 className="font-semibold text-slate-900">Order History</h3>
+                      </div>
+
+                      {selectedBinOrders.length === 0 ? (
+                        <div className="px-4 py-6 text-sm text-slate-500">
+                          No orders linked to this bin yet.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-slate-200">
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                                  Order Type
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                                  Status
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                                  Date
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                                  Job Site
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                                  Role
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {selectedBinOrders.map((order) => (
+                                <tr key={order.id}>
+                                  <td className="px-4 py-3 text-sm text-slate-700">
+                                    {order.order_type || '—'}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-slate-700">
+                                    {formatStatus(order.status)}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-slate-700">
+                                    {formatDate(order.scheduled_date)}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-slate-700">
+                                    {order.service_address || '—'}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-slate-700">
+                                    {order.bin_id === editingBin.id
+                                      ? 'Service Bin'
+                                      : order.old_bin_id === editingBin.id
+                                        ? 'Picked Up Bin'
+                                        : 'Linked'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex justify-end gap-3">
+                    {isAdmin && (
+                      <>
+                        <button
+                          onClick={() => handleQuickStatus(editingBin, 'available')}
+                          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Return to Yard
+                        </button>
+
+                        <button
+                          onClick={() => handleQuickStatus(editingBin, 'maintenance')}
+                          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+                        >
+                          Maintenance
+                        </button>
+
+                        <button
+                          onClick={() => handleDelete(editingBin.id)}
+                          disabled={deletingId === editingBin.id}
+                          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                        >
+                          {deletingId === editingBin.id ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </>
+                    )}
+
+                    <button
+                      onClick={closeModal}
+                      className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
