@@ -37,7 +37,20 @@ type Order = {
   completed_at?: string | null
 }
 
+type QueuedAction = {
+  id: string
+  orderId: string
+  nextStatus: string
+  completedAt: string | null
+  completedBy: string | null
+  createdAt: string
+}
+
+type SyncState = 'idle' | 'pending' | 'error'
+
 const TABLE_NAME = 'order'
+const CACHED_ORDERS_KEY = 'driver_cached_orders'
+const QUEUED_ACTIONS_KEY = 'driver_queued_actions'
 
 const statusStyles: Record<string, string> = {
   unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
@@ -111,6 +124,57 @@ function buildGoogleMapsLink(orders: Order[]) {
   return `https://www.google.com/maps/dir/?${params.toString()}`
 }
 
+function readQueuedActions(): QueuedAction[] {
+  if (typeof window === 'undefined') return []
+
+  const raw = window.localStorage.getItem(QUEUED_ACTIONS_KEY)
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as QueuedAction[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeQueuedActions(actions: QueuedAction[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(QUEUED_ACTIONS_KEY, JSON.stringify(actions))
+}
+
+function writeCachedOrders(orders: Order[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(CACHED_ORDERS_KEY, JSON.stringify(orders))
+}
+
+function readCachedOrders(): Order[] {
+  if (typeof window === 'undefined') return []
+
+  const raw = window.localStorage.getItem(CACHED_ORDERS_KEY)
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as Order[]) : []
+  } catch {
+    return []
+  }
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+
+  return outputArray
+}
+
 export default function DriverPage() {
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -130,6 +194,74 @@ export default function DriverPage() {
   const [showSplash, setShowSplash] = useState(true)
   const [isOffline, setIsOffline] = useState(false)
   const [usingCachedOrders, setUsingCachedOrders] = useState(false)
+  const [syncingQueue, setSyncingQueue] = useState(false)
+  const [queuedActions, setQueuedActions] = useState<QueuedAction[]>([])
+  const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+
+  function persistOrders(nextOrders: Order[]) {
+    setOrders(nextOrders)
+    writeCachedOrders(nextOrders)
+  }
+
+  function markOrderSyncState(orderId: string, state: SyncState) {
+    setSyncStates((current) => ({
+      ...current,
+      [orderId]: state,
+    }))
+  }
+
+  function clearOrderSyncState(orderId: string) {
+    setSyncStates((current) => {
+      const next = { ...current }
+      delete next[orderId]
+      return next
+    })
+  }
+
+  function updateLocalOrderStatus(orderId: string, nextStatus: string) {
+    const completedAt = nextStatus === 'completed' ? new Date().toISOString() : null
+    const completedBy = nextStatus === 'completed' ? driver?.name || 'Driver' : null
+
+    if (nextStatus === 'completed') {
+      const filtered = orders.filter((order) => order.id !== orderId)
+      persistOrders(filtered)
+      return { completedAt, completedBy }
+    }
+
+    const updated = orders.map((order) =>
+      order.id === orderId
+        ? {
+            ...order,
+            status: nextStatus,
+            completed_at: completedAt,
+            completed_by: completedBy,
+          }
+        : order
+    )
+
+    persistOrders(updated)
+    return { completedAt, completedBy }
+  }
+
+  function queueOrderAction(orderId: string, nextStatus: string, completedAt: string | null, completedBy: string | null) {
+    const action: QueuedAction = {
+      id: `${orderId}-${Date.now()}`,
+      orderId,
+      nextStatus,
+      completedAt,
+      completedBy,
+      createdAt: new Date().toISOString(),
+    }
+
+    const current = readQueuedActions().filter((item) => item.orderId !== orderId)
+    const next = [...current, action]
+
+    writeQueuedActions(next)
+    setQueuedActions(next)
+    markOrderSyncState(orderId, 'pending')
+  }
 
   async function resolveDriver() {
     const {
@@ -224,19 +356,14 @@ export default function DriverPage() {
       .order('created_at', { ascending: true })
 
     if (ordersError) {
-      if (typeof window !== 'undefined') {
-        const cachedOrders = window.localStorage.getItem('driver_cached_orders')
+      const cachedOrders = readCachedOrders()
 
-        if (cachedOrders) {
-          try {
-            const parsed = JSON.parse(cachedOrders) as Order[]
-            setOrders(parsed)
-            setUsingCachedOrders(true)
-            setPageError('')
-            setLoading(false)
-            return
-          } catch {}
-        }
+      if (cachedOrders.length > 0) {
+        persistOrders(cachedOrders)
+        setUsingCachedOrders(true)
+        setPageError('')
+        setLoading(false)
+        return
       }
 
       setPageError(ordersError.message)
@@ -245,14 +372,54 @@ export default function DriverPage() {
     }
 
     const nextOrders = (orderData as Order[]) || []
-    setOrders(nextOrders)
+    persistOrders(nextOrders)
     setUsingCachedOrders(false)
+    setLoading(false)
+  }
 
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('driver_cached_orders', JSON.stringify(nextOrders))
+  async function flushQueuedActions() {
+    if (syncingQueue || typeof window === 'undefined') return
+    if (!navigator.onLine) return
+
+    const pending = readQueuedActions()
+    if (pending.length === 0) {
+      setQueuedActions([])
+      return
     }
 
-    setLoading(false)
+    setSyncingQueue(true)
+    let remaining = [...pending]
+
+    for (const action of pending) {
+      try {
+        const payload: Record<string, unknown> = {
+          status: action.nextStatus,
+          completed_at: action.nextStatus === 'completed' ? action.completedAt : null,
+          completed_by: action.nextStatus === 'completed' ? action.completedBy : null,
+        }
+
+        const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', action.orderId)
+
+        if (error) {
+          markOrderSyncState(action.orderId, 'error')
+          continue
+        }
+
+        remaining = remaining.filter((item) => item.id !== action.id)
+        writeQueuedActions(remaining)
+        setQueuedActions(remaining)
+        clearOrderSyncState(action.orderId)
+      } catch {
+        markOrderSyncState(action.orderId, 'error')
+      }
+    }
+
+    setSyncingQueue(false)
+
+    const stillPending = readQueuedActions()
+    if (stillPending.length === 0) {
+      await loadPage()
+    }
   }
 
   async function handleLogout() {
@@ -260,8 +427,122 @@ export default function DriverPage() {
     router.push('/login')
   }
 
+  async function checkNotificationStatus() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setNotificationsEnabled(false)
+      return
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.getSubscription()
+      setNotificationsEnabled(Boolean(subscription) && Notification.permission === 'granted')
+    } catch {
+      setNotificationsEnabled(false)
+    }
+  }
+
+  async function handleEnableNotifications() {
+    if (!driver) return
+    if (typeof window === 'undefined') return
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPageError('Push notifications are not supported on this device/browser.')
+      return
+    }
+
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    if (!vapidPublicKey) {
+      setPageError('Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY.')
+      return
+    }
+
+    try {
+      setNotificationsLoading(true)
+      setPageError('')
+
+      const permission = await Notification.requestPermission()
+
+      if (permission !== 'granted') {
+        setPageError('Notification permission was not granted.')
+        setNotificationsLoading(false)
+        return
+      }
+
+      const registration = await navigator.serviceWorker.ready
+
+      let subscription = await registration.pushManager.getSubscription()
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        })
+      }
+
+      const keys = subscription.toJSON().keys
+      if (!keys?.p256dh || !keys?.auth) {
+        setPageError('Failed to read push subscription keys.')
+        setNotificationsLoading(false)
+        return
+      }
+
+      const response = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId: driver.id,
+          endpoint: subscription.endpoint,
+          p256dh: keys.p256dh,
+          auth: keys.auth,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setPageError(result.error || 'Failed to save notification subscription.')
+        setNotificationsLoading(false)
+        return
+      }
+
+      setNotificationsEnabled(true)
+      setNotificationsLoading(false)
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Failed to enable notifications.')
+      setNotificationsLoading(false)
+    }
+  }
+
+  async function handleSendTestNotification() {
+    if (!driver) return
+
+    try {
+      setPageError('')
+
+      const response = await fetch('/api/push/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driverId: driver.id }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setPageError(result.error || 'Failed to send test notification.')
+        return
+      }
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Failed to send test notification.')
+    }
+  }
+
+  useEffect(() => {
+    setQueuedActions(readQueuedActions())
+  }, [])
+
   useEffect(() => {
     void loadPage()
+    void checkNotificationStatus()
 
     const channel = supabase
       .channel('driver-page-realtime')
@@ -289,12 +570,14 @@ export default function DriverPage() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       void loadPage()
+      void flushQueuedActions()
+      void checkNotificationStatus()
     }, 300000)
 
     return () => {
       window.clearInterval(interval)
     }
-  }, [])
+  }, [syncingQueue, orders])
 
   useEffect(() => {
     if (!loading) {
@@ -309,11 +592,16 @@ export default function DriverPage() {
   }, [loading])
 
   useEffect(() => {
-    const updateOnlineStatus = () => {
-      setIsOffline(!navigator.onLine)
+    const updateOnlineStatus = async () => {
+      const offline = !navigator.onLine
+      setIsOffline(offline)
+
+      if (!offline) {
+        await flushQueuedActions()
+      }
     }
 
-    updateOnlineStatus()
+    void updateOnlineStatus()
 
     window.addEventListener('online', updateOnlineStatus)
     window.addEventListener('offline', updateOnlineStatus)
@@ -322,7 +610,7 @@ export default function DriverPage() {
       window.removeEventListener('online', updateOnlineStatus)
       window.removeEventListener('offline', updateOnlineStatus)
     }
-  }, [])
+  }, [syncingQueue])
 
   const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
 
@@ -343,50 +631,56 @@ export default function DriverPage() {
     setSavingOrderId(orderId)
     setPageError('')
 
+    const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
+
+    if (isOffline) {
+      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
+      setSavingOrderId(null)
+      return
+    }
+
     const payload: Record<string, unknown> = {
       status: nextStatus,
-    }
-
-    if (nextStatus === 'completed') {
-      payload.completed_at = new Date().toISOString()
-      payload.completed_by = driver?.name || 'Driver'
-    }
-
-    if (nextStatus !== 'completed') {
-      payload.completed_at = null
-      payload.completed_by = null
+      completed_at: nextStatus === 'completed' ? completedAt : null,
+      completed_by: nextStatus === 'completed' ? completedBy : null,
     }
 
     const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', orderId)
 
     if (error) {
-      setPageError(error.message)
+      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
+      setPageError('Connection issue: saved locally and will sync automatically.')
       setSavingOrderId(null)
       return
     }
 
-    if (nextStatus === 'completed') {
-      setOrders((current) => current.filter((order) => order.id !== orderId))
-      setSavingOrderId(null)
-      return
-    }
-
-    setOrders((current) =>
-      current.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              status: nextStatus,
-            }
-          : order
-      )
-    )
-
+    clearOrderSyncState(orderId)
     setSavingOrderId(null)
   }
 
   function toggleExpanded(orderId: string) {
     setExpandedOrderId((current) => (current === orderId ? null : orderId))
+  }
+
+  function getOrderSyncBadge(orderId: string) {
+    const state = syncStates[orderId]
+    if (state === 'pending') {
+      return (
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+          Pending Sync
+        </span>
+      )
+    }
+
+    if (state === 'error') {
+      return (
+        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
+          Sync Failed
+        </span>
+      )
+    }
+
+    return null
   }
 
   if (showSplash) {
@@ -448,6 +742,29 @@ export default function DriverPage() {
                 Log Out
               </button>
 
+              <button
+                type="button"
+                onClick={handleEnableNotifications}
+                disabled={notificationsLoading || notificationsEnabled}
+                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {notificationsEnabled
+                  ? 'Notifications On'
+                  : notificationsLoading
+                  ? 'Enabling...'
+                  : 'Enable Notifications'}
+              </button>
+
+              {notificationsEnabled ? (
+                <button
+                  type="button"
+                  onClick={handleSendTestNotification}
+                  className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                >
+                  Test Notification
+                </button>
+              ) : null}
+
               {routeLink ? (
                 <a
                   href={routeLink}
@@ -468,11 +785,15 @@ export default function DriverPage() {
           ) : null}
         </div>
 
-        {isOffline || usingCachedOrders ? (
+        {isOffline || usingCachedOrders || queuedActions.length > 0 || syncingQueue ? (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {usingCachedOrders
+            {syncingQueue
+              ? 'Syncing offline updates...'
+              : queuedActions.length > 0
+              ? `Offline queue active: ${queuedActions.length} update${queuedActions.length === 1 ? '' : 's'} waiting to sync.`
+              : usingCachedOrders
               ? 'Offline mode: showing last synced route.'
-              : 'Connection looks weak. Some actions may not work until internet returns.'}
+              : 'Connection looks weak. Some actions may sync later.'}
           </div>
         ) : null}
 
@@ -491,6 +812,7 @@ export default function DriverPage() {
               const isExpanded = expandedOrderId === order.id
               const isSaving = savingOrderId === order.id
               const stopAddress = getOrderAddress(order)
+              const syncBadge = getOrderSyncBadge(order.id)
 
               return (
                 <div
@@ -519,6 +841,8 @@ export default function DriverPage() {
                         >
                           {formatStatus(order.status || 'unassigned')}
                         </span>
+
+                        {syncBadge}
                       </div>
 
                       <h2 className="mt-3 text-lg font-bold text-slate-900">
@@ -566,28 +890,28 @@ export default function DriverPage() {
                         <button
                           type="button"
                           onClick={() => updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving || isOffline || order.status === 'completed'}
+                          disabled={isSaving}
                           className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {isSaving ? 'Saving...' : 'Start Order'}
+                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
                         </button>
 
                         <button
                           type="button"
                           onClick={() => updateOrderStatus(order.id, 'completed')}
-                          disabled={isSaving || isOffline || order.status === 'completed'}
+                          disabled={isSaving}
                           className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {isSaving ? 'Saving...' : 'Complete Order'}
+                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
                         </button>
 
                         <button
                           type="button"
                           onClick={() => updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving || isOffline || order.status === 'completed'}
+                          disabled={isSaving}
                           className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {isSaving ? 'Saving...' : 'Report Issue'}
+                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
                         </button>
 
                         <button

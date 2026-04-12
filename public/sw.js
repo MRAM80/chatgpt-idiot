@@ -1,4 +1,4 @@
-const CACHE_NAME = 'simpliidash-driver-v1'
+const CACHE_NAME = 'simpliidash-driver-v2'
 const APP_SHELL = [
   '/driver',
   '/manifest.webmanifest',
@@ -50,6 +50,55 @@ self.addEventListener('fetch', (event) => {
         .catch(() => cached)
 
       return cached || networkFetch
+    })
+  )
+})
+
+self.addEventListener('push', (event) => {
+  let data = {}
+
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch {
+    data = {
+      title: 'SimpliiTrash Driver',
+      body: event.data ? event.data.text() : 'You have a new update.',
+    }
+  }
+
+  const title = data.title || 'SimpliiTrash Driver'
+  const body = data.body || 'You have a new update.'
+  const url = data.url || '/driver'
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      data: { url },
+    })
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+
+  const targetUrl = event.notification?.data?.url || '/driver'
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.navigate(targetUrl)
+          return client.focus()
+        }
+      }
+
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl)
+      }
+
+      return Promise.resolve()
     })
   )
 })
