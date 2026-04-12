@@ -294,6 +294,11 @@ export default function DriverPage() {
     return null
   }, [orders])
 
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+    }
+
   async function updateOrderStatus(orderId: string, nextStatus: string) {
     setSavingOrderId(orderId)
     setPageError('')
@@ -393,6 +398,14 @@ export default function DriverPage() {
                 className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                Log Out
               </button>
 
               {routeLink ? (
