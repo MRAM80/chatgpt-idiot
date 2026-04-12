@@ -1,438 +1,198 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Driver = {
   id: string
   name: string | null
-  email?: string | null
+  email: string | null
   phone: string | null
   status: string | null
+  truck_id: string | null
   auth_user_id?: string | null
+  last_login_at?: string | null
+  created_at: string | null
+}
+
+type Truck = {
+  id: string
+  truck_number: string | null
+  plate_number: string | null
+  status: string | null
+  created_at: string | null
 }
 
 type Order = {
   id: string
-  ticket_number: string | null
-  customer_name: string | null
-  pickup_address: string | null
-  service_address?: string | null
-  service_time?: string | null
-  service_window?: string | null
-  bin_id: string | number | null
-  old_bin_id: string | number | null
-  bin_size: string | number | null
-  bin_type: string | null
-  order_type: string | null
-  scheduled_date: string | null
   driver_id: string | null
-  route_position?: number | null
+  customer_name: string | null
+  service_address: string | null
+  pickup_address: string | null
   status: string | null
-  notes: string | null
-  created_at: string | null
-  updated_at: string | null
-  completed_by?: string | null
-  completed_at?: string | null
+  scheduled_date: string | null
 }
 
-type QueuedAction = {
-  id: string
-  orderId: string
-  nextStatus: string
-  completedAt: string | null
-  completedBy: string | null
-  createdAt: string
+const DRIVER_STATUSES = ['available', 'busy', 'offline'] as const
+const TRUCK_STATUSES = ['available', 'in_use', 'maintenance', 'offline'] as const
+
+const driverStatusClasses: Record<string, string> = {
+  available: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  busy: 'bg-amber-100 text-amber-700 border-amber-200',
+  offline: 'bg-slate-100 text-slate-700 border-slate-200',
 }
 
-type SyncState = 'idle' | 'pending' | 'error'
-
-const TABLE_NAME = 'order'
-const CACHED_ORDERS_KEY = 'driver_cached_orders'
-const QUEUED_ACTIONS_KEY = 'driver_queued_actions'
-
-const statusStyles: Record<string, string> = {
-  unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
-  assigned: 'border-blue-200 bg-blue-50 text-blue-700',
-  in_progress: 'border-amber-200 bg-amber-50 text-amber-700',
-  completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  issue: 'border-rose-200 bg-rose-50 text-rose-700',
+const truckStatusClasses: Record<string, string> = {
+  available: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  in_use: 'bg-blue-100 text-blue-700 border-blue-200',
+  maintenance: 'bg-amber-100 text-amber-700 border-amber-200',
+  offline: 'bg-slate-100 text-slate-700 border-slate-200',
 }
 
 function formatStatus(status: string | null | undefined) {
-  if (!status) return 'Unassigned'
-  if (status === 'in_progress') return 'In Progress'
+  if (!status) return 'Available'
   return status
     .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
 }
 
-function formatDate(dateValue: string | null | undefined) {
-  if (!dateValue) return '—'
-  const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) return String(dateValue)
-  return date.toLocaleDateString()
+function formatDate(date: string | null) {
+  if (!date) return '—'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return date
+  return parsed.toLocaleDateString()
 }
 
-function displayValue(value: unknown) {
-  if (value === null || value === undefined) return '—'
-  if (typeof value === 'string') {
-    return value.trim() ? value : '—'
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
-  }
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
+function formatDateTime(date: string | null | undefined) {
+  if (!date) return '—'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return String(date)
+  return parsed.toLocaleString()
 }
 
 function getOrderAddress(order: Order) {
-  return order.service_address || order.pickup_address || ''
+  return order.service_address || order.pickup_address || '—'
 }
 
-function buildGoogleMapsLink(orders: Order[]) {
-  const addresses = orders
-    .map((order) => getOrderAddress(order))
-    .filter((value): value is string => Boolean(value && value.trim()))
-
-  if (addresses.length === 0) return ''
-
-  if (addresses.length === 1) {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addresses[0])}`
-  }
-
-  const origin = addresses[0]
-  const destination = addresses[addresses.length - 1]
-  const waypoints = addresses.slice(1, -1)
-
-  const params = new URLSearchParams({
-    api: '1',
-    origin,
-    destination,
-    travelmode: 'driving',
-  })
-
-  if (waypoints.length > 0) {
-    params.set('waypoints', waypoints.join('|'))
-  }
-
-  return `https://www.google.com/maps/dir/?${params.toString()}`
+function shortId(value: string | null | undefined) {
+  if (!value) return '—'
+  return value.slice(0, 8)
 }
 
-function readQueuedActions(): QueuedAction[] {
-  if (typeof window === 'undefined') return []
+export default function DriversPage() {
+  const supabase = createClient()
 
-  const raw = window.localStorage.getItem(QUEUED_ACTIONS_KEY)
-  if (!raw) return []
-
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as QueuedAction[]) : []
-  } catch {
-    return []
-  }
-}
-
-function writeQueuedActions(actions: QueuedAction[]) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(QUEUED_ACTIONS_KEY, JSON.stringify(actions))
-}
-
-function writeCachedOrders(orders: Order[]) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(CACHED_ORDERS_KEY, JSON.stringify(orders))
-}
-
-function readCachedOrders(): Order[] {
-  if (typeof window === 'undefined') return []
-
-  const raw = window.localStorage.getItem(CACHED_ORDERS_KEY)
-  if (!raw) return []
-
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as Order[]) : []
-  } catch {
-    return []
-  }
-}
-
-export default function DriverPage() {
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-    }
-  }, [])
-
-  const router = useRouter()
-  const supabase = useMemo(() => createClient(), [])
-
-  const [driver, setDriver] = useState<Driver | null>(null)
+  const [drivers, setDrivers] = useState<Driver[]>([])
+  const [trucks, setTrucks] = useState<Truck[]>([])
   const [orders, setOrders] = useState<Order[]>([])
+
   const [loading, setLoading] = useState(true)
+  const [savingDriver, setSavingDriver] = useState(false)
+  const [savingTruck, setSavingTruck] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingTruckId, setDeletingTruckId] = useState<string | null>(null)
   const [pageError, setPageError] = useState('')
-  const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
-  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
-  const [showSplash, setShowSplash] = useState(true)
-  const [isOffline, setIsOffline] = useState(false)
-  const [usingCachedOrders, setUsingCachedOrders] = useState(false)
-  const [syncingQueue, setSyncingQueue] = useState(false)
-  const [queuedActions, setQueuedActions] = useState<QueuedAction[]>([])
-  const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
 
-  function persistOrders(nextOrders: Order[]) {
-    setOrders(nextOrders)
-    writeCachedOrders(nextOrders)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+
+  const [showDriverModal, setShowDriverModal] = useState(false)
+  const [editingDriver, setEditingDriver] = useState<Driver | null>(null)
+
+  const [showTruckModal, setShowTruckModal] = useState(false)
+  const [editingTruck, setEditingTruck] = useState<Truck | null>(null)
+
+  const emptyDriverForm = {
+    name: '',
+    email: '',
+    phone: '',
+    status: 'available',
+    truck_id: '',
   }
 
-  function markOrderSyncState(orderId: string, state: SyncState) {
-    setSyncStates((current) => ({
-      ...current,
-      [orderId]: state,
-    }))
+  const emptyTruckForm = {
+    truck_number: '',
+    plate_number: '',
+    status: 'available',
   }
 
-  function clearOrderSyncState(orderId: string) {
-    setSyncStates((current) => {
-      const next = { ...current }
-      delete next[orderId]
-      return next
-    })
-  }
+  const [driverForm, setDriverForm] = useState(emptyDriverForm)
+  const [truckForm, setTruckForm] = useState(emptyTruckForm)
 
-  function updateLocalOrderStatus(orderId: string, nextStatus: string) {
-    const completedAt = nextStatus === 'completed' ? new Date().toISOString() : null
-    const completedBy = nextStatus === 'completed' ? driver?.name || 'Driver' : null
-
-    if (nextStatus === 'completed') {
-      const filtered = orders.filter((order) => order.id !== orderId)
-      persistOrders(filtered)
-      return { completedAt, completedBy }
-    }
-
-    const updated = orders.map((order) =>
-      order.id === orderId
-        ? {
-            ...order,
-            status: nextStatus,
-            completed_at: completedAt,
-            completed_by: completedBy,
-          }
-        : order
-    )
-
-    persistOrders(updated)
-    return { completedAt, completedBy }
-  }
-
-  function queueOrderAction(orderId: string, nextStatus: string, completedAt: string | null, completedBy: string | null) {
-    const action: QueuedAction = {
-      id: `${orderId}-${Date.now()}`,
-      orderId,
-      nextStatus,
-      completedAt,
-      completedBy,
-      createdAt: new Date().toISOString(),
-    }
-
-    const current = readQueuedActions().filter((item) => item.orderId !== orderId)
-    const next = [...current, action]
-
-    writeQueuedActions(next)
-    setQueuedActions(next)
-    markOrderSyncState(orderId, 'pending')
-  }
-
-  async function resolveDriver() {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      router.push('/login')
-      return null
-    }
-
-    const { data: driverByAuth, error: driverByAuthError } = await supabase
+  async function loadDrivers() {
+    const { data, error } = await supabase
       .from('drivers')
-      .select('id,name,email,phone,status,auth_user_id')
-      .eq('auth_user_id', user.id)
-      .maybeSingle()
+      .select('id,name,email,phone,status,truck_id,auth_user_id,last_login_at,created_at')
+      .order('created_at', { ascending: false })
 
-    if (driverByAuthError) {
-      setPageError(driverByAuthError.message)
-      return null
+    if (error) {
+      setPageError(error.message)
+      return
     }
 
-    if (driverByAuth) {
-      return driverByAuth as Driver
-    }
-
-    const normalizedEmail = (user.email || '').trim().toLowerCase()
-
-    if (!normalizedEmail) {
-      setPageError('This account is not linked to a driver profile.')
-      return null
-    }
-
-    const { data: driverByEmail, error: driverByEmailError } = await supabase
-      .from('drivers')
-      .select('id,name,email,phone,status,auth_user_id')
-      .ilike('email', normalizedEmail)
-      .maybeSingle()
-
-    if (driverByEmailError) {
-      setPageError(driverByEmailError.message)
-      return null
-    }
-
-    if (!driverByEmail) {
-      setPageError('This account is not linked to a driver profile.')
-      return null
-    }
-
-    const { error: linkError } = await supabase
-      .from('drivers')
-      .update({
-        auth_user_id: user.id,
-        last_login_at: new Date().toISOString(),
-      })
-      .eq('id', driverByEmail.id)
-
-    if (linkError) {
-      setPageError(linkError.message)
-      return null
-    }
-
-    return {
-      ...driverByEmail,
-      auth_user_id: user.id,
-    } as Driver
+    setDrivers((data as Driver[]) || [])
   }
 
-  async function loadPage() {
-    setPageError('')
+  async function loadTrucks() {
+    const { data, error } = await supabase
+      .from('trucks')
+      .select('id,truck_number,plate_number,status,created_at')
+      .order('truck_number', { ascending: true })
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    setTrucks((data as Truck[]) || [])
+  }
+
+  async function loadOrders() {
+    const { data, error } = await supabase
+      .from('order')
+      .select('id,driver_id,customer_name,service_address,pickup_address,status,scheduled_date')
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    setOrders((data as Order[]) || [])
+  }
+
+  async function refreshAll() {
     setLoading(true)
-
-    const resolvedDriver = await resolveDriver()
-
-    if (!resolvedDriver) {
-      setLoading(false)
-      return
-    }
-
-    setDriver(resolvedDriver)
-
-    const { data: orderData, error: ordersError } = await supabase
-      .from(TABLE_NAME)
-      .select(
-        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
-      )
-      .eq('driver_id', resolvedDriver.id)
-      .neq('status', 'completed')
-      .order('route_position', { ascending: true })
-      .order('scheduled_date', { ascending: true })
-      .order('created_at', { ascending: true })
-
-    if (ordersError) {
-      const cachedOrders = readCachedOrders()
-
-      if (cachedOrders.length > 0) {
-        persistOrders(cachedOrders)
-        setUsingCachedOrders(true)
-        setPageError('')
-        setLoading(false)
-        return
-      }
-
-      setPageError(ordersError.message)
-      setLoading(false)
-      return
-    }
-
-    const nextOrders = (orderData as Order[]) || []
-    persistOrders(nextOrders)
-    setUsingCachedOrders(false)
+    setPageError('')
+    await Promise.all([loadDrivers(), loadTrucks(), loadOrders()])
     setLoading(false)
   }
 
-  async function flushQueuedActions() {
-    if (syncingQueue || typeof window === 'undefined') return
-    if (!navigator.onLine) return
-
-    const pending = readQueuedActions()
-    if (pending.length === 0) {
-      setQueuedActions([])
-      return
-    }
-
-    setSyncingQueue(true)
-    let remaining = [...pending]
-
-    for (const action of pending) {
-      try {
-        const payload: Record<string, unknown> = {
-          status: action.nextStatus,
-          completed_at: action.nextStatus === 'completed' ? action.completedAt : null,
-          completed_by: action.nextStatus === 'completed' ? action.completedBy : null,
-        }
-
-        const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', action.orderId)
-
-        if (error) {
-          markOrderSyncState(action.orderId, 'error')
-          continue
-        }
-
-        remaining = remaining.filter((item) => item.id !== action.id)
-        writeQueuedActions(remaining)
-        setQueuedActions(remaining)
-        clearOrderSyncState(action.orderId)
-      } catch {
-        markOrderSyncState(action.orderId, 'error')
-      }
-    }
-
-    setSyncingQueue(false)
-
-    const stillPending = readQueuedActions()
-    if (stillPending.length === 0) {
-      await loadPage()
-    }
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
   useEffect(() => {
-    setQueuedActions(readQueuedActions())
-  }, [])
-
-  useEffect(() => {
-    void loadPage()
+    refreshAll()
 
     const channel = supabase
-      .channel('driver-page-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: TABLE_NAME },
-        async () => {
-          await loadPage()
-        }
-      )
+      .channel('drivers-trucks-page-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'drivers' },
         async () => {
-          await loadPage()
+          await loadDrivers()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trucks' },
+        async () => {
+          await loadTrucks()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'order' },
+        async () => {
+          await loadOrders()
         }
       )
       .subscribe()
@@ -440,192 +200,424 @@ export default function DriverPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [supabase])
+  }, [])
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      void loadPage()
-      void flushQueuedActions()
-    }, 300000)
+  const driverStats = useMemo(() => {
+    const totalOrdersByDriver: Record<string, number> = {}
+    const activeOrdersByDriver: Record<string, number> = {}
+    const completedOrdersByDriver: Record<string, number> = {}
 
-    return () => {
-      window.clearInterval(interval)
-    }
-  }, [syncingQueue, orders])
+    for (const order of orders) {
+      if (!order.driver_id) continue
 
-  useEffect(() => {
-    if (!loading) {
-      const timer = window.setTimeout(() => {
-        setShowSplash(false)
-      }, 900)
+      totalOrdersByDriver[order.driver_id] = (totalOrdersByDriver[order.driver_id] || 0) + 1
 
-      return () => window.clearTimeout(timer)
-    }
+      if (order.status === 'assigned' || order.status === 'in_progress') {
+        activeOrdersByDriver[order.driver_id] = (activeOrdersByDriver[order.driver_id] || 0) + 1
+      }
 
-    setShowSplash(true)
-  }, [loading])
-
-  useEffect(() => {
-    const updateOnlineStatus = async () => {
-      const offline = !navigator.onLine
-      setIsOffline(offline)
-
-      if (!offline) {
-        await flushQueuedActions()
+      if (order.status === 'completed') {
+        completedOrdersByDriver[order.driver_id] =
+          (completedOrdersByDriver[order.driver_id] || 0) + 1
       }
     }
 
-    void updateOnlineStatus()
-
-    window.addEventListener('online', updateOnlineStatus)
-    window.addEventListener('offline', updateOnlineStatus)
-
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus)
-      window.removeEventListener('offline', updateOnlineStatus)
-    }
-  }, [syncingQueue])
-
-  const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
-
-  const currentStopId = useMemo(() => {
-    const firstInProgress = orders.find((order) => order.status === 'in_progress')
-    if (firstInProgress) return firstInProgress.id
-
-    const firstAssigned = orders.find((order) => order.status === 'assigned')
-    if (firstAssigned) return firstAssigned.id
-
-    const firstIssue = orders.find((order) => order.status === 'issue')
-    if (firstIssue) return firstIssue.id
-
-    return null
+    return { totalOrdersByDriver, activeOrdersByDriver, completedOrdersByDriver }
   }, [orders])
 
-  async function updateOrderStatus(orderId: string, nextStatus: string) {
-    setSavingOrderId(orderId)
+  const truckUsageByDriver = useMemo(() => {
+    const map: Record<string, Driver[]> = {}
+
+    for (const driver of drivers) {
+      if (!driver.truck_id) continue
+      if (!map[driver.truck_id]) map[driver.truck_id] = []
+      map[driver.truck_id].push(driver)
+    }
+
+    return map
+  }, [drivers])
+
+  const dashboardCounts = useMemo(() => {
+    return {
+      totalDrivers: drivers.length,
+      availableDrivers: drivers.filter((driver) => driver.status === 'available').length,
+      busyDrivers: drivers.filter((driver) => driver.status === 'busy').length,
+      linkedDrivers: drivers.filter((driver) => !!driver.auth_user_id).length,
+      totalTrucks: trucks.length,
+      availableTrucks: trucks.filter((truck) => truck.status === 'available').length,
+    }
+  }, [drivers, trucks])
+
+  const filteredDrivers = useMemo(() => {
+    const query = search.trim().toLowerCase()
+
+    return drivers.filter((driver) => {
+      const truck = trucks.find((item) => item.id === driver.truck_id)
+      const authStatus = driver.auth_user_id ? 'linked' : 'not linked'
+
+      const matchesSearch =
+        !query ||
+        (driver.name || '').toLowerCase().includes(query) ||
+        (driver.email || '').toLowerCase().includes(query) ||
+        (driver.phone || '').toLowerCase().includes(query) ||
+        (truck?.truck_number || '').toLowerCase().includes(query) ||
+        (truck?.plate_number || '').toLowerCase().includes(query) ||
+        authStatus.includes(query)
+
+      const matchesStatus =
+        statusFilter === 'all' || (driver.status || 'available') === statusFilter
+
+      return matchesSearch && matchesStatus
+    })
+  }, [drivers, trucks, search, statusFilter])
+
+  const availableTruckOptions = useMemo(() => {
+    const currentTruckId = editingDriver?.truck_id || ''
+
+    return trucks.filter((truck) => {
+      const assignedDrivers = truckUsageByDriver[truck.id] || []
+      const isAssignedToSomeoneElse = assignedDrivers.some(
+        (driver) => driver.id !== editingDriver?.id
+      )
+
+      if (truck.id === currentTruckId) return true
+      if (truck.status !== 'available') return false
+      if (isAssignedToSomeoneElse) return false
+
+      return true
+    })
+  }, [trucks, truckUsageByDriver, editingDriver])
+
+  function openCreateDriverModal() {
+    setEditingDriver(null)
+    setDriverForm(emptyDriverForm)
+    setShowDriverModal(true)
+  }
+
+  function openEditDriverModal(driver: Driver) {
+    setEditingDriver(driver)
+    setDriverForm({
+      name: driver.name || '',
+      email: driver.email || '',
+      phone: driver.phone || '',
+      status: driver.status || 'available',
+      truck_id: driver.truck_id || '',
+    })
+    setShowDriverModal(true)
+  }
+
+  function closeDriverModal() {
+    setEditingDriver(null)
+    setShowDriverModal(false)
+    setDriverForm(emptyDriverForm)
+  }
+
+  function openCreateTruckModal() {
+    setEditingTruck(null)
+    setTruckForm(emptyTruckForm)
+    setShowTruckModal(true)
+  }
+
+  function openEditTruckModal(truck: Truck) {
+    setEditingTruck(truck)
+    setTruckForm({
+      truck_number: truck.truck_number || '',
+      plate_number: truck.plate_number || '',
+      status: truck.status || 'available',
+    })
+    setShowTruckModal(true)
+  }
+
+  function closeTruckModal() {
+    setEditingTruck(null)
+    setShowTruckModal(false)
+    setTruckForm(emptyTruckForm)
+  }
+
+  async function syncTruckStatusFromDriver(
+    oldTruckId: string | null,
+    newTruckId: string | null,
+    driverStatus: string
+  ) {
+    if (oldTruckId && oldTruckId !== newTruckId) {
+      const stillUsed = drivers.some(
+        (driver) => driver.id !== editingDriver?.id && driver.truck_id === oldTruckId
+      )
+
+      if (!stillUsed) {
+        await supabase.from('trucks').update({ status: 'available' }).eq('id', oldTruckId)
+      }
+    }
+
+    if (newTruckId) {
+      const nextTruckStatus =
+        driverStatus === 'offline' ? 'available' : 'in_use'
+
+      await supabase.from('trucks').update({ status: nextTruckStatus }).eq('id', newTruckId)
+    }
+  }
+
+  async function handleCreateOrUpdateDriver() {
+    setSavingDriver(true)
     setPageError('')
 
-    const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
+    const payload = {
+      name: driverForm.name || null,
+      email: driverForm.email || null,
+      phone: driverForm.phone || null,
+      status: driverForm.status || 'available',
+      truck_id: driverForm.truck_id || null,
+    }
 
-    if (isOffline) {
-      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
-      setSavingOrderId(null)
+    if (editingDriver) {
+      const activeOrders = driverStats.activeOrdersByDriver[editingDriver.id] || 0
+
+      if (payload.status === 'available' && activeOrders > 0) {
+        setPageError(
+          'This driver still has active orders. Keep as busy, set offline, or reassign the orders first.'
+        )
+        setSavingDriver(false)
+        return
+      }
+
+      const { error } = await supabase
+        .from('drivers')
+        .update(payload)
+        .eq('id', editingDriver.id)
+
+      if (error) {
+        setPageError(error.message)
+        setSavingDriver(false)
+        return
+      }
+
+      await syncTruckStatusFromDriver(
+        editingDriver.truck_id,
+        payload.truck_id,
+        payload.status || 'available'
+      )
+    } else {
+      const { data, error } = await supabase
+        .from('drivers')
+        .insert([payload])
+        .select('id')
+        .single()
+
+      if (error) {
+        setPageError(error.message)
+        setSavingDriver(false)
+        return
+      }
+
+      if (payload.truck_id) {
+        const nextTruckStatus =
+          payload.status === 'offline' ? 'available' : 'in_use'
+
+        await supabase
+          .from('trucks')
+          .update({ status: nextTruckStatus })
+          .eq('id', payload.truck_id)
+      }
+
+      if (!data?.id) {
+        setPageError('Driver created, but response did not return an id.')
+      }
+    }
+
+    await refreshAll()
+    closeDriverModal()
+    setSavingDriver(false)
+  }
+
+  async function handleDeleteDriver(driverId: string) {
+    const relatedActiveOrders = orders.filter(
+      (order) =>
+        order.driver_id === driverId &&
+        (order.status === 'assigned' || order.status === 'in_progress')
+    )
+
+    if (relatedActiveOrders.length > 0) {
+      window.alert(
+        'This driver has active orders assigned. Reassign or complete those orders first.'
+      )
       return
     }
 
-    const payload: Record<string, unknown> = {
-      status: nextStatus,
-      completed_at: nextStatus === 'completed' ? completedAt : null,
-      completed_by: nextStatus === 'completed' ? completedBy : null,
-    }
+    const driver = drivers.find((item) => item.id === driverId)
+    const confirmed = window.confirm('Delete this driver?')
+    if (!confirmed) return
 
-    const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', orderId)
+    setDeletingId(driverId)
+    setPageError('')
+
+    const { error } = await supabase.from('drivers').delete().eq('id', driverId)
 
     if (error) {
-      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
-      setPageError('Connection issue: saved locally and will sync automatically.')
-      setSavingOrderId(null)
+      setPageError(error.message)
+      setDeletingId(null)
       return
     }
 
-    clearOrderSyncState(orderId)
-    setSavingOrderId(null)
-  }
-
-  function toggleExpanded(orderId: string) {
-    setExpandedOrderId((current) => (current === orderId ? null : orderId))
-  }
-
-  function getOrderSyncBadge(orderId: string) {
-    const state = syncStates[orderId]
-    if (state === 'pending') {
-      return (
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-          Pending Sync
-        </span>
+    if (driver?.truck_id) {
+      const stillUsed = drivers.some(
+        (item) => item.id !== driver.id && item.truck_id === driver.truck_id
       )
+
+      if (!stillUsed) {
+        await supabase.from('trucks').update({ status: 'available' }).eq('id', driver.truck_id)
+      }
     }
 
-    if (state === 'error') {
-      return (
-        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
-          Sync Failed
-        </span>
-      )
-    }
-
-    return null
+    await refreshAll()
+    setDeletingId(null)
   }
 
-  if (showSplash) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
-        <div className="w-full max-w-md rounded-[2rem] bg-white/10 p-10 text-center shadow-2xl backdrop-blur-md">
-          <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
-            <img
-              src="/icons/icon-512.png"
-              alt="SimpliiTrash Driver"
-              className="h-16 w-16 rounded-2xl object-contain"
-            />
-          </div>
+  async function handleQuickStatus(driver: Driver, value: string) {
+    const activeOrders = driverStats.activeOrdersByDriver[driver.id] || 0
 
-          <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
-            SimpliiTrash Driver
-          </h1>
+    if (value === 'available' && activeOrders > 0) {
+      window.alert(
+        'This driver still has active orders. Keep as busy or reassign the orders first.'
+      )
+      return
+    }
 
-          <p className="mt-2 text-sm text-white/90">
-            Loading your route...
-          </p>
+    setPageError('')
 
-          <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
-            <div className="h-full w-2/3 animate-pulse rounded-full bg-white" />
-          </div>
-        </div>
-      </div>
-    )
+    const { error } = await supabase
+      .from('drivers')
+      .update({ status: value })
+      .eq('id', driver.id)
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    if (driver.truck_id) {
+      const nextTruckStatus = value === 'offline' ? 'available' : 'in_use'
+      await supabase
+        .from('trucks')
+        .update({ status: nextTruckStatus })
+        .eq('id', driver.truck_id)
+    }
+
+    await refreshAll()
+  }
+
+  async function handleCreateOrUpdateTruck() {
+    setSavingTruck(true)
+    setPageError('')
+
+    const payload = {
+      truck_number: truckForm.truck_number || null,
+      plate_number: truckForm.plate_number || null,
+      status: truckForm.status || 'available',
+    }
+
+    if (!payload.truck_number) {
+      setPageError('Truck number is required.')
+      setSavingTruck(false)
+      return
+    }
+
+    if (editingTruck) {
+      const assignedDrivers = truckUsageByDriver[editingTruck.id] || []
+
+      if (
+        assignedDrivers.length > 0 &&
+        (payload.status === 'maintenance' || payload.status === 'offline')
+      ) {
+        setPageError(
+          'This truck is assigned to a driver. Remove the driver assignment first before setting this truck unavailable.'
+        )
+        setSavingTruck(false)
+        return
+      }
+
+      const { error } = await supabase
+        .from('trucks')
+        .update(payload)
+        .eq('id', editingTruck.id)
+
+      if (error) {
+        setPageError(error.message)
+      } else {
+        await refreshAll()
+        closeTruckModal()
+      }
+    } else {
+      const { error } = await supabase.from('trucks').insert([payload])
+
+      if (error) {
+        setPageError(error.message)
+      } else {
+        await refreshAll()
+        closeTruckModal()
+      }
+    }
+
+    setSavingTruck(false)
+  }
+
+  async function handleDeleteTruck(truckId: string) {
+    const assignedDrivers = truckUsageByDriver[truckId] || []
+
+    if (assignedDrivers.length > 0) {
+      window.alert('This truck is assigned to a driver. Remove the assignment first.')
+      return
+    }
+
+    const confirmed = window.confirm('Delete this truck?')
+    if (!confirmed) return
+
+    setDeletingTruckId(truckId)
+    setPageError('')
+
+    const { error } = await supabase.from('trucks').delete().eq('id', truckId)
+
+    if (error) {
+      setPageError(error.message)
+    } else {
+      await refreshAll()
+    }
+
+    setDeletingTruckId(null)
   }
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-6xl p-4 md:p-6">
+      <div className="mx-auto max-w-7xl p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                Driver App
-              </div>
-              <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
-                {driver?.name || 'Driver'}
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                Drivers
               </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Manage drivers, truck alignment, and dispatch readiness
+              </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <button
-                type="button"
-                onClick={loadPage}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                onClick={refreshAll}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Refresh
               </button>
-
               <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                onClick={openCreateTruckModal}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Log Out
+                New Truck
               </button>
-
-              {routeLink ? (
-                <a
-                  href={routeLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                >
-                  Open Full Route
-                </a>
-              ) : null}
+              <button
+                onClick={openCreateDriverModal}
+                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                New Driver
+              </button>
             </div>
           </div>
 
@@ -634,202 +626,614 @@ export default function DriverPage() {
               {pageError}
             </div>
           ) : null}
+
+          <div className="mt-6 grid gap-4 md:grid-cols-6">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Total Drivers
+              </div>
+              <div className="mt-2 text-2xl font-bold text-slate-900">
+                {dashboardCounts.totalDrivers}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                Available Drivers
+              </div>
+              <div className="mt-2 text-2xl font-bold text-emerald-900">
+                {dashboardCounts.availableDrivers}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                Busy Drivers
+              </div>
+              <div className="mt-2 text-2xl font-bold text-amber-900">
+                {dashboardCounts.busyDrivers}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                Linked Logins
+              </div>
+              <div className="mt-2 text-2xl font-bold text-blue-900">
+                {dashboardCounts.linkedDrivers}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Total Trucks
+              </div>
+              <div className="mt-2 text-2xl font-bold text-slate-900">
+                {dashboardCounts.totalTrucks}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                Available Trucks
+              </div>
+              <div className="mt-2 text-2xl font-bold text-blue-900">
+                {dashboardCounts.availableTrucks}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search driver, email, phone, truck number, plate, or linked"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+            />
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+            >
+              <option value="all">All Statuses</option>
+              {DRIVER_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatStatus(status)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {isOffline || usingCachedOrders || queuedActions.length > 0 || syncingQueue ? (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {syncingQueue
-              ? 'Syncing offline updates...'
-              : queuedActions.length > 0
-              ? `Offline queue active: ${queuedActions.length} update${queuedActions.length === 1 ? '' : 's'} waiting to sync.`
-              : usingCachedOrders
-              ? 'Offline mode: showing last synced route.'
-              : 'Connection looks weak. Some actions may sync later.'}
+        <div className="mb-6 overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-bold text-slate-900">Drivers</h2>
           </div>
-        ) : null}
 
-        {loading ? (
-          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            Loading driver app...
+          {loading ? (
+            <div className="p-10 text-center text-sm text-slate-500">
+              Loading drivers...
+            </div>
+          ) : filteredDrivers.length === 0 ? (
+            <div className="p-10 text-center text-sm text-slate-500">
+              No drivers found.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Driver
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Contact
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Login Access
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Truck
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Workload
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Added
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {filteredDrivers.map((driver) => {
+                    const totalOrders = driverStats.totalOrdersByDriver[driver.id] || 0
+                    const activeOrders = driverStats.activeOrdersByDriver[driver.id] || 0
+                    const completedOrders =
+                      driverStats.completedOrdersByDriver[driver.id] || 0
+                    const badgeClass =
+                      driverStatusClasses[driver.status || 'available'] ||
+                      driverStatusClasses.available
+                    const truck = trucks.find((item) => item.id === driver.truck_id)
+                    const isLinked = !!driver.auth_user_id
+
+                    return (
+                      <tr key={driver.id} className="hover:bg-slate-50/80">
+                        <td className="px-4 py-4 align-top">
+                          <div className="font-semibold text-slate-900">
+                            {driver.name || 'Unnamed Driver'}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            Driver ID: #{driver.id.slice(0, 8)}
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          <div>{driver.phone || '—'}</div>
+                          <div className="mt-1 text-slate-500">{driver.email || '—'}</div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          <div className="flex flex-col gap-2">
+                            <span
+                              className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                                isLinked
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : 'border-amber-200 bg-amber-50 text-amber-700'
+                              }`}
+                            >
+                              {isLinked ? 'Linked' : 'Not linked'}
+                            </span>
+
+                            <div className="text-xs text-slate-500">
+                              Auth ID: {shortId(driver.auth_user_id)}
+                            </div>
+
+                            <div className="text-xs text-slate-500">
+                              Last Login: {formatDateTime(driver.last_login_at)}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {truck ? (
+                            <>
+                              <div className="font-medium text-slate-900">
+                                Truck {truck.truck_number}
+                              </div>
+                              <div className="mt-1 text-slate-500">
+                                Plate: {truck.plate_number || '—'}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-slate-500">No truck assigned</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          <div>Total Orders: {totalOrders}</div>
+                          <div className="mt-1 text-slate-500">Active: {activeOrders}</div>
+                          <div className="mt-1 text-slate-500">
+                            Completed: {completedOrders}
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top">
+                          <div className="flex flex-col gap-2">
+                            <span
+                              className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                            >
+                              {formatStatus(driver.status || 'available')}
+                            </span>
+
+                            <select
+                              value={driver.status || 'available'}
+                              onChange={(e) => handleQuickStatus(driver, e.target.value)}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                            >
+                              {DRIVER_STATUSES.map((status) => (
+                                <option key={status} value={status}>
+                                  {formatStatus(status)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {formatDate(driver.created_at)}
+                        </td>
+
+                        <td className="px-4 py-4 align-top">
+                          <div className="flex justify-end gap-2">
+                            <Link
+                              href="/driver"
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                            >
+                              Driver App
+                            </Link>
+
+                            <button
+                              onClick={() => openEditDriverModal(driver)}
+                              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteDriver(driver.id)}
+                              disabled={deletingId === driver.id}
+                              className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                            >
+                              {deletingId === driver.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-bold text-slate-900">Truck Inventory</h2>
           </div>
-        ) : orders.length === 0 ? (
-          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            No active orders for this driver.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {orders.map((order, index) => {
-              const isCurrentStop = currentStopId === order.id
-              const isExpanded = expandedOrderId === order.id
-              const isSaving = savingOrderId === order.id
-              const stopAddress = getOrderAddress(order)
-              const syncBadge = getOrderSyncBadge(order.id)
 
-              return (
-                <div
-                  key={order.id}
-                  className={`rounded-3xl bg-white p-5 shadow-sm ring-1 ${
-                    isCurrentStop ? 'ring-blue-300' : 'ring-slate-200'
-                  }`}
-                >
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          Stop {order.route_position || index + 1}
-                        </span>
+          {loading ? (
+            <div className="p-10 text-center text-sm text-slate-500">
+              Loading trucks...
+            </div>
+          ) : trucks.length === 0 ? (
+            <div className="p-10 text-center text-sm text-slate-500">
+              No trucks found.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Truck
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Plate
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Assigned Driver
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
 
-                        {isCurrentStop ? (
-                          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                            Current Order
-                          </span>
-                        ) : null}
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {trucks.map((truck) => {
+                    const assignedDrivers = truckUsageByDriver[truck.id] || []
+                    const truckBadgeClass =
+                      truckStatusClasses[truck.status || 'available'] ||
+                      truckStatusClasses.available
 
-                        <span
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                            statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
-                          }`}
-                        >
-                          {formatStatus(order.status || 'unassigned')}
-                        </span>
-
-                        {syncBadge}
-                      </div>
-
-                      <h2 className="mt-3 text-lg font-bold text-slate-900">
-                        {order.customer_name || 'No customer'}
-                      </h2>
-
-                      <div className="mt-1 text-sm text-slate-500">
-                        {order.ticket_number || `#${order.id.slice(0, 8)}`}
-                      </div>
-
-                      <div className="mt-3 grid gap-3 md:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Address
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(stopAddress)}
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Time
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(order.service_window || order.service_time)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="w-full shrink-0 md:w-[260px]">
-                      <div className="grid gap-2">
-                        {stopAddress ? (
-                          <a
-                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stopAddress)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    return (
+                      <tr key={truck.id} className="hover:bg-slate-50/80">
+                        <td className="px-4 py-4 align-top text-sm font-semibold text-slate-900">
+                          {truck.truck_number || '—'}
+                        </td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {truck.plate_number || '—'}
+                        </td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {assignedDrivers.length > 0
+                            ? assignedDrivers.map((driver) => driver.name || 'Unnamed Driver').join(', ')
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-4 align-top">
+                          <span
+                            className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${truckBadgeClass}`}
                           >
-                            Open in Maps
-                          </a>
-                        ) : null}
+                            {formatStatus(truck.status || 'available')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 align-top">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => openEditTruckModal(truck)}
+                              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                            >
+                              Edit
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
-                        </button>
+                            <button
+                              onClick={() => handleDeleteTruck(truck.id)}
+                              disabled={deletingTruckId === truck.id}
+                              className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                            >
+                              {deletingTruckId === truck.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'completed')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
-                        </button>
+        <div className="mt-8 flex justify-center">
+          <Link
+            href="/dashboard"
+            className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
+      </div>
 
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
-                        </button>
+      {showDriverModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  {editingDriver ? 'Edit Driver' : 'Create Driver'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Add or update driver details and align a truck
+                </p>
+              </div>
 
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(order.id)}
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                        >
-                          {isExpanded ? 'Hide Details' : 'Show Details'}
-                        </button>
-                      </div>
+              <button
+                onClick={closeDriverModal}
+                className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Name
+                </label>
+                <input
+                  value={driverForm.name}
+                  onChange={(e) =>
+                    setDriverForm((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="Driver name"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Email
+                  </label>
+                  <input
+                    value={driverForm.email}
+                    onChange={(e) =>
+                      setDriverForm((prev) => ({ ...prev, email: e.target.value }))
+                    }
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                    placeholder="Email address"
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    Use the same email created in Supabase Auth for automatic driver login linking.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Phone
+                  </label>
+                  <input
+                    value={driverForm.phone}
+                    onChange={(e) =>
+                      setDriverForm((prev) => ({ ...prev, phone: e.target.value }))
+                    }
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                    placeholder="Phone number"
+                  />
+                </div>
+              </div>
+
+              {editingDriver ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Auth User ID
+                    </div>
+                    <div className="mt-2 text-sm text-slate-900">
+                      {editingDriver.auth_user_id || 'Not linked yet'}
                     </div>
                   </div>
 
-                  {isExpanded ? (
-                    <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Order Type
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.order_type)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Size
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_size)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Type
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_type)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Scheduled Date
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {formatDate(order.scheduled_date)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Notes
-                        </div>
-                        <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
-                          {displayValue(order.notes)}
-                        </div>
-                      </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Last Login
                     </div>
-                  ) : null}
+                    <div className="mt-2 text-sm text-slate-900">
+                      {formatDateTime(editingDriver.last_login_at)}
+                    </div>
+                  </div>
                 </div>
-              )
-            })}
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Status
+                  </label>
+                  <select
+                    value={driverForm.status}
+                    onChange={(e) =>
+                      setDriverForm((prev) => ({ ...prev, status: e.target.value }))
+                    }
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  >
+                    {DRIVER_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {formatStatus(status)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Truck
+                  </label>
+                  <select
+                    value={driverForm.truck_id}
+                    onChange={(e) =>
+                      setDriverForm((prev) => ({ ...prev, truck_id: e.target.value }))
+                    }
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  >
+                    <option value="">No truck assigned</option>
+                    {availableTruckOptions.map((truck) => (
+                      <option key={truck.id} value={truck.id}>
+                        {truck.truck_number} {truck.plate_number ? `• ${truck.plate_number}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={closeDriverModal}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleCreateOrUpdateDriver}
+                disabled={savingDriver}
+                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              >
+                {savingDriver
+                  ? 'Saving...'
+                  : editingDriver
+                    ? 'Save Changes'
+                    : 'Create Driver'}
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {showTruckModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  {editingTruck ? 'Edit Truck' : 'Create Truck'}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Add and manage truck inventory for dispatch
+                </p>
+              </div>
+
+              <button
+                onClick={closeTruckModal}
+                className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Truck Number
+                </label>
+                <input
+                  value={truckForm.truck_number}
+                  onChange={(e) =>
+                    setTruckForm((prev) => ({ ...prev, truck_number: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="Truck number"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Plate Number
+                </label>
+                <input
+                  value={truckForm.plate_number}
+                  onChange={(e) =>
+                    setTruckForm((prev) => ({ ...prev, plate_number: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  placeholder="Plate number"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Status
+                </label>
+                <select
+                  value={truckForm.status}
+                  onChange={(e) =>
+                    setTruckForm((prev) => ({ ...prev, status: e.target.value }))
+                  }
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                >
+                  {TRUCK_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={closeTruckModal}
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleCreateOrUpdateTruck}
+                disabled={savingTruck}
+                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              >
+                {savingTruck
+                  ? 'Saving...'
+                  : editingTruck
+                    ? 'Save Changes'
+                    : 'Create Truck'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
