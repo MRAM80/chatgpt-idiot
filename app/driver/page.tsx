@@ -112,7 +112,6 @@ function buildGoogleMapsLink(orders: Order[]) {
 }
 
 export default function DriverPage() {
-
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
@@ -128,6 +127,11 @@ export default function DriverPage() {
   const [pageError, setPageError] = useState('')
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   async function resolveDriver() {
     const {
@@ -353,6 +357,14 @@ export default function DriverPage() {
                 className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Log Out
               </button>
             </div>
           </div>
