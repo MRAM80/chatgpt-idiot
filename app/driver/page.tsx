@@ -128,6 +128,8 @@ export default function DriverPage() {
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
   const [showSplash, setShowSplash] = useState(true)
+  const [isOffline, setIsOffline] = useState(false)
+  const [usingCachedOrders, setUsingCachedOrders] = useState(false)
 
   async function resolveDriver() {
     const {
@@ -222,13 +224,40 @@ export default function DriverPage() {
       .order('created_at', { ascending: true })
 
     if (ordersError) {
+      if (typeof window !== 'undefined') {
+        const cachedOrders = window.localStorage.getItem('driver_cached_orders')
+
+        if (cachedOrders) {
+          try {
+            const parsed = JSON.parse(cachedOrders) as Order[]
+            setOrders(parsed)
+            setUsingCachedOrders(true)
+            setPageError('')
+            setLoading(false)
+            return
+          } catch {}
+        }
+      }
+
       setPageError(ordersError.message)
       setLoading(false)
       return
     }
 
-    setOrders((orderData as Order[]) || [])
+    const nextOrders = (orderData as Order[]) || []
+    setOrders(nextOrders)
+    setUsingCachedOrders(false)
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('driver_cached_orders', JSON.stringify(nextOrders))
+    }
+
     setLoading(false)
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
   }
 
   useEffect(() => {
@@ -279,6 +308,22 @@ export default function DriverPage() {
     setShowSplash(true)
   }, [loading])
 
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      setIsOffline(!navigator.onLine)
+    }
+
+    updateOnlineStatus()
+
+    window.addEventListener('online', updateOnlineStatus)
+    window.addEventListener('offline', updateOnlineStatus)
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus)
+      window.removeEventListener('offline', updateOnlineStatus)
+    }
+  }, [])
+
   const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
 
   const currentStopId = useMemo(() => {
@@ -293,11 +338,6 @@ export default function DriverPage() {
 
     return null
   }, [orders])
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-    }
 
   async function updateOrderStatus(orderId: string, nextStatus: string) {
     setSavingOrderId(orderId)
@@ -428,6 +468,14 @@ export default function DriverPage() {
           ) : null}
         </div>
 
+        {isOffline || usingCachedOrders ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {usingCachedOrders
+              ? 'Offline mode: showing last synced route.'
+              : 'Connection looks weak. Some actions may not work until internet returns.'}
+          </div>
+        ) : null}
+
         {loading ? (
           <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
             Loading driver app...
@@ -518,7 +566,7 @@ export default function DriverPage() {
                         <button
                           type="button"
                           onClick={() => updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving || order.status === 'completed'}
+                          disabled={isSaving || isOffline || order.status === 'completed'}
                           className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isSaving ? 'Saving...' : 'Start Order'}
@@ -527,7 +575,7 @@ export default function DriverPage() {
                         <button
                           type="button"
                           onClick={() => updateOrderStatus(order.id, 'completed')}
-                          disabled={isSaving || order.status === 'completed'}
+                          disabled={isSaving || isOffline || order.status === 'completed'}
                           className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isSaving ? 'Saving...' : 'Complete Order'}
@@ -536,7 +584,7 @@ export default function DriverPage() {
                         <button
                           type="button"
                           onClick={() => updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving || order.status === 'completed'}
+                          disabled={isSaving || isOffline || order.status === 'completed'}
                           className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isSaving ? 'Saving...' : 'Report Issue'}
