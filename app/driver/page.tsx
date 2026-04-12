@@ -479,9 +479,19 @@ export default function DriverPage() {
         })
       }
 
-      const keys = subscription.toJSON().keys
-      if (!keys?.p256dh || !keys?.auth) {
-        setPageError('Failed to read push subscription keys.')
+      const raw = subscription.toJSON()
+
+
+      if (!raw || !raw.endpoint || !raw.keys) {
+        setPageError('Invalid subscription payload.')
+        setNotificationsLoading(false)
+        return
+      }
+
+      const { p256dh, auth } = raw.keys
+
+      if (!p256dh || !auth) {
+        setPageError('Invalid subscription keys.')
         setNotificationsLoading(false)
         return
       }
@@ -490,12 +500,12 @@ export default function DriverPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          driverId: driver.id,
-          endpoint: subscription.endpoint,
-          p256dh: keys.p256dh,
-          auth: keys.auth,
-        }),
-      })
+        driverId: driver.id,
+        endpoint: raw.endpoint,
+        p256dh,
+        auth,
+      }),
+    })
 
       const result = await response.json()
 
