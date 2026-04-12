@@ -127,11 +127,7 @@ export default function DriverPage() {
   const [pageError, setPageError] = useState('')
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+  const [showSplash, setShowSplash] = useState(true)
 
   async function resolveDriver() {
     const {
@@ -271,6 +267,18 @@ export default function DriverPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!loading) {
+      const timer = window.setTimeout(() => {
+        setShowSplash(false)
+      }, 900)
+
+      return () => window.clearTimeout(timer)
+    }
+
+    setShowSplash(true)
+  }, [loading])
+
   const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
 
   const currentStopId = useMemo(() => {
@@ -336,6 +344,34 @@ export default function DriverPage() {
     setExpandedOrderId((current) => (current === orderId ? null : orderId))
   }
 
+  if (showSplash) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
+        <div className="w-full max-w-md rounded-[2rem] bg-white/10 p-10 text-center shadow-2xl backdrop-blur-md">
+          <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
+            <img
+              src="/icons/icon-512.png"
+              alt="SimpliiTrash Driver"
+              className="h-16 w-16 rounded-2xl object-contain"
+            />
+          </div>
+
+          <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
+            SimpliiTrash Driver
+          </h1>
+
+          <p className="mt-2 text-sm text-white/90">
+            Loading your route...
+          </p>
+
+          <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
+            <div className="h-full w-2/3 animate-pulse rounded-full bg-white" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-6xl p-4 md:p-6">
@@ -359,13 +395,16 @@ export default function DriverPage() {
                 Refresh
               </button>
 
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Log Out
-              </button>
+              {routeLink ? (
+                <a
+                  href={routeLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                >
+                  Open Full Route
+                </a>
+              ) : null}
             </div>
           </div>
 
