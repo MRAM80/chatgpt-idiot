@@ -429,16 +429,13 @@ export default function DriverPage() {
 
   async function checkNotificationStatus() {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setNotificationsEnabled(false)
       return
     }
 
     try {
-      const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.getSubscription()
-      setNotificationsEnabled(Boolean(subscription) && Notification.permission === 'granted')
+      await navigator.serviceWorker.ready
     } catch {
-      setNotificationsEnabled(false)
+      return
     }
   }
 
@@ -459,6 +456,7 @@ export default function DriverPage() {
     try {
       setNotificationsLoading(true)
       setPageError('')
+      setNotificationsEnabled(false)
 
       const permission = await Notification.requestPermission()
 
@@ -481,7 +479,6 @@ export default function DriverPage() {
 
       const raw = subscription.toJSON()
 
-
       if (!raw || !raw.endpoint || !raw.keys) {
         setPageError('Invalid subscription payload.')
         setNotificationsLoading(false)
@@ -500,17 +497,17 @@ export default function DriverPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-        driverId: driver.id,
-        endpoint: raw.endpoint,
-        p256dh,
-        auth,
-      }),
-    })
+          driverId: driver.id,
+          endpoint: raw.endpoint,
+          p256dh,
+          auth,
+        }),
+      })
 
       const result = await response.json()
-        console.log('subscribe result', result)
 
       if (!response.ok) {
+        console.error('subscribe error', result)
         setPageError(result.error || 'Failed to save notification subscription.')
         setNotificationsEnabled(false)
         setNotificationsLoading(false)
@@ -521,6 +518,7 @@ export default function DriverPage() {
       setNotificationsLoading(false)
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Failed to enable notifications.')
+      setNotificationsEnabled(false)
       setNotificationsLoading(false)
     }
   }
@@ -775,6 +773,17 @@ export default function DriverPage() {
                 >
                   Test Notification
                 </button>
+              ) : null}
+
+              {routeLink ? (
+                <a
+                  href={routeLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                >
+                  Open Full Route
+                </a>
               ) : null}
             </div>
           </div>
