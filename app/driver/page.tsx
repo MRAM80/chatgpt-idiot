@@ -645,6 +645,7 @@ export default function DriverPage() {
     setSavingOrderId(orderId)
     setPageError('')
 
+    const order = orders.find((o) => o.id === orderId)
     const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
 
     if (isOffline) {
@@ -661,6 +662,61 @@ export default function DriverPage() {
 
     const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', orderId)
 
+    if (!error && nextStatus === 'completed' && order) {
+      const { order_type, bin_id, old_bin_id, service_address } = order
+
+    if (order_type === 'DELIVERY' && bin_id) {
+      await supabase
+        .from('bins')
+        .update({
+        status: 'in_use',
+        location: service_address,
+      })
+      .eq('id', bin_id)
+    }
+
+    if (order_type === 'EXCHANGE') {
+      if (bin_id) {
+        await supabase
+          .from('bins')
+          .update({
+            status: 'in_use',
+            ocation: service_address,
+        })
+        .eq('id', bin_id)
+    }
+
+    if (old_bin_id) {
+      await supabase
+        .from('bins')
+        .update({
+          status: 'available',
+          location: null,
+        })
+        .eq('id', old_bin_id)
+      }
+    }
+  
+    if (order_type === 'REMOVAL' && old_bin_id) {
+      await supabase
+        .from('bins')
+        .update({
+          status: 'available',
+          location: null,
+        })
+        .eq('id', old_bin_id)
+    }
+
+    if (order_type === 'DUMP RETURN' && bin_id) {
+      await supabase
+        .from('bins')
+        .update({
+          status: 'in_use',
+          location: service_address,
+        })
+        .eq('id', bin_id)
+    }
+  }
     if (error) {
       queueOrderAction(orderId, nextStatus, completedAt, completedBy)
       setPageError('Connection issue: saved locally and will sync automatically.')
