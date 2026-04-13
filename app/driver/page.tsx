@@ -508,7 +508,11 @@ export default function DriverPage() {
 
       if (!response.ok) {
         console.error('subscribe error', result)
-        setPageError(result.error || 'Failed to save notification subscription.')
+        setPageError(
+          result.debug
+            ? `${result.error} ${JSON.stringify(result.debug)}`
+            : result.error || 'Failed to save notification subscription.'
+        )
         setNotificationsEnabled(false)
         setNotificationsLoading(false)
         return
