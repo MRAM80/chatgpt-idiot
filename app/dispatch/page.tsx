@@ -399,6 +399,23 @@ export default function DispatchBoardPage() {
     return true
   }
 
+  async function sendAssignedOrderNotification(params: {
+    driverId: string
+    orderId: string
+    customerName?: string | null
+    address?: string | null
+  }) {
+    try {
+      await fetch('/api/push/order-assigned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      })
+    } catch (error) {
+      console.error('Push notification failed:', error)
+    }
+  }
+
   async function handleAssignFromModal(orderId: string, driverId: string) {
     const currentOrder = orders.find((order) => order.id === orderId)
     if (!currentOrder || currentOrder.status === 'completed') return
@@ -429,6 +446,13 @@ export default function DispatchBoardPage() {
     })
 
     if (!ok) return
+
+    await sendAssignedOrderNotification({
+      driverId: driverId,
+      orderId: orderId,
+      customerName: currentOrder.customer_name,
+      address: currentOrder.service_address || currentOrder.pickup_address,
+    })
 
     if (currentOrder.driver_id && currentOrder.driver_id !== driverId) {
       await normalizeRoutePositionsForDriver(currentOrder.driver_id)
