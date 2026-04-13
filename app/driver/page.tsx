@@ -508,9 +508,11 @@ export default function DriverPage() {
     })
 
       const result = await response.json()
+        console.log('subscribe result', result)
 
       if (!response.ok) {
         setPageError(result.error || 'Failed to save notification subscription.')
+        setNotificationsEnabled(false)
         setNotificationsLoading(false)
         return
       }
