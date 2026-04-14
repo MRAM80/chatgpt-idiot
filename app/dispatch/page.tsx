@@ -33,6 +33,9 @@ type Order = {
   updated_at: string | null
   completed_by?: string | null
   completed_at?: string | null
+  workflow_step?: string | null
+  parent_order_id?: string | null
+  dump_site_address?: string | null
 }
 
 type BoardColumn = {
@@ -54,6 +57,12 @@ const statusStyles: Record<string, string> = {
   in_progress: 'border-amber-200 bg-amber-50 text-amber-700',
   completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   issue: 'border-rose-200 bg-rose-50 text-rose-700',
+}
+
+function getWorkflowLabel(step?: string | null) {
+  if (step === 'DUMP') return { label: 'Dump Site', color: 'bg-orange-100 text-orange-700' }
+  if (step === 'RETURN') return { label: 'Return', color: 'bg-blue-100 text-blue-700' }
+  return { label: 'Job Site', color: 'bg-emerald-100 text-emerald-700' }
 }
 
 function formatStatus(status: string | null | undefined) {
@@ -195,7 +204,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .select(
-        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
+        'id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
       )
       .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
@@ -777,6 +786,7 @@ export default function DispatchBoardPage() {
                     onDrop={(e) => handleDrop(e, column.key, null)}
                   >
                     {columnOrders.map((order) => {
+                      const wf = getWorkflowLabel(order.workflow_step)
                       const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
                       const showTopDrop =
                         dropTarget?.columnKey === column.key && dropTarget.beforeId === order.id
@@ -818,6 +828,9 @@ export default function DispatchBoardPage() {
                               </button>
 
                               <div className="min-w-0 flex-1 space-y-2">
+                                <div className={`inline-block text-xs font-semibold px-2 py-1 rounded ${wf.color}`}>
+                                  {wf.label}
+                                </div>
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
                                     <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -835,6 +848,17 @@ export default function DispatchBoardPage() {
                                   ) : null}
                                 </div>
 
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                  Destination
+                                </div>
+                                <div className="mt-1 line-clamp-2 text-sm text-slate-700">
+                                  {order.workflow_step === 'DUMP'
+                                    ? order.dump_site_address || 'No dump site address'
+                                    : order.service_address || 'No service address'}
+                                </div>
+                              </div>
+
                                 {column.key === 'unassigned' ? (
                                   <div>
                                     <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -843,6 +867,12 @@ export default function DispatchBoardPage() {
                                     <div className="mt-1 line-clamp-1 text-sm text-slate-700">
                                       {assignedDriver?.name || 'Unassigned'}
                                     </div>
+                                  </div>
+                                ) : null}
+
+                                {order.parent_order_id ? (
+                                  <div className="text-[10px] text-slate-400">
+                                    Linked stop
                                   </div>
                                 ) : null}
 
