@@ -30,6 +30,12 @@ type Bin = {
   location?: string | null
 }
 
+type DumpSite = {
+  id: string
+  name: string | null
+  address: string | null
+}
+
 type Profile = {
   id: string
   email: string | null
@@ -70,6 +76,8 @@ type Order = {
   service_window?: string | null
   bin_id: string | null
   old_bin_id: string | null
+  dump_site_id?: string | null
+  dump_site_address?: string | null
   bin_size: string | null
   bin_type: string | null
   order_type: string | null
@@ -85,6 +93,8 @@ type Order = {
   drivers?: OrderDriverRelation[] | null
   bins?: OrderBinRelation[] | null
   old_bin?: OrderBinRelation[] | null
+  parent_order_id?: string | null
+  workflow_step?: string | null
 }
 
 const TABLE_NAME = 'order'
@@ -141,6 +151,7 @@ type FormState = {
   status: string
   bin_id: string
   old_bin_id: string
+  dump_site_id: string
   notes: string
 }
 
@@ -158,6 +169,7 @@ const emptyForm: FormState = {
   status: 'unassigned',
   bin_id: '',
   old_bin_id: '',
+  dump_site_id: '',
   notes: '',
 }
 
@@ -249,6 +261,7 @@ function OrdersPageContent() {
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [bins, setBins] = useState<Bin[]>([])
+  const [dumpSites, setDumpSites] = useState<DumpSite[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -286,6 +299,8 @@ function OrdersPageContent() {
         service_window,
         bin_id,
         old_bin_id,
+        dump_site_id,
+        dump_site_address,
         bin_size,
         bin_type,
         order_type,
@@ -297,6 +312,8 @@ function OrdersPageContent() {
         completed_at,
         created_at,
         updated_at,
+        parent_order_id,
+        workflow_step,
         customers:customer_id ( id, name, address ),
         drivers:driver_id ( id, name ),
         bins:bin_id ( id, bin_number, bin_size, status, location ),
@@ -355,6 +372,20 @@ function OrdersPageContent() {
     setBins((data as Bin[]) || [])
   }
 
+  async function loadDumpSites() {
+    const { data, error } = await supabase
+      .from('dump_sites')
+      .select('id,name,address')
+      .order('name', { ascending: true })
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    setDumpSites((data as DumpSite[]) || [])
+  }
+
   async function loadUserRole() {
     const { data: authData, error: authError } = await supabase.auth.getUser()
     if (authError || !authData?.user) return
@@ -394,6 +425,7 @@ function OrdersPageContent() {
       loadDrivers(),
       loadCustomers(),
       loadBins(),
+      loadDumpSites(),
       loadUserRole(),
     ])
     setLoading(false)
@@ -430,6 +462,13 @@ function OrdersPageContent() {
         { event: '*', schema: 'public', table: 'customers' },
         async () => {
           await loadCustomers()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dump_sites' },
+        async () => {
+          await loadDumpSites()
         }
       )
       .subscribe()
@@ -477,6 +516,10 @@ function OrdersPageContent() {
     return customers.find((customer) => customer.id === form.customer_id) || null
   }, [customers, form.customer_id])
 
+  const selectedDumpSite = useMemo(() => {
+    return dumpSites.find((site) => site.id === form.dump_site_id) || null
+  }, [dumpSites, form.dump_site_id])
+
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase()
 
@@ -492,11 +535,13 @@ function OrdersPageContent() {
       const serviceAddress = order.service_address || order.pickup_address || ''
       const binLabel = binRelation?.bin_number || ''
       const oldBinLabel = oldBinRelation?.bin_number || ''
+      const dumpSiteAddress = order.dump_site_address || ''
 
       const matchesSearch =
         !query ||
         customerName.toLowerCase().includes(query) ||
         serviceAddress.toLowerCase().includes(query) ||
+        dumpSiteAddress.toLowerCase().includes(query) ||
         (order.bin_type || '').toLowerCase().includes(query) ||
         (order.bin_size || '').toLowerCase().includes(query) ||
         (order.order_type || '').toLowerCase().includes(query) ||
@@ -625,6 +670,7 @@ function OrdersPageContent() {
       status: order.status || 'unassigned',
       bin_id: order.bin_id || '',
       old_bin_id: order.old_bin_id || '',
+      dump_site_id: order.dump_site_id || '',
       notes: order.notes || '',
     })
   }
@@ -758,6 +804,7 @@ function OrdersPageContent() {
     const orderType = form.order_type || 'DELIVERY'
     const status = form.status || 'unassigned'
     const jobSiteAddress = form.pickup_address.trim() || null
+    const selectedDumpSite = dumpSites.find((site) => site.id === form.dump_site_id) || null
 
     const completionFields =
       status === 'completed'
@@ -783,8 +830,19 @@ function OrdersPageContent() {
       driver_id: form.driver_id || null,
       scheduled_date: form.scheduled_date || null,
       status,
+      dump_site_id: form.dump_site_id || null,
+      dump_site_address: selectedDumpSite?.address || null,
       notes: form.notes || null,
+      parent_order_id: editingOrder?.parent_order_id || null,
+      workflow_step: editingOrder?.workflow_step || 'MAIN',
       ...completionFields,
+    }
+
+    if (
+      (orderType === 'REMOVAL' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN') &&
+      !form.dump_site_id
+    ) {
+      throw new Error('Please select a dump site.')
     }
 
     if (orderType === 'DELIVERY') {
@@ -1047,6 +1105,107 @@ function OrdersPageContent() {
       return false
     }
   }
+  
+  async function createLinkedWorkflowOrders(order: Order) {
+    const workflowStep = order.workflow_step || 'MAIN'
+
+    if (workflowStep !== 'MAIN') return
+
+    if (order.order_type === 'DELIVERY') {
+      return
+    }
+
+    if (!order.dump_site_address && (order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN')) {
+      throw new Error('Dump site address is missing for this workflow.')
+    }
+
+    if (order.order_type === 'REMOVAL') {
+      const dumpOrder = {
+        ticket_number: generateTicketNumber(),
+        customer_id: order.customer_id,
+        customer_name: order.customer_name,
+        pickup_address: order.service_address || order.pickup_address,
+        service_address: order.dump_site_address,
+        service_time: null,
+        service_window: 'Anytime',
+        bin_id: order.old_bin_id,
+        old_bin_id: null,
+        dump_site_id: order.dump_site_id || null,
+        dump_site_address: order.dump_site_address || null,
+        parent_order_id: order.id,
+        workflow_step: 'DUMP',
+        bin_size: order.bin_size,
+        bin_type: order.bin_type,
+        order_type: 'REMOVAL',
+        driver_id: order.driver_id,
+        scheduled_date: order.scheduled_date,
+        status: 'assigned',
+        notes: `Auto-created dump stop for removal order ${order.ticket_number || order.id}`,
+      }
+
+      const { error } = await supabase.from(TABLE_NAME).insert([dumpOrder])
+      if (error) throw new Error(error.message)
+      return
+    }
+
+    if (order.order_type === 'EXCHANGE') {
+      const dumpOrder = {
+        ticket_number: generateTicketNumber(),
+        customer_id: order.customer_id,
+        customer_name: order.customer_name,
+        pickup_address: order.service_address || order.pickup_address,
+        service_address: order.dump_site_address,
+        service_time: null,
+        service_window: 'Anytime',
+        bin_id: order.old_bin_id,
+        old_bin_id: null,
+        dump_site_id: order.dump_site_id || null,
+        dump_site_address: order.dump_site_address || null,
+        parent_order_id: order.id,
+        workflow_step: 'DUMP',
+        bin_size: order.bin_size,
+        bin_type: order.bin_type,
+        order_type: 'EXCHANGE',
+        driver_id: order.driver_id,
+        scheduled_date: order.scheduled_date,
+        status: 'assigned',
+        notes: `Auto-created dump stop for exchange order ${order.ticket_number || order.id}`,
+      }
+
+      const { error } = await supabase.from(TABLE_NAME).insert([dumpOrder])
+      if (error) throw new Error(error.message)
+      return
+    }
+
+  if (order.order_type === 'DUMP RETURN') {
+    const returnOrder = {
+      ticket_number: generateTicketNumber(),
+      customer_id: order.customer_id,
+      customer_name: order.customer_name,
+      pickup_address: order.dump_site_address,
+      service_address: order.service_address || order.pickup_address,
+      service_time: null,
+      service_window: 'Anytime',
+      bin_id: order.bin_id,
+      old_bin_id: null,
+      dump_site_id: order.dump_site_id || null,
+      dump_site_address: order.dump_site_address || null,
+      parent_order_id: order.id,
+      workflow_step: 'RETURN',
+      bin_size: order.bin_size,
+      bin_type: order.bin_type,
+      order_type: 'DUMP RETURN',
+      driver_id: order.driver_id,
+      scheduled_date: order.scheduled_date,
+      status: 'assigned',
+      notes: `Auto-created return stop for dump return order ${order.ticket_number || order.id}`,
+    }
+
+    const { error } = await supabase.from(TABLE_NAME).insert([returnOrder])
+    if (error) throw new Error(error.message)
+    return
+  }
+}
 
   async function handleQuickStatus(order: Order, value: string) {
     if (order.status === 'completed') {
@@ -1079,34 +1238,87 @@ function OrdersPageContent() {
       }
 
       if (value === 'completed' || value === 'issue' || value === 'cancelled') {
-        if (order.order_type === 'REMOVAL' && order.old_bin_id) {
-          await releaseBin(order.old_bin_id)
-        } else if (order.order_type === 'EXCHANGE') {
-          if (order.old_bin_id && order.old_bin_id !== order.bin_id) {
-            await releaseBin(order.old_bin_id)
+        const workflowStep = order.workflow_step || 'MAIN'
+
+        if (value === 'completed') {
+          if (workflowStep === 'MAIN') {
+            if (order.order_type === 'DELIVERY' && order.bin_id) {
+              await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
+            }
+
+            if (order.order_type === 'EXCHANGE') {
+              if (order.bin_id) {
+                await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
+              } 
+              await createLinkedWorkflowOrders(order)
+            }
+
+            if (order.order_type === 'REMOVAL') {
+              await createLinkedWorkflowOrders(order)
+            }
+
+            if (order.order_type === 'DUMP RETURN') {
+              await createLinkedWorkflowOrders(order)
+            }
           }
-          if (value === 'cancelled') {
+
+          if (workflowStep === 'DUMP') {
             if (order.bin_id) {
               await releaseBin(order.bin_id)
             }
-          } else if (order.bin_id) {
-            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
           }
-        } else if (order.order_type === 'DELIVERY' && order.bin_id) {
-          if (value === 'cancelled') {
+
+          if (workflowStep === 'RETURN') {
+            if (order.bin_id) {
+              await occupyBin(
+                order.bin_id,
+                order.service_address || order.pickup_address || null
+              )
+            }
+          }
+        }
+
+        if (value === 'cancelled') {
+          if (order.order_type === 'DELIVERY' && order.bin_id) {
             await releaseBin(order.bin_id)
-          } else {
-            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
           }
-        } else if (order.order_type === 'DUMP RETURN' && order.bin_id) {
-          await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
+
+          if (order.order_type === 'EXCHANGE') {
+            if (order.bin_id) {
+              await releaseBin(order.bin_id)
+            }
+            if (order.old_bin_id) {
+              await occupyBin(
+                order.old_bin_id, 
+                order.service_address || order.pickup_address || null
+              )
+            }
+          }
+
+          if (order.order_type === 'REMOVAL' && order.old_bin_id) {
+            await occupyBin(
+              order.old_bin_id, 
+              order.service_address || order.pickup_address || null
+            )
+          }
+
+          if (order.order_type === 'DUMP RETURN' && order.bin_id) {
+            await occupyBin(
+              order.bin_id, 
+              order.service_address || order.pickup_address || null
+            )
+          }
+        }
+
+        if (value === 'issue') {
+          // leave bin state as-is for manual review
         }
       }
 
       await refreshAll()
-    } catch (workflowError: any) {
-      setPageError(workflowError.message || 'Status changed, but workflow update failed.')
-    }
+      } catch (workflowError: any) {
+        setPageError(workflowError.message || 'Status changed, but workflow update failed.')
+      }
   }
 
   async function handleCancelOrder() {
@@ -1582,6 +1794,7 @@ function OrdersPageContent() {
                             order_type: e.target.value,
                             bin_id: '',
                             old_bin_id: '',
+                            dump_site_id: prev.order_type === e.target.value ? prev.dump_site_id : '',
                           }))
                         }
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
@@ -1613,6 +1826,53 @@ function OrdersPageContent() {
                     </div>
                   </>
                 )}
+
+                {(form.order_type === 'REMOVAL' ||
+                  form.order_type === 'EXCHANGE' ||
+                  form.order_type === 'DUMP RETURN') &&
+                  (isReadOnlyModal ? (
+                    <>
+                      <ReadOnlyField
+                        label="Dump Site"
+                        value={selectedDumpSite?.name || '—'}
+                      />
+                      <ReadOnlyField
+                        label="Dump Site Address"
+                        value={selectedDumpSite?.address || editingOrder?.dump_site_address || '—'}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Dump Site
+                        </label>
+                        <select
+                          value={form.dump_site_id}
+                          onChange={(e) =>
+                            setForm((prev) => ({ ...prev, dump_site_id: e.target.value }))
+                          }
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        >
+                          <option value="">Select dump site</option>
+                          {dumpSites.map((site) => (
+                            <option key={site.id} value={site.id}>
+                              {site.name || 'Unnamed Dump Site'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Dump Site Address
+                        </label>
+                        <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                          {selectedDumpSite?.address || '—'}
+                        </div>
+                      </div>
+                    </>
+                  ))}
 
                 {(form.order_type === 'EXCHANGE' ||
                   form.order_type === 'REMOVAL' ||
