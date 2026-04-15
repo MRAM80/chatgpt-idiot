@@ -1642,8 +1642,9 @@ function OrdersPageContent() {
                         <label className="mb-2 block text-sm font-medium text-slate-700">Dump Site</label>
                         <select
                           value={form.dump_site_id}
-                          onChange={(e) => setForm((prev) => ({ ...prev, dump_site_id: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                          onChange={(e) => 
+                            setForm((prev) => ({ ...prev, dump_site_id: e.target.value }))
+                          }
                         >
                           <option value="">Select dump site</option>
                           {dumpSites.map((site) => (
