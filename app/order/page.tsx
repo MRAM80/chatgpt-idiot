@@ -111,15 +111,6 @@ const ORDER_STATUSES = [
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
-const SERVICE_WINDOWS = [
-  'Anytime',
-  '7:00 AM - 9:00 AM',
-  '8:00 AM - 12:00 PM',
-  '9:00 AM - 1:00 PM',
-  '12:00 PM - 4:00 PM',
-  '1:00 PM - 5:00 PM',
-  'After 5:00 PM',
-] as const
 
 const statusClasses: Record<string, string> = {
   unassigned: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -141,13 +132,12 @@ type FormState = {
   customer_id: string
   customer_name: string
   pickup_address: string
+  scheduled_date: string
   service_time: string
-  service_window: string
   bin_size: string
   bin_type: string
   order_type: string
   driver_id: string
-  scheduled_date: string
   status: string
   bin_id: string
   old_bin_id: string
@@ -159,13 +149,12 @@ const emptyForm: FormState = {
   customer_id: '',
   customer_name: '',
   pickup_address: '',
+  scheduled_date: '',
   service_time: '',
-  service_window: 'Anytime',
   bin_size: '20',
   bin_type: 'Garbage',
   order_type: 'DELIVERY',
   driver_id: '',
-  scheduled_date: '',
   status: 'unassigned',
   bin_id: '',
   old_bin_id: '',
@@ -278,7 +267,7 @@ function OrdersPageContent() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
-  const modalTitleRef = useRef<HTMLInputElement | null>(null)
+  const modalTitleRef = useRef<HTMLSelectElement | null>(null)
   const modalCardRef = useRef<HTMLDivElement | null>(null)
   const [modalVisible, setModalVisible] = useState(false)
 
@@ -436,41 +425,21 @@ function OrdersPageContent() {
 
     const channel = supabase
       .channel('orders-page-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: TABLE_NAME },
-        async () => {
-          await loadOrders()
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'drivers' },
-        async () => {
-          await loadDrivers()
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'bins' },
-        async () => {
-          await loadBins()
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'customers' },
-        async () => {
-          await loadCustomers()
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'dump_sites' },
-        async () => {
-          await loadDumpSites()
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLE_NAME }, async () => {
+        await loadOrders()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, async () => {
+        await loadDrivers()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bins' }, async () => {
+        await loadBins()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, async () => {
+        await loadCustomers()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dump_sites' }, async () => {
+        await loadDumpSites()
+      })
       .subscribe()
 
     return () => {
@@ -484,10 +453,7 @@ function OrdersPageContent() {
 
       const animationTimer = window.setTimeout(() => {
         setModalVisible(true)
-        modalCardRef.current?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        })
+        modalCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }, 20)
 
       const focusTimer = window.setTimeout(() => {
@@ -500,9 +466,9 @@ function OrdersPageContent() {
         window.clearTimeout(animationTimer)
         window.clearTimeout(focusTimer)
       }
-    } else {
-      setModalVisible(false)
     }
+
+    setModalVisible(false)
   }, [showCreateModal, editingOrder, isReadOnlyModal])
 
   const driverMap = useMemo(() => {
@@ -519,6 +485,10 @@ function OrdersPageContent() {
   const selectedDumpSite = useMemo(() => {
     return dumpSites.find((site) => site.id === form.dump_site_id) || null
   }, [dumpSites, form.dump_site_id])
+
+  const currentAssignedBin = useMemo(() => {
+    return bins.find((bin) => bin.id === form.bin_id) || null
+  }, [bins, form.bin_id])
 
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -546,19 +516,14 @@ function OrdersPageContent() {
         (order.bin_size || '').toLowerCase().includes(query) ||
         (order.order_type || '').toLowerCase().includes(query) ||
         (order.service_time || '').toLowerCase().includes(query) ||
-        (order.service_window || '').toLowerCase().includes(query) ||
         driverName.toLowerCase().includes(query) ||
         (order.notes || '').toLowerCase().includes(query) ||
         (order.ticket_number || '').toLowerCase().includes(query) ||
         binLabel.toLowerCase().includes(query) ||
         oldBinLabel.toLowerCase().includes(query)
 
-      const matchesStatus =
-        statusFilter === 'all' || (order.status || 'unassigned') === statusFilter
-
-      const matchesDriver =
-        driverFilter === 'all' || (order.driver_id || '') === driverFilter
-
+      const matchesStatus = statusFilter === 'all' || (order.status || 'unassigned') === statusFilter
+      const matchesDriver = driverFilter === 'all' || (order.driver_id || '') === driverFilter
       const matchesOrderType =
         orderTypeFilter === 'all' || (order.order_type || 'DELIVERY') === orderTypeFilter
 
@@ -575,19 +540,6 @@ function OrdersPageContent() {
       completed: orders.filter((order) => order.status === 'completed').length,
     }
   }, [orders])
-
-  const assignableDrivers = useMemo(() => {
-    return drivers.filter((driver) => driver.status !== 'offline')
-  }, [drivers])
-
-  const availableBinsForSelectedSize = useMemo(() => {
-    return bins.filter((bin) => {
-      if (bin.status !== 'available') return false
-      if ((bin.bin_size || '') !== form.bin_size) return false
-      if (form.order_type === 'EXCHANGE' && form.old_bin_id && bin.id === form.old_bin_id) return false
-      return true
-    })
-  }, [bins, form.bin_size, form.order_type, form.old_bin_id])
 
   const binsAtSelectedJobSite = useMemo(() => {
     const jobSite = normalizeAddress(form.pickup_address)
@@ -609,10 +561,7 @@ function OrdersPageContent() {
     })
 
     const uniqueMap = new Map<string, Bin>()
-    for (const bin of combined) {
-      uniqueMap.set(bin.id, bin)
-    }
-
+    for (const bin of combined) uniqueMap.set(bin.id, bin)
     return Array.from(uniqueMap.values())
   }, [bins, orders, form.pickup_address])
 
@@ -629,10 +578,6 @@ function OrdersPageContent() {
       return false
     })
   }, [binsAtSelectedJobSite, form.order_type, form.pickup_address])
-
-  const currentAvailableBinCount = useMemo(() => {
-    return availableBinsForSelectedSize.length
-  }, [availableBinsForSelectedSize])
 
   function getCompletedByLabel() {
     if (!currentUser) return 'System'
@@ -658,15 +603,12 @@ function OrdersPageContent() {
       customer_id: order.customer_id || '',
       customer_name: customerRelation?.name || order.customer_name || '',
       pickup_address: order.service_address || order.pickup_address || '',
+      scheduled_date: order.scheduled_date ? new Date(order.scheduled_date).toISOString().slice(0, 10) : '',
       service_time: order.service_time || '',
-      service_window: order.service_window || 'Anytime',
       bin_size: order.bin_size || binRelation?.bin_size || oldBinRelation?.bin_size || '20',
       bin_type: order.bin_type || 'Garbage',
       order_type: order.order_type || 'DELIVERY',
       driver_id: order.driver_id || '',
-      scheduled_date: order.scheduled_date
-        ? new Date(order.scheduled_date).toISOString().slice(0, 10)
-        : '',
       status: order.status || 'unassigned',
       bin_id: order.bin_id || '',
       old_bin_id: order.old_bin_id || '',
@@ -702,6 +644,7 @@ function OrdersPageContent() {
       ...prev,
       customer_id: customerId,
       customer_name: customer?.name || prev.customer_name,
+      pickup_address: prev.pickup_address || customer?.address || '',
     }))
   }
 
@@ -718,7 +661,7 @@ function OrdersPageContent() {
 
     const activeStatuses = ['assigned', 'in_progress']
     const hasActiveOrders = (orderData || []).some((order) =>
-      activeStatuses.includes(order.status || '')
+      activeStatuses.includes((order as { status?: string | null }).status || '')
     )
 
     const { data: driver, error: driverError } = await supabase
@@ -732,7 +675,7 @@ function OrdersPageContent() {
       return
     }
 
-    if (driver?.status === 'offline') return
+    if ((driver as { status?: string | null })?.status === 'offline') return
 
     const { error: updateError } = await supabase
       .from('drivers')
@@ -744,11 +687,7 @@ function OrdersPageContent() {
     }
   }
 
-  async function setBinStatus(
-    binId: string,
-    status: 'available' | 'in_use',
-    location?: string | null
-  ) {
+  async function setBinStatus(binId: string, status: 'available' | 'in_use', location?: string | null) {
     const payload: Record<string, string | null> = { status }
     if (typeof location !== 'undefined') {
       payload.location = location
@@ -779,9 +718,7 @@ function OrdersPageContent() {
       .eq('id', selectedBinId)
       .single()
 
-    if (error || !data) {
-      throw new Error('Selected bin could not be found.')
-    }
+    if (error || !data) throw new Error('Selected bin could not be found.')
 
     const selected = data as Bin
 
@@ -802,9 +739,10 @@ function OrdersPageContent() {
 
   async function applyWorkflowAndBuildPayload() {
     const orderType = form.order_type || 'DELIVERY'
-    const status = form.status || 'unassigned'
+    const isEditing = Boolean(editingOrder)
+    const status = isEditing ? form.status || 'unassigned' : 'unassigned'
     const jobSiteAddress = form.pickup_address.trim() || null
-    const selectedDumpSite = dumpSites.find((site) => site.id === form.dump_site_id) || null
+    const dumpSite = dumpSites.find((site) => site.id === form.dump_site_id) || null
 
     const completionFields =
       status === 'completed'
@@ -823,15 +761,21 @@ function OrdersPageContent() {
       pickup_address: jobSiteAddress,
       service_address: jobSiteAddress,
       service_time: form.service_time || null,
-      service_window: form.service_window || null,
+      service_window: null,
       bin_size: form.bin_size || null,
       bin_type: form.bin_type || null,
       order_type: orderType,
-      driver_id: form.driver_id || null,
+      driver_id: isEditing ? form.driver_id || null : null,
       scheduled_date: form.scheduled_date || null,
       status,
-      dump_site_id: form.dump_site_id || null,
-      dump_site_address: selectedDumpSite?.address || null,
+      dump_site_id:
+        orderType === 'REMOVAL' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN'
+          ? form.dump_site_id || null
+          : null,
+      dump_site_address:
+        orderType === 'REMOVAL' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN'
+          ? dumpSite?.address || null
+          : null,
       notes: form.notes || null,
       parent_order_id: editingOrder?.parent_order_id || null,
       workflow_step: editingOrder?.workflow_step || 'MAIN',
@@ -846,31 +790,39 @@ function OrdersPageContent() {
     }
 
     if (orderType === 'DELIVERY') {
-      if (!form.bin_id) throw new Error('Please select an available bin.')
-      const selectedBin = await validateSelectedAvailableBin(form.bin_id, form.bin_size)
+      if (isEditing && form.bin_id) {
+        const selectedBin = await validateSelectedAvailableBin(form.bin_id, form.bin_size)
+        return {
+          payload: { ...basePayload, bin_id: selectedBin.id, old_bin_id: null },
+          assignedBinId: selectedBin.id,
+          releasedBinId:
+            editingOrder?.bin_id && editingOrder.bin_id !== selectedBin.id ? editingOrder.bin_id : null,
+        }
+      }
 
       return {
-        payload: { ...basePayload, bin_id: selectedBin.id, old_bin_id: null },
-        assignedBinId: selectedBin.id,
-        releasedBinId:
-          editingOrder?.bin_id && editingOrder.bin_id !== selectedBin.id ? editingOrder.bin_id : null,
+        payload: { ...basePayload, bin_id: editingOrder?.bin_id || null, old_bin_id: null },
+        assignedBinId: null,
+        releasedBinId: null,
       }
     }
 
     if (orderType === 'EXCHANGE') {
       if (!form.old_bin_id) throw new Error('Exchange requires the current bin from this Job Site.')
-      if (!form.bin_id) throw new Error('Please select the replacement bin.')
 
-      const selectedBin = await validateSelectedAvailableBin(
-        form.bin_id,
-        form.bin_size,
-        form.old_bin_id
-      )
+      if (isEditing && form.bin_id) {
+        const selectedBin = await validateSelectedAvailableBin(form.bin_id, form.bin_size, form.old_bin_id)
+        return {
+          payload: { ...basePayload, bin_id: selectedBin.id, old_bin_id: form.old_bin_id },
+          assignedBinId: selectedBin.id,
+          releasedBinId: form.old_bin_id,
+        }
+      }
 
       return {
-        payload: { ...basePayload, bin_id: selectedBin.id, old_bin_id: form.old_bin_id },
-        assignedBinId: selectedBin.id,
-        releasedBinId: form.old_bin_id,
+        payload: { ...basePayload, bin_id: editingOrder?.bin_id || null, old_bin_id: form.old_bin_id },
+        assignedBinId: null,
+        releasedBinId: null,
       }
     }
 
@@ -923,11 +875,7 @@ function OrdersPageContent() {
       const { payload, assignedBinId, releasedBinId } = await applyWorkflowAndBuildPayload()
 
       if (editingOrder) {
-        const { error } = await supabase
-          .from(TABLE_NAME)
-          .update(payload)
-          .eq('id', editingOrder.id)
-
+        const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', editingOrder.id)
         if (error) throw new Error(error.message)
 
         if (previousDriverId && previousDriverId !== payload.driver_id) {
@@ -942,7 +890,9 @@ function OrdersPageContent() {
           previousBinId &&
           previousBinId !== assignedBinId &&
           previousBinId !== releasedBinId &&
-          previousBinId !== previousOldBinId
+          previousBinId !== previousOldBinId &&
+          payload.order_type !== 'DELIVERY' &&
+          payload.order_type !== 'EXCHANGE'
         ) {
           await releaseBin(previousBinId)
         }
@@ -950,15 +900,13 @@ function OrdersPageContent() {
         if (
           previousOldBinId &&
           previousOldBinId !== releasedBinId &&
-          previousOldBinId !== assignedBinId
+          previousOldBinId !== assignedBinId &&
+          payload.order_type === 'EXCHANGE'
         ) {
-          await occupyBin(
-            previousOldBinId,
-            editingOrder?.service_address || editingOrder?.pickup_address || null
-          )
+          await occupyBin(previousOldBinId, editingOrder?.service_address || editingOrder?.pickup_address || null)
         }
 
-        if (releasedBinId && releasedBinId !== assignedBinId) {
+        if (releasedBinId && releasedBinId !== assignedBinId && payload.status !== 'cancelled') {
           await releaseBin(releasedBinId)
         }
 
@@ -966,68 +914,40 @@ function OrdersPageContent() {
           await occupyBin(assignedBinId, form.pickup_address.trim() || null)
         }
 
-        if (
-          payload.status === 'completed' ||
-          payload.status === 'issue' ||
-          payload.status === 'cancelled'
-        ) {
+        if (payload.status === 'completed' || payload.status === 'issue' || payload.status === 'cancelled') {
           if (payload.order_type === 'REMOVAL') {
             await releaseBin(payload.old_bin_id)
           } else if (payload.order_type === 'EXCHANGE') {
-            await releaseBin(payload.old_bin_id)
-            if (payload.status !== 'cancelled') {
+            if (payload.old_bin_id) await releaseBin(payload.old_bin_id)
+            if (payload.status !== 'cancelled' && payload.bin_id) {
               await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
-            } else if (payload.bin_id) {
-              await releaseBin(payload.bin_id)
             }
           } else if (payload.order_type === 'DELIVERY') {
-            if (payload.status === 'cancelled') {
+            if (payload.status === 'cancelled' && payload.bin_id) {
               await releaseBin(payload.bin_id)
-            } else {
+            } else if (payload.bin_id) {
               await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
             }
-          } else if (payload.order_type === 'DUMP RETURN') {
-            if (payload.bin_id) {
-              await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
-            }
+          } else if (payload.order_type === 'DUMP RETURN' && payload.bin_id) {
+            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
           }
         }
 
         await refreshAll()
         closeModal()
-      } else {
-        const insertPayload = {
-          ...payload,
-          ticket_number: generateTicketNumber(),
-        }
-
-        const { error } = await supabase.from(TABLE_NAME).insert([insertPayload])
-        if (error) throw new Error(error.message)
-
-        if (payload.driver_id) {
-          await syncDriverStatuses(payload.driver_id)
-        }
-
-        if (releasedBinId && releasedBinId !== assignedBinId) {
-          await releaseBin(releasedBinId)
-        }
-
-        if (assignedBinId) {
-          await occupyBin(assignedBinId, form.pickup_address.trim() || null)
-        }
-
-        if (
-          (payload.status === 'completed' ||
-            payload.status === 'issue' ||
-            payload.status === 'cancelled') &&
-          payload.order_type === 'REMOVAL'
-        ) {
-          await releaseBin(payload.old_bin_id)
-        }
-
-        await refreshAll()
-        closeModal()
+        return
       }
+
+      const insertPayload = {
+        ...payload,
+        ticket_number: generateTicketNumber(),
+      }
+
+      const { error } = await supabase.from(TABLE_NAME).insert([insertPayload])
+      if (error) throw new Error(error.message)
+
+      await refreshAll()
+      closeModal()
     } catch (error: any) {
       setPageError(error.message || 'Failed to save order.')
     } finally {
@@ -1035,12 +955,7 @@ function OrdersPageContent() {
     }
   }
 
-  async function handleDelete(
-    orderId: string,
-    driverId?: string | null,
-    binId?: string | null,
-    oldBinId?: string | null
-  ) {
+  async function handleDelete(orderId: string, driverId?: string | null, binId?: string | null, oldBinId?: string | null) {
     const orderToDelete = orders.find((item) => item.id === orderId)
 
     if (orderToDelete?.status === 'completed' && !isAdmin) {
@@ -1055,7 +970,6 @@ function OrdersPageContent() {
     setPageError('')
 
     const { error } = await supabase.from(TABLE_NAME).delete().eq('id', orderId)
-
     if (error) {
       setPageError(error.message)
       setDeletingId(null)
@@ -1063,36 +977,23 @@ function OrdersPageContent() {
     }
 
     try {
-      if (driverId) {
-        await syncDriverStatuses(driverId)
-      }
+      if (driverId) await syncDriverStatuses(driverId)
 
-      if (orderToDelete?.order_type === 'DELIVERY' && binId) {
-        await releaseBin(binId)
-      }
+      if (orderToDelete?.order_type === 'DELIVERY' && binId) await releaseBin(binId)
 
       if (orderToDelete?.order_type === 'EXCHANGE') {
         if (binId) await releaseBin(binId)
         if (oldBinId) {
-          await occupyBin(
-            oldBinId,
-            orderToDelete.service_address || orderToDelete.pickup_address || null
-          )
+          await occupyBin(oldBinId, orderToDelete.service_address || orderToDelete.pickup_address || null)
         }
       }
 
       if (orderToDelete?.order_type === 'REMOVAL' && oldBinId) {
-        await occupyBin(
-          oldBinId,
-          orderToDelete.service_address || orderToDelete.pickup_address || null
-        )
+        await occupyBin(oldBinId, orderToDelete.service_address || orderToDelete.pickup_address || null)
       }
 
       if (orderToDelete?.order_type === 'DUMP RETURN' && binId) {
-        await occupyBin(
-          binId,
-          orderToDelete.service_address || orderToDelete.pickup_address || null
-        )
+        await occupyBin(binId, orderToDelete.service_address || orderToDelete.pickup_address || null)
       }
 
       await refreshAll()
@@ -1105,17 +1006,16 @@ function OrdersPageContent() {
       return false
     }
   }
-  
+
   async function createLinkedWorkflowOrders(order: Order) {
     const workflowStep = order.workflow_step || 'MAIN'
-
     if (workflowStep !== 'MAIN') return
+    if (order.order_type === 'DELIVERY') return
 
-    if (order.order_type === 'DELIVERY') {
-      return
-    }
-
-    if (!order.dump_site_address && (order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN')) {
+    if (
+      !order.dump_site_address &&
+      (order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN')
+    ) {
       throw new Error('Dump site address is missing for this workflow.')
     }
 
@@ -1127,7 +1027,7 @@ function OrdersPageContent() {
         pickup_address: order.service_address || order.pickup_address,
         service_address: order.dump_site_address,
         service_time: null,
-        service_window: 'Anytime',
+        service_window: null,
         bin_id: order.old_bin_id,
         old_bin_id: null,
         dump_site_id: order.dump_site_id || null,
@@ -1156,7 +1056,7 @@ function OrdersPageContent() {
         pickup_address: order.service_address || order.pickup_address,
         service_address: order.dump_site_address,
         service_time: null,
-        service_window: 'Anytime',
+        service_window: null,
         bin_id: order.old_bin_id,
         old_bin_id: null,
         dump_site_id: order.dump_site_id || null,
@@ -1177,35 +1077,34 @@ function OrdersPageContent() {
       return
     }
 
-  if (order.order_type === 'DUMP RETURN') {
-    const returnOrder = {
-      ticket_number: generateTicketNumber(),
-      customer_id: order.customer_id,
-      customer_name: order.customer_name,
-      pickup_address: order.dump_site_address,
-      service_address: order.service_address || order.pickup_address,
-      service_time: null,
-      service_window: 'Anytime',
-      bin_id: order.bin_id,
-      old_bin_id: null,
-      dump_site_id: order.dump_site_id || null,
-      dump_site_address: order.dump_site_address || null,
-      parent_order_id: order.id,
-      workflow_step: 'RETURN',
-      bin_size: order.bin_size,
-      bin_type: order.bin_type,
-      order_type: 'DUMP RETURN',
-      driver_id: order.driver_id,
-      scheduled_date: order.scheduled_date,
-      status: 'assigned',
-      notes: `Auto-created return stop for dump return order ${order.ticket_number || order.id}`,
-    }
+    if (order.order_type === 'DUMP RETURN') {
+      const returnOrder = {
+        ticket_number: generateTicketNumber(),
+        customer_id: order.customer_id,
+        customer_name: order.customer_name,
+        pickup_address: order.dump_site_address,
+        service_address: order.service_address || order.pickup_address,
+        service_time: null,
+        service_window: null,
+        bin_id: order.bin_id,
+        old_bin_id: null,
+        dump_site_id: order.dump_site_id || null,
+        dump_site_address: order.dump_site_address || null,
+        parent_order_id: order.id,
+        workflow_step: 'RETURN',
+        bin_size: order.bin_size,
+        bin_type: order.bin_type,
+        order_type: 'DUMP RETURN',
+        driver_id: order.driver_id,
+        scheduled_date: order.scheduled_date,
+        status: 'assigned',
+        notes: `Auto-created return stop for dump return order ${order.ticket_number || order.id}`,
+      }
 
-    const { error } = await supabase.from(TABLE_NAME).insert([returnOrder])
-    if (error) throw new Error(error.message)
-    return
+      const { error } = await supabase.from(TABLE_NAME).insert([returnOrder])
+      if (error) throw new Error(error.message)
+    }
   }
-}
 
   async function handleQuickStatus(order: Order, value: string) {
     if (order.status === 'completed') {
@@ -1216,26 +1115,19 @@ function OrdersPageContent() {
     setPageError('')
 
     const updatePayload: Record<string, string | null> = { status: value }
-
     if (value === 'completed') {
       updatePayload.completed_by = order.completed_by || getCompletedByLabel()
       updatePayload.completed_at = order.completed_at || new Date().toISOString()
     }
 
-    const { error } = await supabase
-      .from(TABLE_NAME)
-      .update(updatePayload)
-      .eq('id', order.id)
-
+    const { error } = await supabase.from(TABLE_NAME).update(updatePayload).eq('id', order.id)
     if (error) {
       setPageError(error.message)
       return
     }
 
     try {
-      if (order.driver_id) {
-        await syncDriverStatuses(order.driver_id)
-      }
+      if (order.driver_id) await syncDriverStatuses(order.driver_id)
 
       if (value === 'completed' || value === 'issue' || value === 'cancelled') {
         const workflowStep = order.workflow_step || 'MAIN'
@@ -1249,32 +1141,21 @@ function OrdersPageContent() {
             if (order.order_type === 'EXCHANGE') {
               if (order.bin_id) {
                 await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
-              } 
+              }
               await createLinkedWorkflowOrders(order)
             }
 
-            if (order.order_type === 'REMOVAL') {
-              await createLinkedWorkflowOrders(order)
-            }
-
-            if (order.order_type === 'DUMP RETURN') {
+            if (order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN') {
               await createLinkedWorkflowOrders(order)
             }
           }
 
-          if (workflowStep === 'DUMP') {
-            if (order.bin_id) {
-              await releaseBin(order.bin_id)
-            }
+          if (workflowStep === 'DUMP' && order.bin_id) {
+            await releaseBin(order.bin_id)
           }
 
-          if (workflowStep === 'RETURN') {
-            if (order.bin_id) {
-              await occupyBin(
-                order.bin_id,
-                order.service_address || order.pickup_address || null
-              )
-            }
+          if (workflowStep === 'RETURN' && order.bin_id) {
+            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
           }
         }
 
@@ -1284,41 +1165,26 @@ function OrdersPageContent() {
           }
 
           if (order.order_type === 'EXCHANGE') {
-            if (order.bin_id) {
-              await releaseBin(order.bin_id)
-            }
+            if (order.bin_id) await releaseBin(order.bin_id)
             if (order.old_bin_id) {
-              await occupyBin(
-                order.old_bin_id, 
-                order.service_address || order.pickup_address || null
-              )
+              await occupyBin(order.old_bin_id, order.service_address || order.pickup_address || null)
             }
           }
 
           if (order.order_type === 'REMOVAL' && order.old_bin_id) {
-            await occupyBin(
-              order.old_bin_id, 
-              order.service_address || order.pickup_address || null
-            )
+            await occupyBin(order.old_bin_id, order.service_address || order.pickup_address || null)
           }
 
           if (order.order_type === 'DUMP RETURN' && order.bin_id) {
-            await occupyBin(
-              order.bin_id, 
-              order.service_address || order.pickup_address || null
-            )
+            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
           }
-        }
-
-        if (value === 'issue') {
-          // leave bin state as-is for manual review
         }
       }
 
       await refreshAll()
-      } catch (workflowError: any) {
-        setPageError(workflowError.message || 'Status changed, but workflow update failed.')
-      }
+    } catch (workflowError: any) {
+      setPageError(workflowError.message || 'Status changed, but workflow update failed.')
+    }
   }
 
   async function handleCancelOrder() {
@@ -1348,7 +1214,7 @@ function OrdersPageContent() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Orders</h1>
               <p className="mt-1 text-sm text-slate-500">
-                Create orders with selected bin assignment, active customers only, Job Site Address, and service time requests
+                Faster order entry with only the main office fields. Bin assignment now happens later by the driver.
               </p>
             </div>
 
@@ -1460,7 +1326,7 @@ function OrdersPageContent() {
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Order Type</th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Customer</th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Job Site Address</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Service Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Time</th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Date</th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Bin Size</th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Material</th>
@@ -1494,16 +1360,12 @@ function OrdersPageContent() {
                         onClick={() => openEditModal(order)}
                       >
                         <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">
-                            {order.ticket_number || 'Pending'}
-                          </div>
+                          <div className="font-semibold text-slate-900">{order.ticket_number || 'Pending'}</div>
                           <div className="mt-1 text-xs text-slate-500">#{order.id.slice(0, 8)}</div>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <span
-                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}
-                          >
+                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}>
                             {formatOrderType(order.order_type)}
                           </span>
                         </td>
@@ -1528,16 +1390,12 @@ function OrdersPageContent() {
                           {order.bin_size ? `${order.bin_size}Y` : '—'}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {order.bin_type || '—'}
-                        </td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">{order.bin_type || '—'}</td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
 
                         <td className="px-4 py-4 align-top">
-                          <span
-                            className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
-                          >
+                          <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>
                             {formatStatus(order.status || 'unassigned')}
                           </span>
                         </td>
@@ -1570,9 +1428,7 @@ function OrdersPageContent() {
             <div
               ref={modalCardRef}
               className={`my-6 w-full max-w-3xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl transition-all duration-300 ease-out ${
-                modalVisible
-                  ? 'translate-y-0 scale-100 opacity-100'
-                  : 'translate-y-4 scale-[0.985] opacity-0'
+                modalVisible ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-[0.985] opacity-0'
               }`}
             >
               <div className="mb-6 flex items-start justify-between gap-4">
@@ -1581,16 +1437,12 @@ function OrdersPageContent() {
                     {editingOrder?.ticket_number || 'New Order'}
                   </div>
                   <h2 className="mt-1 text-xl font-bold text-slate-900">
-                    {editingOrder
-                      ? isReadOnlyModal
-                        ? 'Order Details'
-                        : 'Edit Order'
-                      : 'Create Order'}
+                    {editingOrder ? (isReadOnlyModal ? 'Order Details' : 'Edit Order') : 'Create Order'}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
                     {isReadOnlyModal
                       ? 'This completed order is locked. You can view it, but you cannot edit anything.'
-                      : 'Customer company info stays on the customer record. Enter the actual Job Site Address and requested service time here.'}
+                      : 'Fast office form: customer, job site, date/time, note, bin size, material, and order type.'}
                   </p>
                 </div>
 
@@ -1608,21 +1460,22 @@ function OrdersPageContent() {
                 </div>
               ) : null}
 
+              {!editingOrder && (
+                <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                  Status starts as <span className="font-semibold">Unassigned</span>. Available bin is no longer chosen here.
+                  The driver can insert the yard bin later.
+                </div>
+              )}
+
               {editingOrder?.status === 'completed' && (
                 <div className="mb-4 grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                      Completed By
-                    </div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Completed By</div>
                     <div className="mt-1 font-semibold">{editingOrder.completed_by || '—'}</div>
                   </div>
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                      Completed At
-                    </div>
-                    <div className="mt-1 font-semibold">
-                      {formatDateTime(editingOrder.completed_at)}
-                    </div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Completed At</div>
+                    <div className="mt-1 font-semibold">{formatDateTime(editingOrder.completed_at)}</div>
                   </div>
                 </div>
               )}
@@ -1630,7 +1483,7 @@ function OrdersPageContent() {
               <div className="grid gap-4 md:grid-cols-2">
                 {isReadOnlyModal ? (
                   <>
-                    <ReadOnlyField label="Customer" value={selectedCustomer?.name || '—'} />
+                    <ReadOnlyField label="Customer" value={selectedCustomer?.name || form.customer_name || '—'} />
                     <ReadOnlyField label="Customer Name" value={form.customer_name || '—'} />
                   </>
                 ) : (
@@ -1638,6 +1491,7 @@ function OrdersPageContent() {
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Customer</label>
                       <select
+                        ref={modalTitleRef}
                         value={form.customer_id}
                         onChange={(e) => handleCustomerChange(e.target.value)}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
@@ -1654,11 +1508,8 @@ function OrdersPageContent() {
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Customer Name</label>
                       <input
-                        ref={modalTitleRef}
                         value={form.customer_name}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, customer_name: e.target.value }))
-                        }
+                        onChange={(e) => setForm((prev) => ({ ...prev, customer_name: e.target.value }))}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                         placeholder="Customer name"
                       />
@@ -1668,95 +1519,65 @@ function OrdersPageContent() {
 
                 {selectedCustomer?.address ? (
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    <div className="font-semibold text-slate-900">Company / Billing Address</div>
+                    <div className="font-semibold text-slate-900">Saved customer address</div>
                     <div className="mt-1">{selectedCustomer.address}</div>
-                    <div className="mt-2 text-slate-500">
-                      This is only a reference. Enter the real Job Site Address below.
-                    </div>
+                    <div className="mt-2 text-slate-500">This helps auto-fill faster, but the real delivery address goes below.</div>
                   </div>
                 ) : null}
 
                 {isReadOnlyModal ? (
-                  <ReadOnlyField
-                    label="Job Site Address"
-                    value={form.pickup_address || '—'}
-                    className="md:col-span-2"
-                  />
+                  <ReadOnlyField label="Job Site Address" value={form.pickup_address || '—'} className="md:col-span-2" />
                 ) : (
                   <div className="md:col-span-2">
                     <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
                     <input
                       value={form.pickup_address}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, pickup_address: e.target.value }))
-                      }
+                      onChange={(e) => setForm((prev) => ({ ...prev, pickup_address: e.target.value }))}
                       className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      placeholder="Address where the bin will be delivered, exchanged, removed, or returned"
+                      placeholder="Address where the bin will go"
                     />
                   </div>
                 )}
 
                 {isReadOnlyModal ? (
                   <>
-                    <ReadOnlyField label="Service Time" value={formatServiceTime(form.service_time)} />
-                    <ReadOnlyField label="Service Window" value={form.service_window || '—'} />
-                    <ReadOnlyField
-                      label="Bin Size"
-                      value={form.bin_size ? `${form.bin_size} Yard` : '—'}
-                    />
-                    <ReadOnlyField label="Material / Bin Type" value={form.bin_type || '—'} />
+                    <ReadOnlyField label="Date" value={formatDate(form.scheduled_date)} />
+                    <ReadOnlyField label="Time" value={formatServiceTime(form.service_time)} />
+                    <ReadOnlyField label="Bin Size" value={form.bin_size ? `${form.bin_size} Yard` : '—'} />
+                    <ReadOnlyField label="Material / Bin" value={form.bin_type || '—'} />
                     <ReadOnlyField label="Order Type" value={form.order_type || '—'} />
                     <ReadOnlyField
                       label="Driver"
-                      value={
-                        form.driver_id
-                          ? drivers.find((d) => d.id === form.driver_id)?.name || 'Assigned'
-                          : 'Unassigned'
-                      }
+                      value={form.driver_id ? drivers.find((d) => d.id === form.driver_id)?.name || 'Assigned' : 'Unassigned'}
                     />
                   </>
                 ) : (
                   <>
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Service Time</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Date</label>
                       <input
-                        type="time"
-                        value={form.service_time}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, service_time: e.target.value }))
-                        }
+                        type="date"
+                        value={form.scheduled_date}
+                        onChange={(e) => setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       />
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Service Window</label>
-                      <select
-                        value={form.service_window}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, service_window: e.target.value }))
-                        }
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Time</label>
+                      <input
+                        type="time"
+                        value={form.service_time}
+                        onChange={(e) => setForm((prev) => ({ ...prev, service_time: e.target.value }))}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      >
-                        {SERVICE_WINDOWS.map((windowOption) => (
-                          <option key={windowOption} value={windowOption}>
-                            {windowOption}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </div>
 
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
                       <select
                         value={form.bin_size}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            bin_size: e.target.value,
-                            bin_id: '',
-                          }))
-                        }
+                        onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '' }))}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       >
                         {BIN_SIZES.map((size) => (
@@ -1768,12 +1589,10 @@ function OrdersPageContent() {
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin Type</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin</label>
                       <select
                         value={form.bin_type}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, bin_type: e.target.value }))
-                        }
+                        onChange={(e) => setForm((prev) => ({ ...prev, bin_type: e.target.value }))}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       >
                         {MATERIAL_TYPES.map((type) => (
@@ -1784,7 +1603,7 @@ function OrdersPageContent() {
                       </select>
                     </div>
 
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-slate-700">Order Type</label>
                       <select
                         value={form.order_type}
@@ -1792,9 +1611,11 @@ function OrdersPageContent() {
                           setForm((prev) => ({
                             ...prev,
                             order_type: e.target.value,
-                            bin_id: '',
                             old_bin_id: '',
-                            dump_site_id: prev.order_type === e.target.value ? prev.dump_site_id : '',
+                            dump_site_id:
+                              e.target.value === 'REMOVAL' || e.target.value === 'EXCHANGE' || e.target.value === 'DUMP RETURN'
+                                ? prev.dump_site_id
+                                : '',
                           }))
                         }
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
@@ -1806,52 +1627,22 @@ function OrdersPageContent() {
                         ))}
                       </select>
                     </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Driver</label>
-                      <select
-                        value={form.driver_id}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, driver_id: e.target.value }))
-                        }
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      >
-                        <option value="">Unassigned</option>
-                        {assignableDrivers.map((driver) => (
-                          <option key={driver.id} value={driver.id}>
-                            {driver.name || 'Unnamed Driver'}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
                   </>
                 )}
 
-                {(form.order_type === 'REMOVAL' ||
-                  form.order_type === 'EXCHANGE' ||
-                  form.order_type === 'DUMP RETURN') &&
+                {(form.order_type === 'REMOVAL' || form.order_type === 'EXCHANGE' || form.order_type === 'DUMP RETURN') &&
                   (isReadOnlyModal ? (
                     <>
-                      <ReadOnlyField
-                        label="Dump Site"
-                        value={selectedDumpSite?.name || '—'}
-                      />
-                      <ReadOnlyField
-                        label="Dump Site Address"
-                        value={selectedDumpSite?.address || editingOrder?.dump_site_address || '—'}
-                      />
+                      <ReadOnlyField label="Dump Site" value={selectedDumpSite?.name || '—'} />
+                      <ReadOnlyField label="Dump Site Address" value={selectedDumpSite?.address || editingOrder?.dump_site_address || '—'} />
                     </>
                   ) : (
                     <>
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">
-                          Dump Site
-                        </label>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Dump Site</label>
                         <select
                           value={form.dump_site_id}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, dump_site_id: e.target.value }))
-                          }
+                          onChange={(e) => setForm((prev) => ({ ...prev, dump_site_id: e.target.value }))}
                           className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                         >
                           <option value="">Select dump site</option>
@@ -1864,9 +1655,7 @@ function OrdersPageContent() {
                       </div>
 
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">
-                          Dump Site Address
-                        </label>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Dump Site Address</label>
                         <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                           {selectedDumpSite?.address || '—'}
                         </div>
@@ -1874,16 +1663,10 @@ function OrdersPageContent() {
                     </>
                   ))}
 
-                {(form.order_type === 'EXCHANGE' ||
-                  form.order_type === 'REMOVAL' ||
-                  form.order_type === 'DUMP RETURN') &&
+                {(form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL' || form.order_type === 'DUMP RETURN') &&
                   (isReadOnlyModal ? (
                     <ReadOnlyField
-                      label={
-                        form.order_type === 'DUMP RETURN'
-                          ? 'Bin at this Job Site'
-                          : 'Old / Existing Bin at this Job Site'
-                      }
+                      label={form.order_type === 'DUMP RETURN' ? 'Bin at this Job Site' : 'Old / Existing Bin at this Job Site'}
                       value={
                         jobSiteExistingBins.find((b) => b.id === form.old_bin_id)
                           ? `${jobSiteExistingBins.find((b) => b.id === form.old_bin_id)?.bin_number || 'Bin'} • ${jobSiteExistingBins.find((b) => b.id === form.old_bin_id)?.bin_size || ''}Y`
@@ -1891,11 +1674,9 @@ function OrdersPageContent() {
                       }
                     />
                   ) : (
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-slate-700">
-                        {form.order_type === 'DUMP RETURN'
-                          ? 'Bin at this Job Site'
-                          : 'Old / Existing Bin at this Job Site'}
+                        {form.order_type === 'DUMP RETURN' ? 'Bin at this Job Site' : 'Old / Existing Bin at this Job Site'}
                       </label>
                       <select
                         value={form.old_bin_id}
@@ -1903,12 +1684,7 @@ function OrdersPageContent() {
                           setForm((prev) => ({
                             ...prev,
                             old_bin_id: e.target.value,
-                            bin_id:
-                              prev.order_type === 'DUMP RETURN'
-                                ? e.target.value
-                                : prev.bin_id === e.target.value
-                                  ? ''
-                                  : prev.bin_id,
+                            bin_id: prev.order_type === 'DUMP RETURN' ? e.target.value : prev.bin_id,
                           }))
                         }
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
@@ -1916,154 +1692,95 @@ function OrdersPageContent() {
                         <option value="">Select bin from this Job Site</option>
                         {jobSiteExistingBins.map((bin) => (
                           <option key={bin.id} value={bin.id}>
-                            {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
-                            {bin.location ? ` • ${bin.location}` : ''}
+                            {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y{bin.location ? ` • ${bin.location}` : ''}
                           </option>
                         ))}
                       </select>
                     </div>
                   ))}
 
-                {(form.order_type === 'DELIVERY' || form.order_type === 'EXCHANGE') &&
-                  (isReadOnlyModal ? (
+                {editingOrder && (
+                  isReadOnlyModal ? (
                     <>
+                      <ReadOnlyField label="Status" value={formatStatus(form.status)} />
                       <ReadOnlyField
-                        label="Available Bin"
-                        value={
-                          bins.find((b) => b.id === form.bin_id)
-                            ? `${bins.find((b) => b.id === form.bin_id)?.bin_number || 'Bin'} • ${bins.find((b) => b.id === form.bin_id)?.bin_size || ''}Y`
-                            : '—'
-                        }
+                        label="Assigned Bin"
+                        value={currentAssignedBin ? `${currentAssignedBin.bin_number || 'Bin'} • ${currentAssignedBin.bin_size || ''}Y` : 'Not set'}
                       />
-                      <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                        Available bins for selected size:{' '}
-                        <span className="font-semibold">{currentAvailableBinCount}</span>
-                      </div>
                     </>
                   ) : (
                     <>
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Available Bin</label>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Status</label>
                         <select
-                          value={form.bin_id}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, bin_id: e.target.value }))
-                          }
+                          value={form.status}
+                          onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}
                           className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                         >
-                          <option value="">
-                            {form.order_type === 'EXCHANGE'
-                              ? 'Select replacement bin'
-                              : 'Select available bin'}
-                          </option>
-                          {availableBinsForSelectedSize.map((bin) => (
-                            <option key={bin.id} value={bin.id}>
-                              {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y
-                              {bin.location ? ` • ${bin.location}` : ''}
+                          {ORDER_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {formatStatus(status)}
                             </option>
                           ))}
                         </select>
                       </div>
 
-                      <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                        Available bins for selected size:{' '}
-                        <span className="font-semibold">{currentAvailableBinCount}</span>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Driver</label>
+                        <select
+                          value={form.driver_id}
+                          onChange={(e) => setForm((prev) => ({ ...prev, driver_id: e.target.value }))}
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        >
+                          <option value="">Unassigned</option>
+                          {drivers
+                            .filter((driver) => driver.status !== 'offline')
+                            .map((driver) => (
+                              <option key={driver.id} value={driver.id}>
+                                {driver.name || 'Unnamed Driver'}
+                              </option>
+                            ))}
+                        </select>
                       </div>
                     </>
-                  ))}
+                  )
+                )}
+
+                {editingOrder && form.bin_id && (
+                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                    Assigned bin on this order: <span className="font-semibold">{currentAssignedBin?.bin_number || form.bin_id}</span>
+                  </div>
+                )}
 
                 {form.order_type === 'DUMP RETURN' && (
                   <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                    DUMP RETURN uses the same bin already at the client Job Site. No replacement bin is needed.
+                    DUMP RETURN uses the same bin already at the client job site.
                   </div>
                 )}
 
                 {(form.order_type === 'EXCHANGE' || form.order_type === 'DUMP RETURN') && (
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    Bins found at this Job Site:{' '}
-                    <span className="font-semibold">{jobSiteExistingBins.length}</span>
+                    Bins found at this Job Site: <span className="font-semibold">{jobSiteExistingBins.length}</span>
                   </div>
                 )}
 
                 {isReadOnlyModal ? (
-                  <>
-                    <ReadOnlyField label="Scheduled Date" value={formatDate(form.scheduled_date)} />
-                    <ReadOnlyField label="Status" value={formatStatus(form.status)} />
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Scheduled Date</label>
-                      <input
-                        type="date"
-                        value={form.scheduled_date}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))
-                        }
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Status</label>
-                      <select
-                        value={form.status}
-                        onChange={(e) =>
-                          setForm((prev) => ({ ...prev, status: e.target.value }))
-                        }
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      >
-                        {ORDER_STATUSES.map((status) => (
-                          <option key={status} value={status}>
-                            {formatStatus(status)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-
-                {isReadOnlyModal ? (
-                  <ReadOnlyField
-                    label="Notes"
-                    value={form.notes || '—'}
-                    className="md:col-span-2"
-                  />
+                  <ReadOnlyField label="Notes" value={form.notes || '—'} className="md:col-span-2" />
                 ) : (
                   <div className="md:col-span-2">
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Notes</label>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Note</label>
                     <textarea
                       rows={4}
                       value={form.notes}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, notes: e.target.value }))
-                      }
+                      onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
                       className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      placeholder="Special instructions, gate code, contact notes..."
+                      placeholder="Special observation or instruction"
                     />
                   </div>
                 )}
-
-                <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  <div className="font-semibold text-slate-900">Workflow preview</div>
-                  <div className="mt-2 space-y-1">
-                    {form.order_type === 'DELIVERY' && (
-                      <p>• Uses the selected available bin and marks it in use.</p>
-                    )}
-                    {form.order_type === 'EXCHANGE' && (
-                      <p>• Uses the selected replacement bin and releases the old bin from this Job Site.</p>
-                    )}
-                    {form.order_type === 'REMOVAL' && (
-                      <p>• Releases the old bin and does not assign a new one.</p>
-                    )}
-                    {form.order_type === 'DUMP RETURN' && (
-                      <p>• Uses the same bin already at this Job Site and keeps it cycling in use.</p>
-                    )}
-                  </div>
-                </div>
               </div>
 
-              <div className="mt-6 flex justify-end gap-3">
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
                 {editingOrder && !isReadOnlyModal && (
                   <button
                     onClick={handleCancelOrder}
@@ -2074,18 +1791,13 @@ function OrdersPageContent() {
                   </button>
                 )}
 
-                {editingOrder && isAdmin && (
+                {editingOrder && !isReadOnlyModal && (
                   <button
                     onClick={() =>
-                      handleDelete(
-                        editingOrder.id,
-                        editingOrder.driver_id,
-                        editingOrder.bin_id,
-                        editingOrder.old_bin_id
-                      )
+                      void handleDelete(editingOrder.id, editingOrder.driver_id, editingOrder.bin_id, editingOrder.old_bin_id)
                     }
-                    disabled={deletingId === editingOrder.id}
-                    className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                    disabled={saving || deletingId === editingOrder.id}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                   >
                     {deletingId === editingOrder.id ? 'Deleting...' : 'Delete'}
                   </button>
@@ -2093,9 +1805,9 @@ function OrdersPageContent() {
 
                 <button
                   onClick={closeModal}
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  {isReadOnlyModal ? 'Close' : 'Cancel'}
+                  Close
                 </button>
 
                 {!isReadOnlyModal && (
@@ -2118,17 +1830,7 @@ function OrdersPageContent() {
 
 export default function OrdersPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-slate-100">
-          <div className="mx-auto max-w-7xl p-4 md:p-6">
-            <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-              Loading orders...
-            </div>
-          </div>
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading...</div>}>
       <OrdersPageContent />
     </Suspense>
   )
