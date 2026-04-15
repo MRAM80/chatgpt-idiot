@@ -244,7 +244,7 @@ function generateQuickDate(offsetDays = 0) {
 
 function buildTimeOptions() {
   const options: string[] = []
-  for (let hour = 6; hour <= 18; hour += 1) {
+  for (let hour = 5; hour <= 20; hour += 1) {
     for (const minute of [0, 30]) {
       options.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`)
     }
@@ -519,10 +519,6 @@ function OrdersPageContent() {
     return jobSites.filter((site) => site.customer_id === form.customer_id)
   }, [jobSites, form.customer_id])
 
-  const selectedJobSite = useMemo(() => {
-    return jobSites.find((site) => site.id === form.job_site_id) || null
-  }, [jobSites, form.job_site_id])
-
   const selectedDumpSite = useMemo(() => {
     return dumpSites.find((site) => site.id === form.dump_site_id) || null
   }, [dumpSites, form.dump_site_id])
@@ -687,17 +683,19 @@ function OrdersPageContent() {
       customer_id: customerId,
       customer_name: customer?.name || prev.customer_name,
       job_site_id: '',
-      pickup_address: customer?.address || prev.pickup_address || '',
+      pickup_address: '',
     }))
   }
 
-  function handleJobSiteChange(jobSiteId: string) {
-    const site = jobSites.find((item) => item.id === jobSiteId)
+  function handleJobSiteAddressInput(address: string) {
+    const matchedSite = selectedCustomerJobSites.find(
+      (site) => normalizeAddress(site.address) === normalizeAddress(address)
+    )
 
     setForm((prev) => ({
       ...prev,
-      job_site_id: jobSiteId,
-      pickup_address: site?.address || prev.pickup_address,
+      job_site_id: matchedSite?.id || '',
+      pickup_address: address,
     }))
   }
 
@@ -1615,34 +1613,23 @@ function OrdersPageContent() {
                   <>
                     <div className="md:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
+                      <input
+                        list={form.customer_id ? 'customer-job-site-addresses' : undefined}
+                        value={form.pickup_address}
+                        onChange={(e) => handleJobSiteAddressInput(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                        placeholder={selectedCustomerJobSites.length > 0 ? 'Start typing a saved address' : 'Job site address'}
+                        autoComplete="street-address"
+                      />
                       {selectedCustomerJobSites.length > 0 ? (
-                        <select
-                          value={form.job_site_id}
-                          onChange={(e) => handleJobSiteChange(e.target.value)}
-                          className="mb-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                        >
-                          <option value="">Choose saved address</option>
+                        <datalist id="customer-job-site-addresses">
                           {selectedCustomerJobSites.map((site) => (
-                            <option key={site.id} value={site.id}>
+                            <option key={site.id} value={site.address || ''}>
                               {site.site_name || site.address || 'Saved Address'}
                             </option>
                           ))}
-                        </select>
+                        </datalist>
                       ) : null}
-
-                      <input
-                        value={form.pickup_address}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            job_site_id: prev.job_site_id && normalizeAddress(e.target.value) !== normalizeAddress(selectedJobSite?.address) ? '' : prev.job_site_id,
-                            pickup_address: e.target.value,
-                          }))
-                        }
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                        placeholder="Job site address"
-                        autoComplete="street-address"
-                      />
                     </div>
 
                     <div className="md:col-span-2">
