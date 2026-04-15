@@ -36,6 +36,15 @@ type DumpSite = {
   address: string | null
 }
 
+type JobSite = {
+  id: string
+  customer_id: string | null
+  site_name: string | null
+  address: string | null
+  notes?: string | null
+  is_active?: boolean | null
+}
+
 type Profile = {
   id: string
   email: string | null
@@ -70,6 +79,7 @@ type Order = {
   ticket_number: string | null
   customer_id: string | null
   customer_name: string | null
+  job_site_id?: string | null
   pickup_address: string | null
   service_address?: string | null
   service_time?: string | null
@@ -131,6 +141,7 @@ const orderTypeClasses: Record<string, string> = {
 type FormState = {
   customer_id: string
   customer_name: string
+  job_site_id: string
   pickup_address: string
   scheduled_date: string
   service_time: string
@@ -148,6 +159,7 @@ type FormState = {
 const emptyForm: FormState = {
   customer_id: '',
   customer_name: '',
+  job_site_id: '',
   pickup_address: '',
   scheduled_date: '',
   service_time: '',
@@ -222,12 +234,25 @@ function generateTicketNumber() {
   return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
 }
 
-function openNativePicker(ref: { current: HTMLInputElement | null }) {
-  const input = ref.current
-  if (!input) return
-  const pickerInput = input as HTMLInputElement & { showPicker?: () => void }
-  pickerInput.showPicker?.()
+
+function generateQuickDate(offsetDays = 0) {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(date.getDate() + offsetDays)
+  return date.toISOString().slice(0, 10)
 }
+
+function buildTimeOptions() {
+  const options: string[] = []
+  for (let hour = 6; hour <= 18; hour += 1) {
+    for (const minute of [0, 30]) {
+      options.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`)
+    }
+  }
+  return options
+}
+
+const QUICK_TIME_OPTIONS = buildTimeOptions()
 
 function ReadOnlyField({
   label,
@@ -256,6 +281,7 @@ function OrdersPageContent() {
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [jobSites, setJobSites] = useState<JobSite[]>([])
   const [bins, setBins] = useState<Bin[]>([])
   const [dumpSites, setDumpSites] = useState<DumpSite[]>([])
   const [loading, setLoading] = useState(true)
@@ -274,8 +300,9 @@ function OrdersPageContent() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
-  const dateInputRef = useRef<HTMLInputElement | null>(null)
-  const timeInputRef = useRef<HTMLInputElement | null>(null)
+  const modalTitleRef = useRef<HTMLSelectElement | null>(null)
+  const modalCardRef = useRef<HTMLDivElement | null>(null)
+  const [modalVisible, setModalVisible] = useState(false)
 
   const isCompletedEditing = editingOrder?.status === 'completed'
   const isReadOnlyModal = Boolean(isCompletedEditing)
@@ -288,6 +315,7 @@ function OrdersPageContent() {
         ticket_number,
         customer_id,
         customer_name,
+        job_site_id,
         pickup_address,
         service_address,
         service_time,
@@ -351,6 +379,21 @@ function OrdersPageContent() {
     }
 
     setCustomers((data as Customer[]) || [])
+  }
+
+  async function loadJobSites() {
+    const { data, error } = await supabase
+      .from('job_sites')
+      .select('id,customer_id,site_name,address,notes,is_active')
+      .eq('is_active', true)
+      .order('site_name', { ascending: true })
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    setJobSites((data as JobSite[]) || [])
   }
 
   async function loadBins() {
@@ -419,6 +462,7 @@ function OrdersPageContent() {
       loadOrders(),
       loadDrivers(),
       loadCustomers(),
+      loadJobSites(),
       loadBins(),
       loadDumpSites(),
       loadUserRole(),
@@ -443,6 +487,9 @@ function OrdersPageContent() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, async () => {
         await loadCustomers()
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'job_sites' }, async () => {
+        await loadJobSites()
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dump_sites' }, async () => {
         await loadDumpSites()
       })
@@ -452,6 +499,10 @@ function OrdersPageContent() {
       supabase.removeChannel(channel)
     }
   }, [])
+
+  useEffect(() => {
+    setModalVisible(Boolean(showCreateModal || editingOrder))
+  }, [showCreateModal, editingOrder])
 
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
@@ -463,6 +514,14 @@ function OrdersPageContent() {
   const selectedCustomer = useMemo(() => {
     return customers.find((customer) => customer.id === form.customer_id) || null
   }, [customers, form.customer_id])
+
+  const selectedCustomerJobSites = useMemo(() => {
+    return jobSites.filter((site) => site.customer_id === form.customer_id)
+  }, [jobSites, form.customer_id])
+
+  const selectedJobSite = useMemo(() => {
+    return jobSites.find((site) => site.id === form.job_site_id) || null
+  }, [jobSites, form.job_site_id])
 
   const selectedDumpSite = useMemo(() => {
     return dumpSites.find((site) => site.id === form.dump_site_id) || null
@@ -584,6 +643,7 @@ function OrdersPageContent() {
     setForm({
       customer_id: order.customer_id || '',
       customer_name: customerRelation?.name || order.customer_name || '',
+      job_site_id: order.job_site_id || '',
       pickup_address: order.service_address || order.pickup_address || '',
       scheduled_date: order.scheduled_date ? new Date(order.scheduled_date).toISOString().slice(0, 10) : '',
       service_time: order.service_time || '',
@@ -626,8 +686,52 @@ function OrdersPageContent() {
       ...prev,
       customer_id: customerId,
       customer_name: customer?.name || prev.customer_name,
+      job_site_id: '',
       pickup_address: customer?.address || prev.pickup_address || '',
     }))
+  }
+
+  function handleJobSiteChange(jobSiteId: string) {
+    const site = jobSites.find((item) => item.id === jobSiteId)
+
+    setForm((prev) => ({
+      ...prev,
+      job_site_id: jobSiteId,
+      pickup_address: site?.address || prev.pickup_address,
+    }))
+  }
+
+  async function ensureJobSiteForOrder(customerId: string, address: string) {
+    const trimmedAddress = address.trim()
+    if (!customerId || !trimmedAddress) return null
+
+    const existing = jobSites.find(
+      (site) =>
+        site.customer_id === customerId &&
+        normalizeAddress(site.address) === normalizeAddress(trimmedAddress)
+    )
+
+    if (existing) return existing.id
+
+    const insertPayload = {
+      customer_id: customerId,
+      site_name: trimmedAddress,
+      address: trimmedAddress,
+      is_active: true,
+    }
+
+    const { data, error } = await supabase
+      .from('job_sites')
+      .insert([insertPayload])
+      .select('id')
+      .single()
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    await loadJobSites()
+    return (data as { id: string } | null)?.id || null
   }
 
   async function syncDriverStatuses(driverId: string) {
@@ -725,6 +829,8 @@ function OrdersPageContent() {
     const status = isEditing ? form.status || 'unassigned' : 'unassigned'
     const jobSiteAddress = form.pickup_address.trim() || null
     const dumpSite = dumpSites.find((site) => site.id === form.dump_site_id) || null
+    const ensuredJobSiteId =
+      form.customer_id && jobSiteAddress ? await ensureJobSiteForOrder(form.customer_id, jobSiteAddress) : null
 
     const completionFields =
       status === 'completed'
@@ -740,6 +846,7 @@ function OrdersPageContent() {
     const basePayload = {
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || null,
+      job_site_id: ensuredJobSiteId,
       pickup_address: jobSiteAddress,
       service_address: jobSiteAddress,
       service_time: form.service_time || null,
@@ -1006,6 +1113,7 @@ function OrdersPageContent() {
         ticket_number: generateTicketNumber(),
         customer_id: order.customer_id,
         customer_name: order.customer_name,
+        job_site_id: order.job_site_id || null,
         pickup_address: order.service_address || order.pickup_address,
         service_address: order.dump_site_address,
         service_time: null,
@@ -1035,6 +1143,7 @@ function OrdersPageContent() {
         ticket_number: generateTicketNumber(),
         customer_id: order.customer_id,
         customer_name: order.customer_name,
+        job_site_id: order.job_site_id || null,
         pickup_address: order.service_address || order.pickup_address,
         service_address: order.dump_site_address,
         service_time: null,
@@ -1064,6 +1173,7 @@ function OrdersPageContent() {
         ticket_number: generateTicketNumber(),
         customer_id: order.customer_id,
         customer_name: order.customer_name,
+        job_site_id: order.job_site_id || null,
         pickup_address: order.dump_site_address,
         service_address: order.service_address || order.pickup_address,
         service_time: null,
@@ -1189,15 +1299,12 @@ function OrdersPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900" style={{ colorScheme: 'light' }}>
+    <div className="light min-h-screen bg-slate-100 text-slate-900" style={{ colorScheme: 'light' }}>
       <div className="mx-auto max-w-[92rem] p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Orders</h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Faster order entry with only the main office fields. Bin assignment now happens later by the driver.
-              </p>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -1399,11 +1506,17 @@ function OrdersPageContent() {
       </div>
 
       {(showCreateModal || editingOrder) && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40">
+        <div
+          className={`fixed inset-0 z-50 overflow-y-auto transition-all duration-300 ease-out ${
+            modalVisible ? 'bg-slate-900/40 opacity-100' : 'bg-slate-900/0 opacity-0'
+          }`}
+        >
           <div className="flex min-h-full items-start justify-center p-4 md:p-6">
             <div
-              className="my-6 max-h-[calc(100vh-3rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
-              style={{ colorScheme: 'light' }}
+              ref={modalCardRef}
+              className={`my-6 w-full max-w-3xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl transition-all duration-300 ease-out ${
+                modalVisible ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-[0.985] opacity-0'
+              }`}
             >
               <div className="mb-6 flex items-start justify-between gap-4">
                 <div>
@@ -1434,6 +1547,7 @@ function OrdersPageContent() {
                 </div>
               ) : null}
 
+
               {editingOrder?.status === 'completed' && (
                 <div className="mb-4 grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -1458,9 +1572,10 @@ function OrdersPageContent() {
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Customer</label>
                       <select
+                        ref={modalTitleRef}
                         value={form.customer_id}
                         onChange={(e) => handleCustomerChange(e.target.value)}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       >
                         <option value="">Select customer</option>
                         {customers.map((customer) => (
@@ -1476,42 +1591,31 @@ function OrdersPageContent() {
                       <input
                         value={form.customer_name}
                         onChange={(e) => setForm((prev) => ({ ...prev, customer_name: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                         placeholder="Customer name"
                       />
                     </div>
                   </>
                 )}
 
-                {selectedCustomer?.address ? (
+                {selectedCustomerJobSites.length > 0 ? (
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    <div className="font-semibold text-slate-900">Saved address</div>
-                    <div className="mt-1">{selectedCustomer.address}</div>
-                    <div className="mt-2 text-slate-500">Choose a customer and this address will be ready to use for the job site.</div>
+                    <div className="font-semibold text-slate-900">Saved job sites for this customer</div>
+                    <div className="mt-1">
+                      {selectedCustomerJobSites.length} saved address{selectedCustomerJobSites.length === 1 ? '' : 'es'} ready for quick selection.
+                    </div>
                   </div>
                 ) : null}
 
                 {isReadOnlyModal ? (
-                  <ReadOnlyField label="Job Site Address" value={form.pickup_address || '—'} className="md:col-span-2" />
-                ) : (
-                  <div className="md:col-span-2">
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
-                    <input
-                      value={form.pickup_address}
-                      onChange={(e) => setForm((prev) => ({ ...prev, pickup_address: e.target.value }))}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      placeholder="Address where the bin will go"
-                    />
-                  </div>
-                )}
-
-                {isReadOnlyModal ? (
                   <>
+                    <ReadOnlyField label="Saved Job Site" value={selectedJobSite?.site_name || selectedJobSite?.address || '—'} className="md:col-span-2" />
+                    <ReadOnlyField label="Job Site Address" value={form.pickup_address || '—'} className="md:col-span-2" />
+                    <ReadOnlyField label="Order Type" value={form.order_type || '—'} />
                     <ReadOnlyField label="Date" value={formatDate(form.scheduled_date)} />
                     <ReadOnlyField label="Time" value={formatServiceTime(form.service_time)} />
                     <ReadOnlyField label="Bin Size" value={form.bin_size ? `${form.bin_size} Yard` : '—'} />
                     <ReadOnlyField label="Material / Bin" value={form.bin_type || '—'} />
-                    <ReadOnlyField label="Order Type" value={form.order_type || '—'} />
                     <ReadOnlyField
                       label="Driver"
                       value={form.driver_id ? drivers.find((d) => d.id === form.driver_id)?.name || 'Assigned' : 'Unassigned'}
@@ -1519,6 +1623,41 @@ function OrdersPageContent() {
                   </>
                 ) : (
                   <>
+                    {selectedCustomerJobSites.length > 0 ? (
+                      <div className="md:col-span-2">
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Saved Job Site</label>
+                        <select
+                          value={form.job_site_id}
+                          onChange={(e) => handleJobSiteChange(e.target.value)}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                        >
+                          <option value="">Select saved job site</option>
+                          {selectedCustomerJobSites.map((site) => (
+                            <option key={site.id} value={site.id}>
+                              {site.site_name || site.address || 'Saved Job Site'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    <div className="md:col-span-2">
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
+                      <input
+                        value={form.pickup_address}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            job_site_id: prev.job_site_id && normalizeAddress(e.target.value) !== normalizeAddress(selectedJobSite?.address) ? '' : prev.job_site_id,
+                            pickup_address: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                        placeholder="Job site address"
+                        autoComplete="street-address"
+                      />
+                    </div>
+
                     <div className="md:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-slate-700">Order Type</label>
                       <select
@@ -1546,29 +1685,46 @@ function OrdersPageContent() {
 
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Date</label>
-                      <input
-                        ref={dateInputRef}
-                        type="date"
-                        value={form.scheduled_date}
-                        onClick={() => openNativePicker(dateInputRef)}
-                        onFocus={() => openNativePicker(dateInputRef)}
-                        onChange={(e) => setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      />
+                      <div className="grid gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setForm((prev) => ({ ...prev, scheduled_date: generateQuickDate(0) }))}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            Today
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setForm((prev) => ({ ...prev, scheduled_date: generateQuickDate(1) }))}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            Tomorrow
+                          </button>
+                        </div>
+                        <input
+                          type="date"
+                          value={form.scheduled_date}
+                          onChange={(e) => setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                        />
+                      </div>
                     </div>
 
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Time</label>
-                      <input
-                        ref={timeInputRef}
-                        type="time"
-                        step={900}
+                      <select
                         value={form.service_time}
-                        onClick={() => openNativePicker(timeInputRef)}
-                        onFocus={() => openNativePicker(timeInputRef)}
                         onChange={(e) => setForm((prev) => ({ ...prev, service_time: e.target.value }))}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      />
+                      >
+                        <option value="">Select time</option>
+                        {QUICK_TIME_OPTIONS.map((timeOption) => (
+                          <option key={timeOption} value={timeOption}>
+                            {formatServiceTime(timeOption)}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
@@ -1662,7 +1818,7 @@ function OrdersPageContent() {
                             bin_id: prev.order_type === 'DUMP RETURN' ? e.target.value : prev.bin_id,
                           }))
                         }
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       >
                         <option value="">Select bin from this Job Site</option>
                         {jobSiteExistingBins.map((bin) => (
@@ -1690,7 +1846,7 @@ function OrdersPageContent() {
                         <select
                           value={form.status}
                           onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                         >
                           {ORDER_STATUSES.map((status) => (
                             <option key={status} value={status}>
@@ -1705,7 +1861,7 @@ function OrdersPageContent() {
                         <select
                           value={form.driver_id}
                           onChange={(e) => setForm((prev) => ({ ...prev, driver_id: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                         >
                           <option value="">Unassigned</option>
                           {drivers
@@ -1748,7 +1904,7 @@ function OrdersPageContent() {
                       rows={4}
                       value={form.notes}
                       onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       placeholder="Special observation or instruction"
                     />
                   </div>
