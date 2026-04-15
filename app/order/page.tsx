@@ -453,11 +453,10 @@ function OrdersPageContent() {
 
       const animationTimer = window.setTimeout(() => {
         setModalVisible(true)
-        modalCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }, 20)
 
       const focusTimer = window.setTimeout(() => {
-        if (!isReadOnlyModal) {
+        if (!isReadOnlyModal && window.innerWidth > 768) {
           modalTitleRef.current?.focus()
         }
       }, 140)
