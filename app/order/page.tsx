@@ -222,6 +222,13 @@ function generateTicketNumber() {
   return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
 }
 
+function openNativePicker(ref: { current: HTMLInputElement | null }) {
+  const input = ref.current
+  if (!input) return
+  const pickerInput = input as HTMLInputElement & { showPicker?: () => void }
+  pickerInput.showPicker?.()
+}
+
 function ReadOnlyField({
   label,
   value,
@@ -267,9 +274,8 @@ function OrdersPageContent() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
-  const modalTitleRef = useRef<HTMLSelectElement | null>(null)
-  const modalCardRef = useRef<HTMLDivElement | null>(null)
-  const [modalVisible, setModalVisible] = useState(false)
+  const dateInputRef = useRef<HTMLInputElement | null>(null)
+  const timeInputRef = useRef<HTMLInputElement | null>(null)
 
   const isCompletedEditing = editingOrder?.status === 'completed'
   const isReadOnlyModal = Boolean(isCompletedEditing)
@@ -447,29 +453,6 @@ function OrdersPageContent() {
     }
   }, [])
 
-  useEffect(() => {
-    if (showCreateModal || editingOrder) {
-      setModalVisible(false)
-
-      const animationTimer = window.setTimeout(() => {
-        setModalVisible(true)
-      }, 20)
-
-      const focusTimer = window.setTimeout(() => {
-        if (!isReadOnlyModal && window.innerWidth > 768) {
-          modalTitleRef.current?.focus()
-        }
-      }, 140)
-
-      return () => {
-        window.clearTimeout(animationTimer)
-        window.clearTimeout(focusTimer)
-      }
-    }
-
-    setModalVisible(false)
-  }, [showCreateModal, editingOrder, isReadOnlyModal])
-
   const driverMap = useMemo(() => {
     return drivers.reduce<Record<string, Driver>>((acc, driver) => {
       acc[driver.id] = driver
@@ -643,7 +626,7 @@ function OrdersPageContent() {
       ...prev,
       customer_id: customerId,
       customer_name: customer?.name || prev.customer_name,
-      pickup_address: prev.pickup_address || customer?.address || '',
+      pickup_address: customer?.address || prev.pickup_address || '',
     }))
   }
 
@@ -1206,7 +1189,7 @@ function OrdersPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-100 text-slate-900" style={{ colorScheme: 'light' }}>
       <div className="mx-auto max-w-[92rem] p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1218,6 +1201,12 @@ function OrdersPageContent() {
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/dashboard"
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Back to Dashboard
+              </Link>
               <button
                 onClick={refreshAll}
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -1407,28 +1396,14 @@ function OrdersPageContent() {
           )}
         </div>
 
-        <div className="mt-6 flex justify-center">
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            Back to Dashboard
-          </Link>
-        </div>
       </div>
 
       {(showCreateModal || editingOrder) && (
-        <div
-          className={`fixed inset-0 z-50 overflow-y-auto transition-all duration-300 ease-out ${
-            modalVisible ? 'bg-slate-900/40 opacity-100' : 'bg-slate-900/0 opacity-0'
-          }`}
-        >
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40">
           <div className="flex min-h-full items-start justify-center p-4 md:p-6">
             <div
-              ref={modalCardRef}
-              className={`my-6 w-full max-w-3xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl transition-all duration-300 ease-out ${
-                modalVisible ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-[0.985] opacity-0'
-              }`}
+              className="my-6 max-h-[calc(100vh-3rem)] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
+              style={{ colorScheme: 'light' }}
             >
               <div className="mb-6 flex items-start justify-between gap-4">
                 <div>
@@ -1459,13 +1434,6 @@ function OrdersPageContent() {
                 </div>
               ) : null}
 
-              {!editingOrder && (
-                <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                  Status starts as <span className="font-semibold">Unassigned</span>. Available bin is no longer chosen here.
-                  The driver can insert the yard bin later.
-                </div>
-              )}
-
               {editingOrder?.status === 'completed' && (
                 <div className="mb-4 grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -1490,10 +1458,9 @@ function OrdersPageContent() {
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">Customer</label>
                       <select
-                        ref={modalTitleRef}
                         value={form.customer_id}
                         onChange={(e) => handleCustomerChange(e.target.value)}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                       >
                         <option value="">Select customer</option>
                         {customers.map((customer) => (
@@ -1509,7 +1476,7 @@ function OrdersPageContent() {
                       <input
                         value={form.customer_name}
                         onChange={(e) => setForm((prev) => ({ ...prev, customer_name: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                         placeholder="Customer name"
                       />
                     </div>
@@ -1518,9 +1485,9 @@ function OrdersPageContent() {
 
                 {selectedCustomer?.address ? (
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    <div className="font-semibold text-slate-900">Saved customer address</div>
+                    <div className="font-semibold text-slate-900">Saved address</div>
                     <div className="mt-1">{selectedCustomer.address}</div>
-                    <div className="mt-2 text-slate-500">This helps auto-fill faster, but the real delivery address goes below.</div>
+                    <div className="mt-2 text-slate-500">Choose a customer and this address will be ready to use for the job site.</div>
                   </div>
                 ) : null}
 
@@ -1532,7 +1499,7 @@ function OrdersPageContent() {
                     <input
                       value={form.pickup_address}
                       onChange={(e) => setForm((prev) => ({ ...prev, pickup_address: e.target.value }))}
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                       placeholder="Address where the bin will go"
                     />
                   </div>
@@ -1552,56 +1519,6 @@ function OrdersPageContent() {
                   </>
                 ) : (
                   <>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Date</label>
-                      <input
-                        type="date"
-                        value={form.scheduled_date}
-                        onChange={(e) => setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Time</label>
-                      <input
-                        type="time"
-                        value={form.service_time}
-                        onChange={(e) => setForm((prev) => ({ ...prev, service_time: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
-                      <select
-                        value={form.bin_size}
-                        onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '' }))}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      >
-                        {BIN_SIZES.map((size) => (
-                          <option key={size} value={size}>
-                            {size} Yard
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin</label>
-                      <select
-                        value={form.bin_type}
-                        onChange={(e) => setForm((prev) => ({ ...prev, bin_type: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      >
-                        {MATERIAL_TYPES.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
                     <div className="md:col-span-2">
                       <label className="mb-2 block text-sm font-medium text-slate-700">Order Type</label>
                       <select
@@ -1617,9 +1534,66 @@ function OrdersPageContent() {
                                 : '',
                           }))
                         }
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                       >
                         {ORDER_TYPES.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Date</label>
+                      <input
+                        ref={dateInputRef}
+                        type="date"
+                        value={form.scheduled_date}
+                        onClick={() => openNativePicker(dateInputRef)}
+                        onFocus={() => openNativePicker(dateInputRef)}
+                        onChange={(e) => setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Time</label>
+                      <input
+                        ref={timeInputRef}
+                        type="time"
+                        step={900}
+                        value={form.service_time}
+                        onClick={() => openNativePicker(timeInputRef)}
+                        onFocus={() => openNativePicker(timeInputRef)}
+                        onChange={(e) => setForm((prev) => ({ ...prev, service_time: e.target.value }))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
+                      <select
+                        value={form.bin_size}
+                        onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '' }))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                      >
+                        {BIN_SIZES.map((size) => (
+                          <option key={size} value={size}>
+                            {size} Yard
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin</label>
+                      <select
+                        value={form.bin_type}
+                        onChange={(e) => setForm((prev) => ({ ...prev, bin_type: e.target.value }))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                      >
+                        {MATERIAL_TYPES.map((type) => (
                           <option key={type} value={type}>
                             {type}
                           </option>
@@ -1641,9 +1615,10 @@ function OrdersPageContent() {
                         <label className="mb-2 block text-sm font-medium text-slate-700">Dump Site</label>
                         <select
                           value={form.dump_site_id}
-                          onChange={(e) => 
+                          onChange={(e) =>
                             setForm((prev) => ({ ...prev, dump_site_id: e.target.value }))
                           }
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                         >
                           <option value="">Select dump site</option>
                           {dumpSites.map((site) => (
@@ -1687,7 +1662,7 @@ function OrdersPageContent() {
                             bin_id: prev.order_type === 'DUMP RETURN' ? e.target.value : prev.bin_id,
                           }))
                         }
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                       >
                         <option value="">Select bin from this Job Site</option>
                         {jobSiteExistingBins.map((bin) => (
@@ -1715,7 +1690,7 @@ function OrdersPageContent() {
                         <select
                           value={form.status}
                           onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                         >
                           {ORDER_STATUSES.map((status) => (
                             <option key={status} value={status}>
@@ -1730,7 +1705,7 @@ function OrdersPageContent() {
                         <select
                           value={form.driver_id}
                           onChange={(e) => setForm((prev) => ({ ...prev, driver_id: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                         >
                           <option value="">Unassigned</option>
                           {drivers
@@ -1773,7 +1748,7 @@ function OrdersPageContent() {
                       rows={4}
                       value={form.notes}
                       onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                       placeholder="Special observation or instruction"
                     />
                   </div>
