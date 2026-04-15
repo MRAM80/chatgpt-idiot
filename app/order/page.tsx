@@ -1526,11 +1526,11 @@ function OrdersPageContent() {
                   <h2 className="mt-1 text-xl font-bold text-slate-900">
                     {editingOrder ? (isReadOnlyModal ? 'Order Details' : 'Edit Order') : 'Create Order'}
                   </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {isReadOnlyModal
-                      ? 'This completed order is locked. You can view it, but you cannot edit anything.'
-                      : 'Fast office form: customer, job site, date/time, note, bin size, material, and order type.'}
-                  </p>
+                  {isReadOnlyModal ? (
+                    <p className="mt-1 text-sm text-slate-500">
+                      This completed order is locked. You can view it, but you cannot edit anything.
+                    </p>
+                  ) : null}
                 </div>
 
                 <button
@@ -1598,18 +1598,8 @@ function OrdersPageContent() {
                   </>
                 )}
 
-                {selectedCustomerJobSites.length > 0 ? (
-                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    <div className="font-semibold text-slate-900">Saved job sites for this customer</div>
-                    <div className="mt-1">
-                      {selectedCustomerJobSites.length} saved address{selectedCustomerJobSites.length === 1 ? '' : 'es'} ready for quick selection.
-                    </div>
-                  </div>
-                ) : null}
-
                 {isReadOnlyModal ? (
                   <>
-                    <ReadOnlyField label="Saved Job Site" value={selectedJobSite?.site_name || selectedJobSite?.address || '—'} className="md:col-span-2" />
                     <ReadOnlyField label="Job Site Address" value={form.pickup_address || '—'} className="md:col-span-2" />
                     <ReadOnlyField label="Order Type" value={form.order_type || '—'} />
                     <ReadOnlyField label="Date" value={formatDate(form.scheduled_date)} />
@@ -1623,26 +1613,23 @@ function OrdersPageContent() {
                   </>
                 ) : (
                   <>
-                    {selectedCustomerJobSites.length > 0 ? (
-                      <div className="md:col-span-2">
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Saved Job Site</label>
+                    <div className="md:col-span-2">
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
+                      {selectedCustomerJobSites.length > 0 ? (
                         <select
                           value={form.job_site_id}
                           onChange={(e) => handleJobSiteChange(e.target.value)}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                          className="mb-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                         >
-                          <option value="">Select saved job site</option>
+                          <option value="">Choose saved address</option>
                           {selectedCustomerJobSites.map((site) => (
                             <option key={site.id} value={site.id}>
-                              {site.site_name || site.address || 'Saved Job Site'}
+                              {site.site_name || site.address || 'Saved Address'}
                             </option>
                           ))}
                         </select>
-                      </div>
-                    ) : null}
+                      ) : null}
 
-                    <div className="md:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
                       <input
                         value={form.pickup_address}
                         onChange={(e) =>
