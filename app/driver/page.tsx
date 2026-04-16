@@ -1,4 +1,4 @@
-'use client'
+\'use client\'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -11,6 +11,12 @@ type Driver = {
   phone: string | null
   status: string | null
   auth_user_id?: string | null
+}
+
+type BinRelation = {
+  id: string
+  bin_number: string | null
+  bin_size: string | number | null
 }
 
 type Order = {
@@ -35,6 +41,8 @@ type Order = {
   updated_at: string | null
   completed_by?: string | null
   completed_at?: string | null
+  bins?: BinRelation[] | null
+  old_bin?: BinRelation[] | null
 }
 
 type QueuedAction = {
@@ -48,6 +56,8 @@ type QueuedAction = {
 
 type SyncState = 'idle' | 'pending' | 'error'
 
+type BinSaveState = 'idle' | 'saving' | 'saved' | 'error'
+
 const TABLE_NAME = 'order'
 const CACHED_ORDERS_KEY = 'driver_cached_orders'
 const QUEUED_ACTIONS_KEY = 'driver_queued_actions'
@@ -58,6 +68,10 @@ const statusStyles: Record<string, string> = {
   in_progress: 'border-amber-200 bg-amber-50 text-amber-700',
   completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   issue: 'border-rose-200 bg-rose-50 text-rose-700',
+}
+
+function firstRelation<T>(value?: T[] | null): T | null {
+  return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
 
 function formatStatus(status: string | null | undefined) {
@@ -76,6 +90,26 @@ function formatDate(dateValue: string | null | undefined) {
   return date.toLocaleDateString()
 }
 
+function formatServiceTime(value: string | null | undefined) {
+  if (!value) return '—'
+  const cleaned = String(value).trim()
+  if (!cleaned) return '—'
+
+  const [hourStr, minuteStr] = cleaned.split(':')
+  const hour = Number(hourStr)
+  const minute = Number(minuteStr)
+
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return cleaned
+
+  const date = new Date()
+  date.setHours(hour, minute, 0, 0)
+
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function displayValue(value: unknown) {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'string') {
@@ -89,6 +123,10 @@ function displayValue(value: unknown) {
   } catch {
     return String(value)
   }
+}
+
+function normalizeBinNumber(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase()
 }
 
 function getOrderAddress(order: Order) {
@@ -176,12 +214,6 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function DriverPage() {
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-    }
-  }, [])
-
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
@@ -197,8 +229,9 @@ export default function DriverPage() {
   const [syncingQueue, setSyncingQueue] = useState(false)
   const [queuedActions, setQueuedActions] = useState<QueuedAction[]>([])
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
-  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [binInputs, setBinInputs] = useState<Record<string, string>>({})
+  const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
+  const [notificationsReady, setNotificationsReady] = useState(false)
 
   function persistOrders(nextOrders: Order[]) {
     setOrders(nextOrders)
@@ -218,6 +251,13 @@ export default function DriverPage() {
       delete next[orderId]
       return next
     })
+  }
+
+  function setBinSaveState(orderId: string, state: BinSaveState) {
+    setBinSaveStates((current) => ({
+      ...current,
+      [orderId]: state,
+    }))
   }
 
   function updateLocalOrderStatus(orderId: string, nextStatus: string) {
@@ -331,6 +371,53 @@ export default function DriverPage() {
     } as Driver
   }
 
+  async function ensureNotificationsSubscribed(driverId: string) {
+    if (typeof window === 'undefined') return
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    if (!vapidPublicKey) return
+
+    try {
+      await navigator.serviceWorker.register('/sw.js')
+      const registration = await navigator.serviceWorker.ready
+
+      let permission = Notification.permission
+      if (permission === 'default') {
+        permission = await Notification.requestPermission()
+      }
+
+      if (permission !== 'granted') return
+
+      let subscription = await registration.pushManager.getSubscription()
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        })
+      }
+
+      const raw = subscription.toJSON()
+      if (!raw?.endpoint || !raw?.keys?.p256dh || !raw?.keys?.auth) return
+
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId,
+          endpoint: raw.endpoint,
+          p256dh: raw.keys.p256dh,
+          auth: raw.keys.auth,
+        }),
+      })
+
+      setNotificationsReady(true)
+    } catch {
+      // keep page usable even if notification subscription fails
+    }
+  }
+
   async function loadPage() {
     setPageError('')
     setLoading(true)
@@ -343,11 +430,36 @@ export default function DriverPage() {
     }
 
     setDriver(resolvedDriver)
+    void ensureNotificationsSubscribed(resolvedDriver.id)
 
     const { data: orderData, error: ordersError } = await supabase
       .from(TABLE_NAME)
       .select(
-        'id,ticket_number,customer_name,pickup_address,service_address,service_time,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at'
+        `
+        id,
+        ticket_number,
+        customer_name,
+        pickup_address,
+        service_address,
+        service_time,
+        service_window,
+        bin_id,
+        old_bin_id,
+        bin_size,
+        bin_type,
+        order_type,
+        scheduled_date,
+        driver_id,
+        route_position,
+        status,
+        notes,
+        created_at,
+        updated_at,
+        completed_by,
+        completed_at,
+        bins:bin_id ( id, bin_number, bin_size ),
+        old_bin:old_bin_id ( id, bin_number, bin_size )
+      `
       )
       .eq('driver_id', resolvedDriver.id)
       .neq('status', 'completed')
@@ -361,7 +473,6 @@ export default function DriverPage() {
       if (cachedOrders.length > 0) {
         persistOrders(cachedOrders)
         setUsingCachedOrders(true)
-        setPageError('')
         setLoading(false)
         return
       }
@@ -374,6 +485,18 @@ export default function DriverPage() {
     const nextOrders = (orderData as Order[]) || []
     persistOrders(nextOrders)
     setUsingCachedOrders(false)
+
+    setBinInputs((current) => {
+      const next = { ...current }
+      for (const order of nextOrders) {
+        const assignedBin = firstRelation(order.bins)
+        if (!(order.id in next)) {
+          next[order.id] = assignedBin?.bin_number || ''
+        }
+      }
+      return next
+    })
+
     setLoading(false)
   }
 
@@ -427,127 +550,94 @@ export default function DriverPage() {
     router.push('/login')
   }
 
-  async function checkNotificationStatus() {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+  async function saveBinNumber(order: Order) {
+    const rawInput = binInputs[order.id] || ''
+    const normalizedInput = normalizeBinNumber(rawInput)
+
+    if (!normalizedInput) {
+      setPageError('Please enter a bin number.')
+      setBinSaveState(order.id, 'error')
       return
     }
 
-    try {
-      await navigator.serviceWorker.ready
-    } catch {
-      return
-    }
-  }
+    setPageError('')
+    setBinSaveState(order.id, 'saving')
 
-  async function handleEnableNotifications() {
-    if (!driver) return
-    if (typeof window === 'undefined') return
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setPageError('Push notifications are not supported on this device/browser.')
-      return
-    }
+    const { data: matchedBin, error: binError } = await supabase
+      .from('bins')
+      .select('id,bin_number,bin_size,status,location')
+      .ilike('bin_number', normalizedInput)
+      .maybeSingle()
 
-    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-    if (!vapidPublicKey) {
-      setPageError('Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY.')
+    if (binError) {
+      setPageError(binError.message)
+      setBinSaveState(order.id, 'error')
       return
     }
 
-    try {
-      setNotificationsLoading(true)
-      setPageError('')
-      setNotificationsEnabled(false)
+    if (!matchedBin) {
+      setPageError(`Bin ${normalizedInput} was not found.`)
+      setBinSaveState(order.id, 'error')
+      return
+    }
 
-      const permission = await Notification.requestPermission()
+    const expectedSize = displayValue(order.bin_size)
+    const actualSize = displayValue(matchedBin.bin_size)
 
-      if (permission !== 'granted') {
-        setPageError('Notification permission was not granted.')
-        setNotificationsLoading(false)
-        return
-      }
+    if (expectedSize !== '—' && actualSize !== '—' && expectedSize !== actualSize) {
+      setPageError(`Bin ${normalizedInput} is ${actualSize}Y, but this order needs ${expectedSize}Y.`)
+      setBinSaveState(order.id, 'error')
+      return
+    }
 
-      const registration = await navigator.serviceWorker.ready
+    const currentOldBinId = order.old_bin_id ? String(order.old_bin_id) : null
+    if (currentOldBinId && String(matchedBin.id) === currentOldBinId && order.order_type === 'EXCHANGE') {
+      setPageError('The new bin cannot be the same as the old bin.')
+      setBinSaveState(order.id, 'error')
+      return
+    }
 
-      let subscription = await registration.pushManager.getSubscription()
+    const stopAddress = getOrderAddress(order) || null
+    const nextOrderPayload: Record<string, unknown> = {
+      bin_id: matchedBin.id,
+    }
 
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        })
-      }
+    if (order.order_type === 'DUMP RETURN' && !order.old_bin_id) {
+      nextOrderPayload.old_bin_id = matchedBin.id
+    }
 
-      const raw = subscription.toJSON()
+    const { error: orderError } = await supabase
+      .from(TABLE_NAME)
+      .update(nextOrderPayload)
+      .eq('id', order.id)
 
-      if (!raw || !raw.endpoint || !raw.keys) {
-        setPageError('Invalid subscription payload.')
-        setNotificationsLoading(false)
-        return
-      }
+    if (orderError) {
+      setPageError(orderError.message)
+      setBinSaveState(order.id, 'error')
+      return
+    }
 
-      const { p256dh, auth } = raw.keys
-
-      if (!p256dh || !auth) {
-        setPageError('Invalid subscription keys.')
-        setNotificationsLoading(false)
-        return
-      }
-
-      const response = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          driverId: driver.id,
-          endpoint: raw.endpoint,
-          p256dh,
-          auth,
-        }),
+    const { error: updateBinError } = await supabase
+      .from('bins')
+      .update({
+        status: 'in_use',
+        location: stopAddress,
       })
+      .eq('id', matchedBin.id)
 
-      const result = await response.json()
-
-      if (!response.ok) {
-        console.error('subscribe error', result)
-        setPageError(
-          result.debug
-            ? `${result.error} ${JSON.stringify(result.debug)}`
-            : result.error || 'Failed to save notification subscription.'
-        )
-        setNotificationsEnabled(false)
-        setNotificationsLoading(false)
-        return
-      }
-
-      setNotificationsEnabled(true)
-      setNotificationsLoading(false)
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Failed to enable notifications.')
-      setNotificationsEnabled(false)
-      setNotificationsLoading(false)
+    if (updateBinError) {
+      setPageError(updateBinError.message)
+      setBinSaveState(order.id, 'error')
+      return
     }
-  }
 
-  async function handleSendTestNotification() {
-    if (!driver) return
+    setBinInputs((current) => ({
+      ...current,
+      [order.id]: matchedBin.bin_number || normalizedInput,
+    }))
 
-    try {
-      setPageError('')
-
-      const response = await fetch('/api/push/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ driverId: driver.id }),
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        setPageError(result.error || 'Failed to send test notification.')
-        return
-      }
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Failed to send test notification.')
-    }
+    setBinSaveState(order.id, 'saved')
+    await loadPage()
   }
 
   useEffect(() => {
@@ -556,7 +646,6 @@ export default function DriverPage() {
 
   useEffect(() => {
     void loadPage()
-    void checkNotificationStatus()
 
     const channel = supabase
       .channel('driver-page-realtime')
@@ -585,19 +674,18 @@ export default function DriverPage() {
     const interval = window.setInterval(() => {
       void loadPage()
       void flushQueuedActions()
-      void checkNotificationStatus()
-    }, 300000)
+    }, 60000)
 
     return () => {
       window.clearInterval(interval)
     }
-  }, [syncingQueue, orders])
+  }, [syncingQueue])
 
   useEffect(() => {
     if (!loading) {
       const timer = window.setTimeout(() => {
         setShowSplash(false)
-      }, 900)
+      }, 700)
 
       return () => window.clearTimeout(timer)
     }
@@ -646,6 +734,22 @@ export default function DriverPage() {
     setPageError('')
 
     const order = orders.find((o) => o.id === orderId)
+    if (!order) {
+      setSavingOrderId(null)
+      return
+    }
+
+    const orderType = order.order_type || ''
+    const currentBinRelation = firstRelation(order.bins)
+    const requiresDriverBin =
+      orderType === 'DELIVERY' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN'
+
+    if (nextStatus === 'completed' && requiresDriverBin && !currentBinRelation?.id) {
+      setPageError('Please save the bin number before completing this order.')
+      setSavingOrderId(null)
+      return
+    }
+
     const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
 
     if (isOffline) {
@@ -662,61 +766,62 @@ export default function DriverPage() {
 
     const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', orderId)
 
-    if (!error && nextStatus === 'completed' && order) {
-      const { order_type, bin_id, old_bin_id, service_address } = order
+    if (!error && nextStatus === 'completed') {
+      const stopAddress = getOrderAddress(order)
 
-    if (order_type === 'DELIVERY' && bin_id) {
-      await supabase
-        .from('bins')
-        .update({
-        status: 'in_use',
-        location: service_address,
-      })
-      .eq('id', bin_id)
-    }
-
-    if (order_type === 'EXCHANGE') {
-      if (bin_id) {
+      if (orderType === 'DELIVERY' && order.bin_id) {
         await supabase
           .from('bins')
           .update({
             status: 'in_use',
-            ocation: service_address,
-        })
-        .eq('id', bin_id)
-    }
+            location: stopAddress,
+          })
+          .eq('id', order.bin_id)
+      }
 
-    if (old_bin_id) {
-      await supabase
-        .from('bins')
-        .update({
-          status: 'available',
-          location: null,
-        })
-        .eq('id', old_bin_id)
+      if (orderType === 'EXCHANGE') {
+        if (order.bin_id) {
+          await supabase
+            .from('bins')
+            .update({
+              status: 'in_use',
+              location: stopAddress,
+            })
+            .eq('id', order.bin_id)
+        }
+
+        if (order.old_bin_id) {
+          await supabase
+            .from('bins')
+            .update({
+              status: 'available',
+              location: 'Yard',
+            })
+            .eq('id', order.old_bin_id)
+        }
+      }
+
+      if (orderType === 'REMOVAL' && order.old_bin_id) {
+        await supabase
+          .from('bins')
+          .update({
+            status: 'available',
+            location: 'Yard',
+          })
+          .eq('id', order.old_bin_id)
+      }
+
+      if (orderType === 'DUMP RETURN' && order.bin_id) {
+        await supabase
+          .from('bins')
+          .update({
+            status: 'in_use',
+            location: stopAddress,
+          })
+          .eq('id', order.bin_id)
       }
     }
-  
-    if (order_type === 'REMOVAL' && old_bin_id) {
-      await supabase
-        .from('bins')
-        .update({
-          status: 'available',
-          location: null,
-        })
-        .eq('id', old_bin_id)
-    }
 
-    if (order_type === 'DUMP RETURN' && bin_id) {
-      await supabase
-        .from('bins')
-        .update({
-          status: 'in_use',
-          location: service_address,
-        })
-        .eq('id', bin_id)
-    }
-  }
     if (error) {
       queueOrderAction(orderId, nextStatus, completedAt, completedBy)
       setPageError('Connection issue: saved locally and will sync automatically.')
@@ -755,7 +860,7 @@ export default function DriverPage() {
 
   if (showSplash) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
+      <div style={{ colorScheme: 'light' }} className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
         <div className="w-full max-w-md rounded-[2rem] bg-white/10 p-10 text-center shadow-2xl backdrop-blur-md">
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
             <img
@@ -782,7 +887,7 @@ export default function DriverPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div style={{ colorScheme: 'light' }} className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -793,48 +898,12 @@ export default function DriverPage() {
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
                 {driver?.name || 'Driver'}
               </h1>
+              <p className="mt-2 text-sm text-slate-500">
+                Route refresh and driver notifications run automatically.
+              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={loadPage}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Refresh
-              </button>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-              >
-                Log Out
-              </button>
-
-              <button
-                type="button"
-                onClick={handleEnableNotifications}
-                disabled={notificationsLoading || notificationsEnabled}
-                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {notificationsEnabled
-                  ? 'Subscribed'
-                  : notificationsLoading
-                  ? 'Enabling...'
-                  : 'Enable Notifications'}
-              </button>
-
-              {notificationsEnabled ? (
-                <button
-                  type="button"
-                  onClick={handleSendTestNotification}
-                  className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                >
-                  Test Notification
-                </button>
-              ) : null}
-
               {routeLink ? (
                 <a
                   href={routeLink}
@@ -845,12 +914,26 @@ export default function DriverPage() {
                   Open Full Route
                 </a>
               ) : null}
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                Log Out
+              </button>
             </div>
           </div>
 
           {pageError ? (
             <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {pageError}
+            </div>
+          ) : null}
+
+          {notificationsReady ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              Notifications connected.
             </div>
           ) : null}
         </div>
@@ -883,6 +966,13 @@ export default function DriverPage() {
               const isSaving = savingOrderId === order.id
               const stopAddress = getOrderAddress(order)
               const syncBadge = getOrderSyncBadge(order.id)
+              const assignedBin = firstRelation(order.bins)
+              const oldBin = firstRelation(order.old_bin)
+              const needsDriverBin =
+                order.order_type === 'DELIVERY' ||
+                order.order_type === 'EXCHANGE' ||
+                order.order_type === 'DUMP RETURN'
+              const binSaveState = binSaveStates[order.id] || 'idle'
 
               return (
                 <div
@@ -938,7 +1028,9 @@ export default function DriverPage() {
                             Time
                           </div>
                           <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(order.service_window || order.service_time)}
+                            {order.service_window
+                              ? displayValue(order.service_window)
+                              : formatServiceTime(order.service_time)}
                           </div>
                         </div>
                       </div>
@@ -1011,13 +1103,13 @@ export default function DriverPage() {
                           Bin Size
                         </div>
                         <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_size)}
+                          {displayValue(order.bin_size)}Y
                         </div>
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Type
+                          Material / Bin
                         </div>
                         <div className="mt-2 text-sm text-slate-900">
                           {displayValue(order.bin_type)}
@@ -1032,6 +1124,55 @@ export default function DriverPage() {
                           {formatDate(order.scheduled_date)}
                         </div>
                       </div>
+
+                      {needsDriverBin ? (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            {order.order_type === 'DUMP RETURN' ? 'Bin Number' : 'Yard Bin Number'}
+                          </div>
+
+                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                            <input
+                              value={binInputs[order.id] || ''}
+                              onChange={(e) =>
+                                setBinInputs((current) => ({
+                                  ...current,
+                                  [order.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Enter bin number"
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => void saveBinNumber(order)}
+                              disabled={binSaveState === 'saving'}
+                              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {binSaveState === 'saving' ? 'Saving Bin...' : 'Save Bin'}
+                            </button>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                              Current bin: <span className="font-semibold">{assignedBin?.bin_number || 'Not set'}</span>
+                            </div>
+
+                            {order.order_type === 'EXCHANGE' ? (
+                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                                Old bin at site: <span className="font-semibold">{oldBin?.bin_number || 'Not set'}</span>
+                              </div>
+                            ) : null}
+
+                            {binSaveState === 'saved' ? (
+                              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">
+                                Bin saved.
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
