@@ -13,10 +13,12 @@ type Driver = {
   auth_user_id?: string | null
 }
 
-type BinRelation = {
+type OrderBinRelation = {
   id: string
   bin_number: string | null
   bin_size: string | number | null
+  status?: string | null
+  location?: string | null
 }
 
 type Order = {
@@ -41,8 +43,8 @@ type Order = {
   updated_at: string | null
   completed_by?: string | null
   completed_at?: string | null
-  bins?: BinRelation[] | null
-  old_bin?: BinRelation[] | null
+  bins?: OrderBinRelation[] | null
+  old_bin?: OrderBinRelation[] | null
 }
 
 type QueuedAction = {
@@ -55,32 +57,14 @@ type QueuedAction = {
 }
 
 type SyncState = 'idle' | 'pending' | 'error'
-
 type BinSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const TABLE_NAME = 'order'
 const CACHED_ORDERS_KEY = 'driver_cached_orders'
 const QUEUED_ACTIONS_KEY = 'driver_queued_actions'
 
-const statusStyles: Record<string, string> = {
-  unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
-  assigned: 'border-blue-200 bg-blue-50 text-blue-700',
-  in_progress: 'border-amber-200 bg-amber-50 text-amber-700',
-  completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  issue: 'border-rose-200 bg-rose-50 text-rose-700',
-}
-
 function firstRelation<T>(value?: T[] | null): T | null {
   return Array.isArray(value) && value.length > 0 ? value[0] : null
-}
-
-function formatStatus(status: string | null | undefined) {
-  if (!status) return 'Unassigned'
-  if (status === 'in_progress') return 'In Progress'
-  return status
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
 }
 
 function formatDate(dateValue: string | null | undefined) {
@@ -231,7 +215,6 @@ export default function DriverPage() {
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
   const [binInputs, setBinInputs] = useState<Record<string, string>>({})
   const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
-  const [notificationsReady, setNotificationsReady] = useState(false)
 
   function persistOrders(nextOrders: Order[]) {
     setOrders(nextOrders)
@@ -411,10 +394,8 @@ export default function DriverPage() {
           auth: raw.keys.auth,
         }),
       })
-
-      setNotificationsReady(true)
     } catch {
-      // keep page usable even if notification subscription fails
+      // no visible option needed
     }
   }
 
@@ -457,8 +438,8 @@ export default function DriverPage() {
         updated_at,
         completed_by,
         completed_at,
-        bins:bin_id ( id, bin_number, bin_size ),
-        old_bin:old_bin_id ( id, bin_number, bin_size )
+        bins:bin_id ( id, bin_number, bin_size, status, location ),
+        old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
       `
       )
       .eq('driver_id', resolvedDriver.id)
@@ -490,9 +471,7 @@ export default function DriverPage() {
       const next = { ...current }
       for (const order of nextOrders) {
         const assignedBin = firstRelation(order.bins)
-        if (!(order.id in next)) {
-          next[order.id] = assignedBin?.bin_number || ''
-        }
+        next[order.id] = current[order.id] ?? assignedBin?.bin_number ?? ''
       }
       return next
     })
@@ -581,10 +560,10 @@ export default function DriverPage() {
       return
     }
 
-    const expectedSize = displayValue(order.bin_size)
-    const actualSize = displayValue(matchedBin.bin_size)
+    const expectedSize = String(order.bin_size ?? '').trim()
+    const actualSize = String(matchedBin.bin_size ?? '').trim()
 
-    if (expectedSize !== '—' && actualSize !== '—' && expectedSize !== actualSize) {
+    if (expectedSize && actualSize && expectedSize !== actualSize) {
       setPageError(`Bin ${normalizedInput} is ${actualSize}Y, but this order needs ${expectedSize}Y.`)
       setBinSaveState(order.id, 'error')
       return
@@ -685,7 +664,7 @@ export default function DriverPage() {
     if (!loading) {
       const timer = window.setTimeout(() => {
         setShowSplash(false)
-      }, 700)
+      }, 900)
 
       return () => window.clearTimeout(timer)
     }
@@ -715,19 +694,6 @@ export default function DriverPage() {
   }, [syncingQueue])
 
   const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
-
-  const currentStopId = useMemo(() => {
-    const firstInProgress = orders.find((order) => order.status === 'in_progress')
-    if (firstInProgress) return firstInProgress.id
-
-    const firstAssigned = orders.find((order) => order.status === 'assigned')
-    if (firstAssigned) return firstAssigned.id
-
-    const firstIssue = orders.find((order) => order.status === 'issue')
-    if (firstIssue) return firstIssue.id
-
-    return null
-  }, [orders])
 
   async function updateOrderStatus(orderId: string, nextStatus: string) {
     setSavingOrderId(orderId)
@@ -892,15 +858,9 @@ export default function DriverPage() {
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                Driver App
-              </div>
-              <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
                 {driver?.name || 'Driver'}
               </h1>
-              <p className="mt-2 text-sm text-slate-500">
-                Route refresh and driver notifications run automatically.
-              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -930,12 +890,6 @@ export default function DriverPage() {
               {pageError}
             </div>
           ) : null}
-
-          {notificationsReady ? (
-            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              Notifications connected.
-            </div>
-          ) : null}
         </div>
 
         {isOffline || usingCachedOrders || queuedActions.length > 0 || syncingQueue ? (
@@ -952,7 +906,7 @@ export default function DriverPage() {
 
         {loading ? (
           <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            Loading driver app...
+            Loading driver page...
           </div>
         ) : orders.length === 0 ? (
           <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
@@ -961,7 +915,6 @@ export default function DriverPage() {
         ) : (
           <div className="space-y-4">
             {orders.map((order, index) => {
-              const isCurrentStop = currentStopId === order.id
               const isExpanded = expandedOrderId === order.id
               const isSaving = savingOrderId === order.id
               const stopAddress = getOrderAddress(order)
@@ -977,41 +930,20 @@ export default function DriverPage() {
               return (
                 <div
                   key={order.id}
-                  className={`rounded-3xl bg-white p-5 shadow-sm ring-1 ${
-                    isCurrentStop ? 'ring-blue-300' : 'ring-slate-200'
-                  }`}
+                  className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
                 >
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
                           Stop {order.route_position || index + 1}
                         </span>
-
-                        {isCurrentStop ? (
-                          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                            Current Order
-                          </span>
-                        ) : null}
-
-                        <span
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                            statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
-                          }`}
-                        >
-                          {formatStatus(order.status || 'unassigned')}
-                        </span>
-
                         {syncBadge}
                       </div>
 
                       <h2 className="mt-3 text-lg font-bold text-slate-900">
                         {order.customer_name || 'No customer'}
                       </h2>
-
-                      <div className="mt-1 text-sm text-slate-500">
-                        {order.ticket_number || `#${order.id.slice(0, 8)}`}
-                      </div>
 
                       <div className="mt-3 grid gap-3 md:grid-cols-3">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
@@ -1034,104 +966,14 @@ export default function DriverPage() {
                           </div>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="w-full shrink-0 md:w-[260px]">
-                      <div className="grid gap-2">
-                        {stopAddress ? (
-                          <a
-                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stopAddress)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                          >
-                            Open in Maps
-                          </a>
-                        ) : null}
-
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'completed')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(order.id)}
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                        >
-                          {isExpanded ? 'Hide Details' : 'Show Details'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {isExpanded ? (
-                    <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Order Type
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.order_type)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Size
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_size)}Y
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Material / Bin
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_type)}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Scheduled Date
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {formatDate(order.scheduled_date)}
-                        </div>
-                      </div>
 
                       {needsDriverBin ? (
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-4">
+                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                             {order.order_type === 'DUMP RETURN' ? 'Bin Number' : 'Yard Bin Number'}
                           </div>
 
-                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                             <input
                               value={binInputs[order.id] || ''}
                               onChange={(e) =>
@@ -1173,13 +1015,92 @@ export default function DriverPage() {
                           </div>
                         </div>
                       ) : null}
+                    </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-4">
+                    <div className="w-full shrink-0 md:w-[240px]">
+                      <div className="grid gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateOrderStatus(order.id, 'in_progress')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => updateOrderStatus(order.id, 'completed')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => updateOrderStatus(order.id, 'issue')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(order.id)}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          {isExpanded ? 'Hide Details' : 'Show Details'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Order Type
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {displayValue(order.order_type)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Bin Size
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {displayValue(order.bin_size)}Y
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Material / Bin
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {displayValue(order.bin_type)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-3">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Notes
                         </div>
                         <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
                           {displayValue(order.notes)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Date
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {formatDate(order.scheduled_date)}
                         </div>
                       </div>
                     </div>
