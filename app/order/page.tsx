@@ -227,7 +227,12 @@ function formatServiceTime(value: string | null | undefined) {
 }
 
 function normalizeAddress(value: string | null | undefined) {
-  return (value || '').trim().toLowerCase()
+  return String(value || '').trim().toLowerCase()
+}
+
+function includesText(value: unknown, query: string) {
+  if (!query) return true
+  return String(value ?? '').toLowerCase().includes(query)
 }
 
 function generateTicketNumber() {
@@ -546,18 +551,18 @@ function OrdersPageContent() {
 
       const matchesSearch =
         !query ||
-        customerName.toLowerCase().includes(query) ||
-        serviceAddress.toLowerCase().includes(query) ||
-        dumpSiteAddress.toLowerCase().includes(query) ||
-        (order.bin_type || '').toLowerCase().includes(query) ||
-        (order.bin_size || '').toLowerCase().includes(query) ||
-        (order.order_type || '').toLowerCase().includes(query) ||
-        (order.service_time || '').toLowerCase().includes(query) ||
-        driverName.toLowerCase().includes(query) ||
-        (order.notes || '').toLowerCase().includes(query) ||
-        (order.ticket_number || '').toLowerCase().includes(query) ||
-        binLabel.toLowerCase().includes(query) ||
-        oldBinLabel.toLowerCase().includes(query)
+        includesText(customerName, query) ||
+        includesText(serviceAddress, query) ||
+        includesText(dumpSiteAddress, query) ||
+        includesText(order.bin_type, query) ||
+        includesText(order.bin_size, query) ||
+        includesText(order.order_type, query) ||
+        includesText(order.service_time, query) ||
+        includesText(driverName, query) ||
+        includesText(order.notes, query) ||
+        includesText(order.ticket_number, query) ||
+        includesText(binLabel, query) ||
+        includesText(oldBinLabel, query)
 
       const matchesStatus = statusFilter === 'all' || (order.status || 'unassigned') === statusFilter
       const matchesDriver = driverFilter === 'all' || (order.driver_id || '') === driverFilter
@@ -1624,9 +1629,7 @@ function OrdersPageContent() {
                       {selectedCustomerJobSites.length > 0 ? (
                         <datalist id="customer-job-site-addresses">
                           {selectedCustomerJobSites.map((site) => (
-                            <option key={site.id} value={site.address || ''}>
-                              {site.site_name || site.address || 'Saved Address'}
-                            </option>
+                            <option key={site.id} value={site.address || ''} />
                           ))}
                         </datalist>
                       ) : null}
