@@ -67,11 +67,15 @@ function firstRelation<T>(value?: T[] | null): T | null {
   return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
 
-function formatDate(dateValue: string | null | undefined) {
-  if (!dateValue) return '—'
-  const date = new Date(dateValue)
-  if (Number.isNaN(date.getTime())) return String(dateValue)
-  return date.toLocaleDateString()
+function displayValue(value: unknown) {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') return value.trim() ? value : '—'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
 }
 
 function formatServiceTime(value: string | null | undefined) {
@@ -94,21 +98,6 @@ function formatServiceTime(value: string | null | undefined) {
   })
 }
 
-function displayValue(value: unknown) {
-  if (value === null || value === undefined) return '—'
-  if (typeof value === 'string') {
-    return value.trim() ? value : '—'
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
-  }
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
-}
-
 function normalizeBinNumber(value: string) {
   return value.trim().replace(/\s+/g, ' ').toUpperCase()
 }
@@ -117,7 +106,7 @@ function getOrderAddress(order: Order) {
   return order.service_address || order.pickup_address || ''
 }
 
-function buildGoogleMapsLink(orders: Order[]) {
+function buildGoogleMapsLinkForOrders(orders: Order[]) {
   const addresses = orders
     .map((order) => getOrderAddress(order))
     .filter((value): value is string => Boolean(value && value.trim()))
@@ -146,9 +135,12 @@ function buildGoogleMapsLink(orders: Order[]) {
   return `https://www.google.com/maps/dir/?${params.toString()}`
 }
 
+function buildGoogleMapsLinkFromStop(orders: Order[], startIndex: number) {
+  return buildGoogleMapsLinkForOrders(orders.slice(startIndex))
+}
+
 function readQueuedActions(): QueuedAction[] {
   if (typeof window === 'undefined') return []
-
   const raw = window.localStorage.getItem(QUEUED_ACTIONS_KEY)
   if (!raw) return []
 
@@ -172,7 +164,6 @@ function writeCachedOrders(orders: Order[]) {
 
 function readCachedOrders(): Order[] {
   if (typeof window === 'undefined') return []
-
   const raw = window.localStorage.getItem(CACHED_ORDERS_KEY)
   if (!raw) return []
 
@@ -206,7 +197,6 @@ export default function DriverPage() {
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
-  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
   const [showSplash, setShowSplash] = useState(true)
   const [isOffline, setIsOffline] = useState(false)
   const [usingCachedOrders, setUsingCachedOrders] = useState(false)
@@ -395,8 +385,9 @@ export default function DriverPage() {
         }),
       })
     } catch {
-      // no visible option needed
+      // keep page usable
     }
+
   }
 
   async function loadPage() {
@@ -445,7 +436,6 @@ export default function DriverPage() {
       .eq('driver_id', resolvedDriver.id)
       .neq('status', 'completed')
       .order('route_position', { ascending: true })
-      .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
 
     if (ordersError) {
@@ -471,7 +461,9 @@ export default function DriverPage() {
       const next = { ...current }
       for (const order of nextOrders) {
         const assignedBin = firstRelation(order.bins)
-        next[order.id] = current[order.id] ?? assignedBin?.bin_number ?? ''
+        if (!(order.id in next)) {
+          next[order.id] = assignedBin?.bin_number || ''
+        }
       }
       return next
     })
@@ -570,7 +562,11 @@ export default function DriverPage() {
     }
 
     const currentOldBinId = order.old_bin_id ? String(order.old_bin_id) : null
-    if (currentOldBinId && String(matchedBin.id) === currentOldBinId && order.order_type === 'EXCHANGE') {
+    if (
+      currentOldBinId &&
+      String(matchedBin.id) === currentOldBinId &&
+      order.order_type === 'EXCHANGE'
+    ) {
       setPageError('The new bin cannot be the same as the old bin.')
       setBinSaveState(order.id, 'error')
       return
@@ -664,7 +660,7 @@ export default function DriverPage() {
     if (!loading) {
       const timer = window.setTimeout(() => {
         setShowSplash(false)
-      }, 900)
+      }, 700)
 
       return () => window.clearTimeout(timer)
     }
@@ -693,8 +689,6 @@ export default function DriverPage() {
     }
   }, [syncingQueue])
 
-  const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
-
   async function updateOrderStatus(orderId: string, nextStatus: string) {
     setSavingOrderId(orderId)
     setPageError('')
@@ -705,11 +699,12 @@ export default function DriverPage() {
       return
     }
 
-    const orderType = order.order_type || ''
-    const currentBinRelation = firstRelation(order.bins)
     const requiresDriverBin =
-      orderType === 'DELIVERY' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN'
+      order.order_type === 'DELIVERY' ||
+      order.order_type === 'EXCHANGE' ||
+      order.order_type === 'DUMP RETURN'
 
+    const currentBinRelation = firstRelation(order.bins)
     if (nextStatus === 'completed' && requiresDriverBin && !currentBinRelation?.id) {
       setPageError('Please save the bin number before completing this order.')
       setSavingOrderId(null)
@@ -735,7 +730,7 @@ export default function DriverPage() {
     if (!error && nextStatus === 'completed') {
       const stopAddress = getOrderAddress(order)
 
-      if (orderType === 'DELIVERY' && order.bin_id) {
+      if (order.order_type === 'DELIVERY' && order.bin_id) {
         await supabase
           .from('bins')
           .update({
@@ -745,7 +740,7 @@ export default function DriverPage() {
           .eq('id', order.bin_id)
       }
 
-      if (orderType === 'EXCHANGE') {
+      if (order.order_type === 'EXCHANGE') {
         if (order.bin_id) {
           await supabase
             .from('bins')
@@ -767,7 +762,7 @@ export default function DriverPage() {
         }
       }
 
-      if (orderType === 'REMOVAL' && order.old_bin_id) {
+      if (order.order_type === 'REMOVAL' && order.old_bin_id) {
         await supabase
           .from('bins')
           .update({
@@ -777,7 +772,7 @@ export default function DriverPage() {
           .eq('id', order.old_bin_id)
       }
 
-      if (orderType === 'DUMP RETURN' && order.bin_id) {
+      if (order.order_type === 'DUMP RETURN' && order.bin_id) {
         await supabase
           .from('bins')
           .update({
@@ -797,10 +792,6 @@ export default function DriverPage() {
 
     clearOrderSyncState(orderId)
     setSavingOrderId(null)
-  }
-
-  function toggleExpanded(orderId: string) {
-    setExpandedOrderId((current) => (current === orderId ? null : orderId))
   }
 
   function getOrderSyncBadge(orderId: string) {
@@ -831,17 +822,17 @@ export default function DriverPage() {
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
             <img
               src="/icons/icon-512.png"
-              alt="SimpliiTrash Driver"
+              alt="SimpliiTrash"
               className="h-16 w-16 rounded-2xl object-contain"
             />
           </div>
 
           <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
-            SimpliiTrash Driver
+            SimpliiTrash
           </h1>
 
           <p className="mt-2 text-sm text-white/90">
-            Loading your route...
+            Loading route...
           </p>
 
           <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
@@ -856,33 +847,18 @@ export default function DriverPage() {
     <div style={{ colorScheme: 'light' }} className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                {driver?.name || 'Driver'}
-              </h1>
-            </div>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              {driver?.name || 'Driver'}
+            </h1>
 
-            <div className="flex flex-wrap gap-2">
-              {routeLink ? (
-                <a
-                  href={routeLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                >
-                  Open Full Route
-                </a>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-              >
-                Log Out
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              Log Out
+            </button>
           </div>
 
           {pageError ? (
@@ -915,24 +891,20 @@ export default function DriverPage() {
         ) : (
           <div className="space-y-4">
             {orders.map((order, index) => {
-              const isExpanded = expandedOrderId === order.id
               const isSaving = savingOrderId === order.id
-              const stopAddress = getOrderAddress(order)
               const syncBadge = getOrderSyncBadge(order.id)
+              const stopAddress = getOrderAddress(order)
               const assignedBin = firstRelation(order.bins)
               const oldBin = firstRelation(order.old_bin)
-              const needsDriverBin =
-                order.order_type === 'DELIVERY' ||
-                order.order_type === 'EXCHANGE' ||
-                order.order_type === 'DUMP RETURN'
               const binSaveState = binSaveStates[order.id] || 'idle'
+              const stopRouteLink = buildGoogleMapsLinkFromStop(orders, index)
 
               return (
                 <div
                   key={order.id}
                   className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
                 >
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
@@ -946,12 +918,21 @@ export default function DriverPage() {
                       </h2>
 
                       <div className="mt-3 grid gap-3 md:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Address
+                        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+                            Bin Size
                           </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(stopAddress)}
+                          <div className="mt-2 text-2xl font-extrabold text-violet-900">
+                            {displayValue(order.bin_size)}Y
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Order Type
+                          </div>
+                          <div className="mt-2 text-sm font-semibold text-slate-900">
+                            {displayValue(order.order_type)}
                           </div>
                         </div>
 
@@ -959,7 +940,7 @@ export default function DriverPage() {
                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Time
                           </div>
-                          <div className="mt-2 text-sm text-slate-900">
+                          <div className="mt-2 text-sm font-semibold text-slate-900">
                             {order.service_window
                               ? displayValue(order.service_window)
                               : formatServiceTime(order.service_time)}
@@ -967,13 +948,22 @@ export default function DriverPage() {
                         </div>
                       </div>
 
-                      {needsDriverBin ? (
-                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Address
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {displayValue(stopAddress)}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            {order.order_type === 'DUMP RETURN' ? 'Bin Number' : 'Yard Bin Number'}
+                            Yard Bin Number
                           </div>
 
-                          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
                             <input
                               value={binInputs[order.id] || ''}
                               onChange={(e) =>
@@ -992,7 +982,7 @@ export default function DriverPage() {
                               disabled={binSaveState === 'saving'}
                               className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {binSaveState === 'saving' ? 'Saving Bin...' : 'Save Bin'}
+                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
                             </button>
                           </div>
 
@@ -1014,70 +1004,20 @@ export default function DriverPage() {
                             ) : null}
                           </div>
                         </div>
-                      ) : null}
-                    </div>
 
-                    <div className="w-full shrink-0 md:w-[240px]">
-                      <div className="grid gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'completed')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => toggleExpanded(order.id)}
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                        >
-                          {isExpanded ? 'Hide Details' : 'Show Details'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {isExpanded ? (
-                    <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Order Type
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.order_type)}
-                        </div>
+                        {stopRouteLink ? (
+                          <a
+                            href={stopRouteLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-fit items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                          >
+                            Open Full Route
+                          </a>
+                        ) : null}
                       </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Size
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_size)}Y
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Material / Bin
                         </div>
@@ -1086,7 +1026,7 @@ export default function DriverPage() {
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-3">
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Notes
                         </div>
@@ -1094,17 +1034,39 @@ export default function DriverPage() {
                           {displayValue(order.notes)}
                         </div>
                       </div>
+                    </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Date
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {formatDate(order.scheduled_date)}
-                        </div>
+                    <div className="w-full shrink-0 lg:w-[220px]">
+                      <div className="grid gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void updateOrderStatus(order.id, 'completed')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void updateOrderStatus(order.id, 'issue')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
+                        </button>
                       </div>
                     </div>
-                  ) : null}
+                  </div>
                 </div>
               )
             })}
