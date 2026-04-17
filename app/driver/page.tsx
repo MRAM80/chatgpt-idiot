@@ -387,7 +387,6 @@ export default function DriverPage() {
     } catch {
       // keep page usable
     }
-
   }
 
   async function loadPage() {
@@ -461,9 +460,7 @@ export default function DriverPage() {
       const next = { ...current }
       for (const order of nextOrders) {
         const assignedBin = firstRelation(order.bins)
-        if (!(order.id in next)) {
-          next[order.id] = assignedBin?.bin_number || ''
-        }
+        next[order.id] = assignedBin?.bin_number || current[order.id] || ''
       }
       return next
     })
@@ -649,7 +646,7 @@ export default function DriverPage() {
     const interval = window.setInterval(() => {
       void loadPage()
       void flushQueuedActions()
-    }, 60000)
+    }, 300000)
 
     return () => {
       window.clearInterval(interval)
@@ -910,6 +907,15 @@ export default function DriverPage() {
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
                           Stop {order.route_position || index + 1}
                         </span>
+
+                        <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
+                          {displayValue(order.bin_size)}Y
+                        </span>
+
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                          {displayValue(order.order_type)}
+                        </span>
+
                         {syncBadge}
                       </div>
 
@@ -917,91 +923,13 @@ export default function DriverPage() {
                         {order.customer_name || 'No customer'}
                       </h2>
 
-                      <div className="mt-3 grid gap-3 md:grid-cols-3">
-                        <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">
-                            Bin Size
-                          </div>
-                          <div className="mt-2 text-2xl font-extrabold text-violet-900">
-                            {displayValue(order.bin_size)}Y
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Order Type
-                          </div>
-                          <div className="mt-2 text-sm font-semibold text-slate-900">
-                            {displayValue(order.order_type)}
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Time
-                          </div>
-                          <div className="mt-2 text-sm font-semibold text-slate-900">
-                            {order.service_window
-                              ? displayValue(order.service_window)
-                              : formatServiceTime(order.service_time)}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Address
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(stopAddress)}
-                        </div>
-                      </div>
-
                       <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Yard Bin Number
+                            Address
                           </div>
-
-                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
-                            <input
-                              value={binInputs[order.id] || ''}
-                              onChange={(e) =>
-                                setBinInputs((current) => ({
-                                  ...current,
-                                  [order.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Enter bin number"
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                            />
-
-                            <button
-                              type="button"
-                              onClick={() => void saveBinNumber(order)}
-                              disabled={binSaveState === 'saving'}
-                              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
-                            </button>
-                          </div>
-
-                          <div className="mt-3 flex flex-wrap gap-3 text-sm">
-                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                              Current bin: <span className="font-semibold">{assignedBin?.bin_number || 'Not set'}</span>
-                            </div>
-
-                            {order.order_type === 'EXCHANGE' ? (
-                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                                Old bin at site: <span className="font-semibold">{oldBin?.bin_number || 'Not set'}</span>
-                              </div>
-                            ) : null}
-
-                            {binSaveState === 'saved' ? (
-                              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">
-                                Bin saved.
-                              </div>
-                            ) : null}
+                          <div className="mt-2 text-sm text-slate-900">
+                            {displayValue(stopAddress)}
                           </div>
                         </div>
 
@@ -1019,10 +947,57 @@ export default function DriverPage() {
 
                       <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Material / Bin
+                          Time
                         </div>
                         <div className="mt-2 text-sm text-slate-900">
-                          {displayValue(order.bin_type)}
+                          {order.service_window
+                            ? displayValue(order.service_window)
+                            : formatServiceTime(order.service_time)}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Yard Bin Number
+                        </div>
+
+                        <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                          <input
+                            value={binInputs[order.id] || ''}
+                            onChange={(e) =>
+                              setBinInputs((current) => ({
+                                ...current,
+                                [order.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Enter bin number"
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                          />
+
+                          {!assignedBin?.bin_number ? (
+                            <button
+                              type="button"
+                              onClick={() => void saveBinNumber(order)}
+                              disabled={binSaveState === 'saving'}
+                              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                          {assignedBin?.bin_number ? (
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                              <span className="font-semibold">{assignedBin.bin_number}</span>
+                            </div>
+                          ) : null}
+
+                          {order.order_type === 'EXCHANGE' && oldBin?.bin_number ? (
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                              Old bin at site: <span className="font-semibold">{oldBin.bin_number}</span>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
