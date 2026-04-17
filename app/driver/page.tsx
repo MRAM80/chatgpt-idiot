@@ -603,13 +603,35 @@ export default function DriverPage() {
       return
     }
 
+    setOrders((current) =>
+      current.map((item) =>
+        item.id === order.id
+          ? {
+              ...item,
+              bin_id: matchedBin.id,
+              bins: [
+                {
+                  id: matchedBin.id,
+                  bin_number: matchedBin.bin_number,
+                  bin_size: matchedBin.bin_size,
+                  status: matchedBin.status,
+                  location: matchedBin.location,
+                },
+              ],
+              ...(item.order_type === 'DUMP RETURN' && !item.old_bin_id
+                ? { old_bin_id: matchedBin.id }
+                : {}),
+            }
+          : item
+      )
+    )
+
     setBinInputs((current) => ({
       ...current,
       [order.id]: matchedBin.bin_number || normalizedInput,
     }))
 
     setBinSaveState(order.id, 'saved')
-    await loadPage()
   }
 
   useEffect(() => {
@@ -916,6 +938,12 @@ export default function DriverPage() {
                           {displayValue(order.order_type)}
                         </span>
 
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                          {order.service_window
+                            ? displayValue(order.service_window)
+                            : formatServiceTime(order.service_time)}
+                        </span>
+
                         {syncBadge}
                       </div>
 
@@ -943,17 +971,6 @@ export default function DriverPage() {
                             Open Full Route
                           </a>
                         ) : null}
-                      </div>
-
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Time
-                        </div>
-                        <div className="mt-2 text-sm text-slate-900">
-                          {order.service_window
-                            ? displayValue(order.service_window)
-                            : formatServiceTime(order.service_time)}
-                        </div>
                       </div>
 
                       <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1013,14 +1030,16 @@ export default function DriverPage() {
 
                     <div className="w-full shrink-0 lg:w-[220px]">
                       <div className="grid gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
-                        </button>
+                        {order.status !== 'in_progress' ? (
+                          <button
+                            type="button"
+                            onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                            disabled={isSaving}
+                            className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
+                          </button>
+                        ) : null}
 
                         <button
                           type="button"
