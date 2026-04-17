@@ -1,75 +1,22 @@
 'use client'
 
-import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Driver = {
   id: string
   name: string | null
-  email: string | null
-  phone: string | null
-  status: string | null
-}
-
-type Customer = {
-  id: string
-  name: string | null
-  phone: string | null
-  email: string | null
-  address: string | null
-  status?: string | null
-}
-
-type Bin = {
-  id: string
-  bin_number: string | null
-  bin_size: string | null
-  status: string | null
-  location?: string | null
-}
-
-type DumpSite = {
-  id: string
-  name: string | null
-  address: string | null
-}
-
-type JobSite = {
-  id: string
-  customer_id: string | null
-  site_name: string | null
-  address: string | null
-  notes?: string | null
-  is_active?: boolean | null
-}
-
-type Profile = {
-  id: string
-  email: string | null
-  role: string | null
-  full_name: string | null
-  company?: string | null
-  is_active?: boolean | null
-}
-
-type OrderCustomerRelation = {
-  id: string
-  name: string | null
-  address: string | null
-}
-
-type OrderDriverRelation = {
-  id: string
-  name: string | null
   email?: string | null
+  phone: string | null
+  status: string | null
+  auth_user_id?: string | null
 }
 
 type OrderBinRelation = {
   id: string
   bin_number: string | null
-  bin_size: string | null
+  bin_size: string | number | null
   status?: string | null
   location?: string | null
 }
@@ -77,145 +24,70 @@ type OrderBinRelation = {
 type Order = {
   id: string
   ticket_number: string | null
-  customer_id: string | null
   customer_name: string | null
-  job_site_id?: string | null
   pickup_address: string | null
   service_address?: string | null
   service_time?: string | null
   service_window?: string | null
-  bin_id: string | null
-  old_bin_id: string | null
-  dump_site_id?: string | null
-  dump_site_address?: string | null
-  bin_size: string | null
+  bin_id: string | number | null
+  old_bin_id: string | number | null
+  bin_size: string | number | null
   bin_type: string | null
   order_type: string | null
-  driver_id: string | null
   scheduled_date: string | null
+  driver_id: string | null
+  route_position?: number | null
   status: string | null
   notes: string | null
-  completed_by?: string | null
-  completed_at?: string | null
   created_at: string | null
   updated_at: string | null
-  customers?: OrderCustomerRelation[] | null
-  drivers?: OrderDriverRelation[] | null
+  completed_by?: string | null
+  completed_at?: string | null
   bins?: OrderBinRelation[] | null
   old_bin?: OrderBinRelation[] | null
-  parent_order_id?: string | null
-  workflow_step?: string | null
 }
+
+type QueuedAction = {
+  id: string
+  orderId: string
+  nextStatus: string
+  completedAt: string | null
+  completedBy: string | null
+  createdAt: string
+}
+
+type SyncState = 'idle' | 'pending' | 'error'
+type BinSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const TABLE_NAME = 'order'
-
-const ORDER_STATUSES = [
-  'unassigned',
-  'assigned',
-  'in_progress',
-  'completed',
-  'issue',
-  'cancelled',
-] as const
-
-const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
-const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
-const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
-
-const statusClasses: Record<string, string> = {
-  unassigned: 'bg-slate-100 text-slate-700 border-slate-200',
-  assigned: 'bg-blue-100 text-blue-700 border-blue-200',
-  in_progress: 'bg-amber-100 text-amber-700 border-amber-200',
-  completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  issue: 'bg-rose-100 text-rose-700 border-rose-200',
-  cancelled: 'bg-slate-200 text-slate-700 border-slate-300',
-}
-
-const orderTypeClasses: Record<string, string> = {
-  DELIVERY: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  EXCHANGE: 'bg-amber-100 text-amber-700 border-amber-200',
-  REMOVAL: 'bg-rose-100 text-rose-700 border-rose-200',
-  'DUMP RETURN': 'bg-sky-100 text-sky-700 border-sky-200',
-}
-
-type FormState = {
-  customer_id: string
-  customer_name: string
-  job_site_id: string
-  pickup_address: string
-  scheduled_date: string
-  service_time: string
-  bin_size: string
-  bin_type: string
-  order_type: string
-  driver_id: string
-  status: string
-  bin_id: string
-  old_bin_id: string
-  dump_site_id: string
-  notes: string
-}
-
-const emptyForm: FormState = {
-  customer_id: '',
-  customer_name: '',
-  job_site_id: '',
-  pickup_address: '',
-  scheduled_date: '',
-  service_time: '',
-  bin_size: '20',
-  bin_type: 'Garbage',
-  order_type: 'DELIVERY',
-  driver_id: '',
-  status: 'unassigned',
-  bin_id: '',
-  old_bin_id: '',
-  dump_site_id: '',
-  notes: '',
-}
-
-function formatStatus(status: string | null | undefined) {
-  if (!status) return 'Unassigned'
-  return status
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-}
-
-function formatDate(date: string | null) {
-  if (!date) return '—'
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
-  return parsed.toLocaleDateString()
-}
-
-function formatDateTime(date: string | null | undefined) {
-  if (!date) return '—'
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
-  return parsed.toLocaleString([], {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
-function formatOrderType(orderType: string | null | undefined) {
-  return orderType || 'DELIVERY'
-}
+const CACHED_ORDERS_KEY = 'driver_cached_orders'
+const QUEUED_ACTIONS_KEY = 'driver_queued_actions'
 
 function firstRelation<T>(value?: T[] | null): T | null {
   return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
 
+function displayValue(value: unknown) {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') return value.trim() ? value : '—'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
 function formatServiceTime(value: string | null | undefined) {
   if (!value) return '—'
-  const [hourStr, minuteStr] = value.split(':')
+  const cleaned = String(value).trim()
+  if (!cleaned) return '—'
+
+  const [hourStr, minuteStr] = cleaned.split(':')
   const hour = Number(hourStr)
   const minute = Number(minuteStr)
-  if (Number.isNaN(hour) || Number.isNaN(minute)) return value
+
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return cleaned
 
   const date = new Date()
   date.setHours(hour, minute, 0, 0)
@@ -226,1110 +98,781 @@ function formatServiceTime(value: string | null | undefined) {
   })
 }
 
-function normalizeAddress(value: string | null | undefined) {
-  return String(value || '').trim().toLowerCase()
+function normalizeBinNumber(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase()
 }
 
-function includesText(value: unknown, query: string) {
-  if (!query) return true
-  return String(value ?? '').toLowerCase().includes(query)
+function getOrderAddress(order: Order) {
+  return order.service_address || order.pickup_address || ''
 }
 
-function generateTicketNumber() {
-  return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
+function buildGoogleMapsLinkForOrders(orders: Order[]) {
+  const addresses = orders
+    .map((order) => getOrderAddress(order))
+    .filter((value): value is string => Boolean(value && value.trim()))
+
+  if (addresses.length === 0) return ''
+
+  if (addresses.length === 1) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addresses[0])}`
+  }
+
+  const origin = addresses[0]
+  const destination = addresses[addresses.length - 1]
+  const waypoints = addresses.slice(1, -1)
+
+  const params = new URLSearchParams({
+    api: '1',
+    origin,
+    destination,
+    travelmode: 'driving',
+  })
+
+  if (waypoints.length > 0) {
+    params.set('waypoints', waypoints.join('|'))
+  }
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`
 }
 
-
-function generateQuickDate(offsetDays = 0) {
-  const date = new Date()
-  date.setHours(0, 0, 0, 0)
-  date.setDate(date.getDate() + offsetDays)
-  return date.toISOString().slice(0, 10)
+function buildGoogleMapsLinkFromStop(orders: Order[], startIndex: number) {
+  return buildGoogleMapsLinkForOrders(orders.slice(startIndex))
 }
 
-function buildTimeOptions() {
-  const options: string[] = []
-  for (let hour = 5; hour <= 20; hour += 1) {
-    for (const minute of [0, 30]) {
-      options.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`)
+function readQueuedActions(): QueuedAction[] {
+  if (typeof window === 'undefined') return []
+  const raw = window.localStorage.getItem(QUEUED_ACTIONS_KEY)
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as QueuedAction[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeQueuedActions(actions: QueuedAction[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(QUEUED_ACTIONS_KEY, JSON.stringify(actions))
+}
+
+function writeCachedOrders(orders: Order[]) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(CACHED_ORDERS_KEY, JSON.stringify(orders))
+}
+
+function readCachedOrders(): Order[] {
+  if (typeof window === 'undefined') return []
+  const raw = window.localStorage.getItem(CACHED_ORDERS_KEY)
+  if (!raw) return []
+
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as Order[]) : []
+  } catch {
+    return []
+  }
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+
+  return outputArray
+}
+
+export default function DriverPage() {
+  const router = useRouter()
+  const supabase = useMemo(() => createClient(), [])
+
+  const [driver, setDriver] = useState<Driver | null>(null)
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
+  const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
+  const [showSplash, setShowSplash] = useState(true)
+  const [isOffline, setIsOffline] = useState(false)
+  const [usingCachedOrders, setUsingCachedOrders] = useState(false)
+  const [syncingQueue, setSyncingQueue] = useState(false)
+  const [queuedActions, setQueuedActions] = useState<QueuedAction[]>([])
+  const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
+  const [binInputs, setBinInputs] = useState<Record<string, string>>({})
+  const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
+
+  function persistOrders(nextOrders: Order[]) {
+    setOrders(nextOrders)
+    writeCachedOrders(nextOrders)
+  }
+
+  function markOrderSyncState(orderId: string, state: SyncState) {
+    setSyncStates((current) => ({
+      ...current,
+      [orderId]: state,
+    }))
+  }
+
+  function clearOrderSyncState(orderId: string) {
+    setSyncStates((current) => {
+      const next = { ...current }
+      delete next[orderId]
+      return next
+    })
+  }
+
+  function setBinSaveState(orderId: string, state: BinSaveState) {
+    setBinSaveStates((current) => ({
+      ...current,
+      [orderId]: state,
+    }))
+  }
+
+  function updateLocalOrderStatus(orderId: string, nextStatus: string) {
+    const completedAt = nextStatus === 'completed' ? new Date().toISOString() : null
+    const completedBy = nextStatus === 'completed' ? driver?.name || 'Driver' : null
+
+    if (nextStatus === 'completed') {
+      const filtered = orders.filter((order) => order.id !== orderId)
+      persistOrders(filtered)
+      return { completedAt, completedBy }
+    }
+
+    const updated = orders.map((order) =>
+      order.id === orderId
+        ? {
+            ...order,
+            status: nextStatus,
+            completed_at: completedAt,
+            completed_by: completedBy,
+          }
+        : order
+    )
+
+    persistOrders(updated)
+    return { completedAt, completedBy }
+  }
+
+  function queueOrderAction(orderId: string, nextStatus: string, completedAt: string | null, completedBy: string | null) {
+    const action: QueuedAction = {
+      id: `${orderId}-${Date.now()}`,
+      orderId,
+      nextStatus,
+      completedAt,
+      completedBy,
+      createdAt: new Date().toISOString(),
+    }
+
+    const current = readQueuedActions().filter((item) => item.orderId !== orderId)
+    const next = [...current, action]
+
+    writeQueuedActions(next)
+    setQueuedActions(next)
+    markOrderSyncState(orderId, 'pending')
+  }
+
+  async function resolveDriver() {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      router.push('/login')
+      return null
+    }
+
+    const { data: driverByAuth, error: driverByAuthError } = await supabase
+      .from('drivers')
+      .select('id,name,email,phone,status,auth_user_id')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+
+    if (driverByAuthError) {
+      setPageError(driverByAuthError.message)
+      return null
+    }
+
+    if (driverByAuth) {
+      return driverByAuth as Driver
+    }
+
+    const normalizedEmail = (user.email || '').trim().toLowerCase()
+
+    if (!normalizedEmail) {
+      setPageError('This account is not linked to a driver profile.')
+      return null
+    }
+
+    const { data: driverByEmail, error: driverByEmailError } = await supabase
+      .from('drivers')
+      .select('id,name,email,phone,status,auth_user_id')
+      .ilike('email', normalizedEmail)
+      .maybeSingle()
+
+    if (driverByEmailError) {
+      setPageError(driverByEmailError.message)
+      return null
+    }
+
+    if (!driverByEmail) {
+      setPageError('This account is not linked to a driver profile.')
+      return null
+    }
+
+    const { error: linkError } = await supabase
+      .from('drivers')
+      .update({
+        auth_user_id: user.id,
+        last_login_at: new Date().toISOString(),
+      })
+      .eq('id', driverByEmail.id)
+
+    if (linkError) {
+      setPageError(linkError.message)
+      return null
+    }
+
+    return {
+      ...driverByEmail,
+      auth_user_id: user.id,
+    } as Driver
+  }
+
+  async function ensureNotificationsSubscribed(driverId: string) {
+    if (typeof window === 'undefined') return
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    if (!vapidPublicKey) return
+
+    try {
+      await navigator.serviceWorker.register('/sw.js')
+      const registration = await navigator.serviceWorker.ready
+
+      let permission = Notification.permission
+      if (permission === 'default') {
+        permission = await Notification.requestPermission()
+      }
+
+      if (permission !== 'granted') return
+
+      let subscription = await registration.pushManager.getSubscription()
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        })
+      }
+
+      const raw = subscription.toJSON()
+      if (!raw?.endpoint || !raw?.keys?.p256dh || !raw?.keys?.auth) return
+
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driverId,
+          endpoint: raw.endpoint,
+          p256dh: raw.keys.p256dh,
+          auth: raw.keys.auth,
+        }),
+      })
+    } catch {
+      // keep page usable
     }
   }
-  return options
-}
 
-const QUICK_TIME_OPTIONS = buildTimeOptions()
+  async function loadPage() {
+    setPageError('')
+    setLoading(true)
 
-function ReadOnlyField({
-  label,
-  value,
-  className = '',
-}: {
-  label: string
-  value: string
-  className?: string
-}) {
-  return (
-    <div className={className}>
-      <label className="mb-2 block text-sm font-medium text-slate-700">{label}</label>
-      <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-        {value || '—'}
-      </div>
-    </div>
-  )
-}
+    const resolvedDriver = await resolveDriver()
 
-function OrdersPageContent() {
-  const supabase = createClient()
-  const router = useRouter()
-  const searchParams = useSearchParams()
+    if (!resolvedDriver) {
+      setLoading(false)
+      return
+    }
 
-  const [orders, setOrders] = useState<Order[]>([])
-  const [drivers, setDrivers] = useState<Driver[]>([])
-  const [customers, setCustomers] = useState<Customer[]>([])
-  const [jobSites, setJobSites] = useState<JobSite[]>([])
-  const [bins, setBins] = useState<Bin[]>([])
-  const [dumpSites, setDumpSites] = useState<DumpSite[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [pageError, setPageError] = useState('')
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [currentUser, setCurrentUser] = useState<Profile | null>(null)
+    setDriver(resolvedDriver)
+    void ensureNotificationsSubscribed(resolvedDriver.id)
 
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [driverFilter, setDriverFilter] = useState('all')
-  const [orderTypeFilter, setOrderTypeFilter] = useState('all')
-
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [editingOrder, setEditingOrder] = useState<Order | null>(null)
-  const [form, setForm] = useState<FormState>(emptyForm)
-
-  const modalTitleRef = useRef<HTMLSelectElement | null>(null)
-  const modalCardRef = useRef<HTMLDivElement | null>(null)
-  const [modalVisible, setModalVisible] = useState(false)
-
-  const isCompletedEditing = editingOrder?.status === 'completed'
-  const isReadOnlyModal = Boolean(isCompletedEditing)
-
-  async function loadOrders() {
-    const { data, error } = await supabase
+    const { data: orderData, error: ordersError } = await supabase
       .from(TABLE_NAME)
-      .select(`
+      .select(
+        `
         id,
         ticket_number,
-        customer_id,
         customer_name,
-        job_site_id,
         pickup_address,
         service_address,
         service_time,
         service_window,
         bin_id,
         old_bin_id,
-        dump_site_id,
-        dump_site_address,
         bin_size,
         bin_type,
         order_type,
-        driver_id,
         scheduled_date,
+        driver_id,
+        route_position,
         status,
         notes,
-        completed_by,
-        completed_at,
         created_at,
         updated_at,
-        parent_order_id,
-        workflow_step,
-        customers:customer_id ( id, name, address ),
-        drivers:driver_id ( id, name ),
+        completed_by,
+        completed_at,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
         old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
-      `)
-      .order('created_at', { ascending: false })
+      `
+      )
+      .eq('driver_id', resolvedDriver.id)
+      .neq('status', 'completed')
+      .order('route_position', { ascending: true })
+      .order('created_at', { ascending: true })
 
-    if (error) {
-      setPageError(error.message)
+    if (ordersError) {
+      const cachedOrders = readCachedOrders()
+
+      if (cachedOrders.length > 0) {
+        persistOrders(cachedOrders)
+        setUsingCachedOrders(true)
+        setLoading(false)
+        return
+      }
+
+      setPageError(ordersError.message)
+      setLoading(false)
       return
     }
 
-    setOrders(((data ?? []) as unknown) as Order[])
-  }
+    const nextOrders = (orderData as Order[]) || []
+    persistOrders(nextOrders)
+    setUsingCachedOrders(false)
 
-  async function loadDrivers() {
-    const { data, error } = await supabase
-      .from('drivers')
-      .select('id,name,email,phone,status')
-      .order('name', { ascending: true })
+    setBinInputs((current) => {
+      const next = { ...current }
+      for (const order of nextOrders) {
+        const assignedBin = firstRelation(order.bins)
+        const oldBin = firstRelation(order.old_bin)
+        if (order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN') {
+          next[order.id] = oldBin?.bin_number || assignedBin?.bin_number || current[order.id] || ''
+        } else {
+          next[order.id] = assignedBin?.bin_number || current[order.id] || ''
+        }
+      }
+      return next
+    })
 
-    if (error) {
-      setPageError(error.message)
-      return
-    }
-
-    setDrivers((data as Driver[]) || [])
-  }
-
-  async function loadCustomers() {
-    const { data, error } = await supabase
-      .from('customers')
-      .select('id,name,phone,email,address,status')
-      .eq('status', 'active')
-      .order('name', { ascending: true })
-
-    if (error) {
-      setPageError(error.message)
-      return
-    }
-
-    setCustomers((data as Customer[]) || [])
-  }
-
-  async function loadJobSites() {
-    const { data, error } = await supabase
-      .from('job_sites')
-      .select('id,customer_id,site_name,address,notes,is_active')
-      .eq('is_active', true)
-      .order('site_name', { ascending: true })
-
-    if (error) {
-      setPageError(error.message)
-      return
-    }
-
-    setJobSites((data as JobSite[]) || [])
-  }
-
-  async function loadBins() {
-    const { data, error } = await supabase
-      .from('bins')
-      .select('id,bin_number,bin_size,status,location')
-      .order('bin_number', { ascending: true })
-
-    if (error) {
-      setPageError(error.message)
-      return
-    }
-
-    setBins((data as Bin[]) || [])
-  }
-
-  async function loadDumpSites() {
-    const { data, error } = await supabase
-      .from('dump_sites')
-      .select('id,name,address')
-      .order('name', { ascending: true })
-
-    if (error) {
-      setPageError(error.message)
-      return
-    }
-
-    setDumpSites((data as DumpSite[]) || [])
-  }
-
-  async function loadUserRole() {
-    const { data: authData, error: authError } = await supabase.auth.getUser()
-    if (authError || !authData?.user) return
-
-    const { data: profileById, error: profileError } = await supabase
-      .from('profiles')
-      .select('id,email,role,full_name,company,is_active')
-      .eq('id', authData.user.id)
-      .maybeSingle()
-
-    let profile = profileById as Profile | null
-
-    if (!profile && authData.user.email) {
-      const { data: profileByEmail } = await supabase
-        .from('profiles')
-        .select('id,email,role,full_name,company,is_active')
-        .eq('email', authData.user.email)
-        .maybeSingle()
-
-      profile = (profileByEmail as Profile | null) || null
-    }
-
-    if (profileError && !profile) {
-      setPageError((prev) => prev || profileError.message)
-      return
-    }
-
-    setCurrentUser(profile)
-    setIsAdmin((profile?.role || '').toLowerCase() === 'admin')
-  }
-
-  async function refreshAll() {
-    setLoading(true)
-    setPageError('')
-    await Promise.all([
-      loadOrders(),
-      loadDrivers(),
-      loadCustomers(),
-      loadJobSites(),
-      loadBins(),
-      loadDumpSites(),
-      loadUserRole(),
-    ])
     setLoading(false)
   }
 
+  async function flushQueuedActions() {
+    if (syncingQueue || typeof window === 'undefined') return
+    if (!navigator.onLine) return
+
+    const pending = readQueuedActions()
+    if (pending.length === 0) {
+      setQueuedActions([])
+      return
+    }
+
+    setSyncingQueue(true)
+    let remaining = [...pending]
+
+    for (const action of pending) {
+      try {
+        const payload: Record<string, unknown> = {
+          status: action.nextStatus,
+          completed_at: action.nextStatus === 'completed' ? action.completedAt : null,
+          completed_by: action.nextStatus === 'completed' ? action.completedBy : null,
+        }
+
+        const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', action.orderId)
+
+        if (error) {
+          markOrderSyncState(action.orderId, 'error')
+          continue
+        }
+
+        remaining = remaining.filter((item) => item.id !== action.id)
+        writeQueuedActions(remaining)
+        setQueuedActions(remaining)
+        clearOrderSyncState(action.orderId)
+      } catch {
+        markOrderSyncState(action.orderId, 'error')
+      }
+    }
+
+    setSyncingQueue(false)
+
+    const stillPending = readQueuedActions()
+    if (stillPending.length === 0) {
+      await loadPage()
+    }
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
+  async function saveBinNumber(order: Order) {
+    const rawInput = binInputs[order.id] || ''
+    const normalizedInput = normalizeBinNumber(rawInput)
+
+    if (!normalizedInput) {
+      setPageError('Please enter a bin number.')
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    setPageError('')
+    setBinSaveState(order.id, 'saving')
+
+    const { data: matchedBin, error: binError } = await supabase
+      .from('bins')
+      .select('id,bin_number,bin_size,status,location')
+      .ilike('bin_number', normalizedInput)
+      .maybeSingle()
+
+    if (binError) {
+      setPageError(binError.message)
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    if (!matchedBin) {
+      setPageError(`Bin ${normalizedInput} was not found.`)
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    const expectedSize = String(order.bin_size ?? '').trim()
+    const actualSize = String(matchedBin.bin_size ?? '').trim()
+
+    if (expectedSize && actualSize && expectedSize !== actualSize) {
+      setPageError(`Bin ${normalizedInput} is ${actualSize}Yd, but this order needs ${expectedSize}Yd.`)
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    const currentOldBinId = order.old_bin_id ? String(order.old_bin_id) : null
+    if (
+      currentOldBinId &&
+      String(matchedBin.id) === currentOldBinId &&
+      order.order_type === 'EXCHANGE'
+    ) {
+      setPageError('The new bin cannot be the same as the old bin.')
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    const stopAddress = getOrderAddress(order) || null
+    const nextOrderPayload: Record<string, unknown> = {
+      bin_id: matchedBin.id,
+    }
+
+    const { error: orderError } = await supabase
+      .from(TABLE_NAME)
+      .update(nextOrderPayload)
+      .eq('id', order.id)
+
+    if (orderError) {
+      setPageError(orderError.message)
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    const { error: updateBinError } = await supabase
+      .from('bins')
+      .update({
+        status: 'in_use',
+        location: stopAddress,
+      })
+      .eq('id', matchedBin.id)
+
+    if (updateBinError) {
+      setPageError(updateBinError.message)
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    setOrders((current) =>
+      current.map((item) =>
+        item.id === order.id
+          ? {
+              ...item,
+              bin_id: matchedBin.id,
+              bins: [
+                {
+                  id: matchedBin.id,
+                  bin_number: matchedBin.bin_number,
+                  bin_size: matchedBin.bin_size,
+                  status: matchedBin.status,
+                  location: matchedBin.location,
+                },
+              ],
+            }
+          : item
+      )
+    )
+
+    setBinInputs((current) => ({
+      ...current,
+      [order.id]: matchedBin.bin_number || normalizedInput,
+    }))
+
+    setBinSaveState(order.id, 'saved')
+  }
+
   useEffect(() => {
-    void refreshAll()
+    setQueuedActions(readQueuedActions())
+  }, [])
+
+  useEffect(() => {
+    void loadPage()
 
     const channel = supabase
-      .channel('orders-page-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: TABLE_NAME }, async () => {
-        await loadOrders()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, async () => {
-        await loadDrivers()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bins' }, async () => {
-        await loadBins()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, async () => {
-        await loadCustomers()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'job_sites' }, async () => {
-        await loadJobSites()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'dump_sites' }, async () => {
-        await loadDumpSites()
-      })
+      .channel('driver-page-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: TABLE_NAME },
+        async () => {
+          await loadPage()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'drivers' },
+        async () => {
+          await loadPage()
+        }
+      )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
-    setModalVisible(Boolean(showCreateModal || editingOrder))
-  }, [showCreateModal, editingOrder])
+    const interval = window.setInterval(() => {
+      void loadPage()
+      void flushQueuedActions()
+    }, 300000)
 
-  const driverMap = useMemo(() => {
-    return drivers.reduce<Record<string, Driver>>((acc, driver) => {
-      acc[driver.id] = driver
-      return acc
-    }, {})
-  }, [drivers])
-
-  const selectedCustomer = useMemo(() => {
-    return customers.find((customer) => customer.id === form.customer_id) || null
-  }, [customers, form.customer_id])
-
-  const selectedCustomerJobSites = useMemo(() => {
-    return jobSites.filter((site) => site.customer_id === form.customer_id)
-  }, [jobSites, form.customer_id])
-
-  const selectedDumpSite = useMemo(() => {
-    return dumpSites.find((site) => site.id === form.dump_site_id) || null
-  }, [dumpSites, form.dump_site_id])
-
-  const currentAssignedBin = useMemo(() => {
-    return bins.find((bin) => bin.id === form.bin_id) || null
-  }, [bins, form.bin_id])
-
-  const filteredOrders = useMemo(() => {
-    const query = search.trim().toLowerCase()
-
-    return orders.filter((order) => {
-      const driverRelation = firstRelation(order.drivers)
-      const customerRelation = firstRelation(order.customers)
-      const binRelation = firstRelation(order.bins)
-      const oldBinRelation = firstRelation(order.old_bin)
-
-      const driverName =
-        driverRelation?.name || (order.driver_id ? driverMap[order.driver_id]?.name || '' : '')
-      const customerName = customerRelation?.name || order.customer_name || ''
-      const serviceAddress = order.service_address || order.pickup_address || ''
-      const binLabel = binRelation?.bin_number || ''
-      const oldBinLabel = oldBinRelation?.bin_number || ''
-      const dumpSiteAddress = order.dump_site_address || ''
-
-      const matchesSearch =
-        !query ||
-        includesText(customerName, query) ||
-        includesText(serviceAddress, query) ||
-        includesText(dumpSiteAddress, query) ||
-        includesText(order.bin_type, query) ||
-        includesText(order.bin_size, query) ||
-        includesText(order.order_type, query) ||
-        includesText(order.service_time, query) ||
-        includesText(driverName, query) ||
-        includesText(order.notes, query) ||
-        includesText(order.ticket_number, query) ||
-        includesText(binLabel, query) ||
-        includesText(oldBinLabel, query)
-
-      const matchesStatus = statusFilter === 'all' || (order.status || 'unassigned') === statusFilter
-      const matchesDriver = driverFilter === 'all' || (order.driver_id || '') === driverFilter
-      const matchesOrderType =
-        orderTypeFilter === 'all' || (order.order_type || 'DELIVERY') === orderTypeFilter
-
-      return matchesSearch && matchesStatus && matchesDriver && matchesOrderType
-    })
-  }, [orders, search, statusFilter, driverFilter, orderTypeFilter, driverMap])
-
-  const counts = useMemo(() => {
-    return {
-      total: orders.length,
-      unassigned: orders.filter((order) => (order.status || 'unassigned') === 'unassigned').length,
-      assigned: orders.filter((order) => order.status === 'assigned').length,
-      in_progress: orders.filter((order) => order.status === 'in_progress').length,
-      completed: orders.filter((order) => order.status === 'completed').length,
+    return () => {
+      window.clearInterval(interval)
     }
-  }, [orders])
-
-  const binsAtSelectedJobSite = useMemo(() => {
-    const jobSite = normalizeAddress(form.pickup_address)
-    if (!jobSite) return []
-
-    const linkedBinIds = new Set<string>()
-
-    for (const order of orders) {
-      const orderAddress = normalizeAddress(order.service_address || order.pickup_address)
-      if (orderAddress !== jobSite) continue
-      if (order.bin_id) linkedBinIds.add(order.bin_id)
-      if (order.old_bin_id) linkedBinIds.add(order.old_bin_id)
-    }
-
-    const combined = bins.filter((bin) => {
-      const byLocation = normalizeAddress(bin.location) === jobSite
-      const byOrderHistory = linkedBinIds.has(bin.id)
-      return byLocation || byOrderHistory
-    })
-
-    const uniqueMap = new Map<string, Bin>()
-    for (const bin of combined) uniqueMap.set(bin.id, bin)
-    return Array.from(uniqueMap.values())
-  }, [bins, orders, form.pickup_address])
-
-  const jobSiteExistingBins = useMemo(() => {
-    return binsAtSelectedJobSite.filter((bin) => {
-      if (form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL') {
-        return (
-          bin.status === 'in_use' ||
-          normalizeAddress(bin.location) === normalizeAddress(form.pickup_address)
-        )
-      }
-
-      if (form.order_type === 'DUMP RETURN') return true
-      return false
-    })
-  }, [binsAtSelectedJobSite, form.order_type, form.pickup_address])
-
-  function getCompletedByLabel() {
-    if (!currentUser) return 'System'
-    return currentUser.full_name || currentUser.email || 'System'
-  }
-
-  function openCreateModal() {
-    setEditingOrder(null)
-    setForm(emptyForm)
-    setShowCreateModal(true)
-    setPageError('')
-  }
-
-  function openEditModal(order: Order) {
-    const customerRelation = firstRelation(order.customers)
-    const binRelation = firstRelation(order.bins)
-    const oldBinRelation = firstRelation(order.old_bin)
-
-    setEditingOrder(order)
-    setShowCreateModal(false)
-    setPageError('')
-    setForm({
-      customer_id: order.customer_id || '',
-      customer_name: customerRelation?.name || order.customer_name || '',
-      job_site_id: order.job_site_id || '',
-      pickup_address: order.service_address || order.pickup_address || '',
-      scheduled_date: order.scheduled_date ? new Date(order.scheduled_date).toISOString().slice(0, 10) : '',
-      service_time: order.service_time || '',
-      bin_size: order.bin_size || binRelation?.bin_size || oldBinRelation?.bin_size || '20',
-      bin_type: order.bin_type || 'Garbage',
-      order_type: order.order_type || 'DELIVERY',
-      driver_id: order.driver_id || '',
-      status: order.status || 'unassigned',
-      bin_id: order.bin_id || '',
-      old_bin_id: order.old_bin_id || '',
-      dump_site_id: order.dump_site_id || '',
-      notes: order.notes || '',
-    })
-  }
+  }, [syncingQueue])
 
   useEffect(() => {
-    const orderId = searchParams.get('orderId')
-    if (!orderId || orders.length === 0) return
+    if (!loading) {
+      const timer = window.setTimeout(() => {
+        setShowSplash(false)
+      }, 700)
 
-    const match = orders.find((order) => order.id === orderId)
-    if (match) openEditModal(match)
-  }, [searchParams, orders])
-
-  function closeModal() {
-    setEditingOrder(null)
-    setShowCreateModal(false)
-    setForm(emptyForm)
-    setPageError('')
-
-    const params = new URLSearchParams(searchParams.toString())
-    params.delete('orderId')
-    const next = params.toString()
-    router.replace(next ? `/order?${next}` : '/order')
-  }
-
-  function handleCustomerChange(customerId: string) {
-    const customer = customers.find((item) => item.id === customerId)
-
-    setForm((prev) => ({
-      ...prev,
-      customer_id: customerId,
-      customer_name: customer?.name || prev.customer_name,
-      job_site_id: '',
-      pickup_address: '',
-    }))
-  }
-
-  function handleJobSiteAddressInput(address: string) {
-    const matchedSite = selectedCustomerJobSites.find(
-      (site) => normalizeAddress(site.address) === normalizeAddress(address)
-    )
-
-    setForm((prev) => ({
-      ...prev,
-      job_site_id: matchedSite?.id || '',
-      pickup_address: address,
-    }))
-  }
-
-  async function ensureJobSiteForOrder(customerId: string, address: string) {
-    const trimmedAddress = address.trim()
-    if (!customerId || !trimmedAddress) return null
-
-    const existing = jobSites.find(
-      (site) =>
-        site.customer_id === customerId &&
-        normalizeAddress(site.address) === normalizeAddress(trimmedAddress)
-    )
-
-    if (existing) return existing.id
-
-    const insertPayload = {
-      customer_id: customerId,
-      site_name: trimmedAddress,
-      address: trimmedAddress,
-      is_active: true,
+      return () => window.clearTimeout(timer)
     }
 
-    const { data, error } = await supabase
-      .from('job_sites')
-      .insert([insertPayload])
-      .select('id')
-      .single()
+    setShowSplash(true)
+  }, [loading])
+
+  useEffect(() => {
+    const updateOnlineStatus = async () => {
+      const offline = !navigator.onLine
+      setIsOffline(offline)
+
+      if (!offline) {
+        await flushQueuedActions()
+      }
+    }
+
+    void updateOnlineStatus()
+
+    window.addEventListener('online', updateOnlineStatus)
+    window.addEventListener('offline', updateOnlineStatus)
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus)
+      window.removeEventListener('offline', updateOnlineStatus)
+    }
+  }, [syncingQueue])
+
+  async function updateOrderStatus(orderId: string, nextStatus: string) {
+    setSavingOrderId(orderId)
+    setPageError('')
+
+    const order = orders.find((o) => o.id === orderId)
+    if (!order) {
+      setSavingOrderId(null)
+      return
+    }
+
+    const requiresDriverBin = order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
+    const currentBinRelation = firstRelation(order.bins)
+
+    if (nextStatus === 'completed' && requiresDriverBin && !currentBinRelation?.id) {
+      setPageError('Please save the bin number before completing this order.')
+      setSavingOrderId(null)
+      return
+    }
+
+    const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
+
+    if (isOffline) {
+      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
+      setSavingOrderId(null)
+      return
+    }
+
+    const payload: Record<string, unknown> = {
+      status: nextStatus,
+      completed_at: nextStatus === 'completed' ? completedAt : null,
+      completed_by: nextStatus === 'completed' ? completedBy : null,
+    }
+
+    const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', orderId)
+
+    if (!error && nextStatus === 'completed') {
+      const stopAddress = getOrderAddress(order)
+
+      if (order.order_type === 'DELIVERY' && order.bin_id) {
+        await supabase
+          .from('bins')
+          .update({
+            status: 'in_use',
+            location: stopAddress,
+          })
+          .eq('id', order.bin_id)
+      }
+
+      if (order.order_type === 'EXCHANGE') {
+        if (order.bin_id) {
+          await supabase
+            .from('bins')
+            .update({
+              status: 'in_use',
+              location: stopAddress,
+            })
+            .eq('id', order.bin_id)
+        }
+
+        if (order.old_bin_id) {
+          await supabase
+            .from('bins')
+            .update({
+              status: 'available',
+              location: 'Yard',
+            })
+            .eq('id', order.old_bin_id)
+        }
+      }
+
+      if (order.order_type === 'REMOVAL' && order.old_bin_id) {
+        await supabase
+          .from('bins')
+          .update({
+            status: 'available',
+            location: 'Yard',
+          })
+          .eq('id', order.old_bin_id)
+      }
+
+      if (order.order_type === 'DUMP RETURN' && order.old_bin_id) {
+        await supabase
+          .from('bins')
+          .update({
+            status: 'in_use',
+            location: stopAddress,
+          })
+          .eq('id', order.old_bin_id)
+      }
+    }
 
     if (error) {
-      throw new Error(error.message)
-    }
-
-    await loadJobSites()
-    return (data as { id: string } | null)?.id || null
-  }
-
-  async function syncDriverStatuses(driverId: string) {
-    const { data: orderData, error: ordersError } = await supabase
-      .from(TABLE_NAME)
-      .select('status')
-      .eq('driver_id', driverId)
-
-    if (ordersError) {
-      setPageError(ordersError.message)
+      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
+      setPageError('Connection issue: saved locally and will sync automatically.')
+      setSavingOrderId(null)
       return
     }
 
-    const activeStatuses = ['assigned', 'in_progress']
-    const hasActiveOrders = (orderData || []).some((order) =>
-      activeStatuses.includes((order as { status?: string | null }).status || '')
+    clearOrderSyncState(orderId)
+    setSavingOrderId(null)
+  }
+
+  function getOrderSyncBadge(orderId: string) {
+    const state = syncStates[orderId]
+    if (state === 'pending') {
+      return (
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+          Pending Sync
+        </span>
+      )
+    }
+
+    if (state === 'error') {
+      return (
+        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
+          Sync Failed
+        </span>
+      )
+    }
+
+    return null
+  }
+
+  if (showSplash) {
+    return (
+      <div style={{ colorScheme: 'light' }} className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
+        <div className="w-full max-w-md rounded-[2rem] bg-white/10 p-10 text-center shadow-2xl backdrop-blur-md">
+          <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
+            <img
+              src="/icons/icon-512.png"
+              alt="SimpliiTrash"
+              className="h-16 w-16 rounded-2xl object-contain"
+            />
+          </div>
+
+          <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
+            SimpliiTrash
+          </h1>
+
+          <p className="mt-2 text-sm text-white/90">
+            Loading route...
+          </p>
+
+          <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
+            <div className="h-full w-2/3 animate-pulse rounded-full bg-white" />
+          </div>
+        </div>
+      </div>
     )
-
-    const { data: driver, error: driverError } = await supabase
-      .from('drivers')
-      .select('status')
-      .eq('id', driverId)
-      .single()
-
-    if (driverError) {
-      setPageError(driverError.message)
-      return
-    }
-
-    if ((driver as { status?: string | null })?.status === 'offline') return
-
-    const { error: updateError } = await supabase
-      .from('drivers')
-      .update({ status: hasActiveOrders ? 'busy' : 'available' })
-      .eq('id', driverId)
-
-    if (updateError) {
-      setPageError(updateError.message)
-    }
-  }
-
-  async function setBinStatus(binId: string, status: 'available' | 'in_use', location?: string | null) {
-    const payload: Record<string, string | null> = { status }
-    if (typeof location !== 'undefined') {
-      payload.location = location
-    }
-
-    const { error } = await supabase.from('bins').update(payload).eq('id', binId)
-    if (error) throw new Error(error.message)
-  }
-
-  async function releaseBin(binId: string | null) {
-    if (!binId) return
-    await setBinStatus(binId, 'available', 'Yard')
-  }
-
-  async function occupyBin(binId: string | null, location?: string | null) {
-    if (!binId) return
-    await setBinStatus(binId, 'in_use', location ?? undefined)
-  }
-
-  async function validateSelectedAvailableBin(
-    selectedBinId: string,
-    expectedSize: string,
-    excludeBinId?: string | null
-  ): Promise<Bin> {
-    const { data, error } = await supabase
-      .from('bins')
-      .select('id,bin_number,bin_size,status,location')
-      .eq('id', selectedBinId)
-      .single()
-
-    if (error || !data) throw new Error('Selected bin could not be found.')
-
-    const selected = data as Bin
-
-    if (excludeBinId && selected.id === excludeBinId) {
-      throw new Error('The new bin cannot be the same as the old bin.')
-    }
-
-    if ((selected.bin_size || '') !== expectedSize) {
-      throw new Error('The selected bin does not match the chosen size.')
-    }
-
-    if (selected.status !== 'available') {
-      throw new Error('The selected bin is no longer available.')
-    }
-
-    return selected
-  }
-
-  async function applyWorkflowAndBuildPayload() {
-    const orderType = form.order_type || 'DELIVERY'
-    const isEditing = Boolean(editingOrder)
-    const status = isEditing ? form.status || 'unassigned' : 'unassigned'
-    const jobSiteAddress = form.pickup_address.trim() || null
-    const dumpSite = dumpSites.find((site) => site.id === form.dump_site_id) || null
-    const ensuredJobSiteId =
-      form.customer_id && jobSiteAddress ? await ensureJobSiteForOrder(form.customer_id, jobSiteAddress) : null
-
-    const completionFields =
-      status === 'completed'
-        ? {
-            completed_by: editingOrder?.completed_by || getCompletedByLabel(),
-            completed_at: editingOrder?.completed_at || new Date().toISOString(),
-          }
-        : {
-            completed_by: editingOrder?.completed_by || null,
-            completed_at: editingOrder?.completed_at || null,
-          }
-
-    const basePayload = {
-      customer_id: form.customer_id || null,
-      customer_name: form.customer_name || null,
-      job_site_id: ensuredJobSiteId,
-      pickup_address: jobSiteAddress,
-      service_address: jobSiteAddress,
-      service_time: form.service_time || null,
-      service_window: null,
-      bin_size: form.bin_size || null,
-      bin_type: form.bin_type || null,
-      order_type: orderType,
-      driver_id: isEditing ? form.driver_id || null : null,
-      scheduled_date: form.scheduled_date || null,
-      status,
-      dump_site_id:
-        orderType === 'REMOVAL' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN'
-          ? form.dump_site_id || null
-          : null,
-      dump_site_address:
-        orderType === 'REMOVAL' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN'
-          ? dumpSite?.address || null
-          : null,
-      notes: form.notes || null,
-      parent_order_id: editingOrder?.parent_order_id || null,
-      workflow_step: editingOrder?.workflow_step || 'MAIN',
-      ...completionFields,
-    }
-
-    if (
-      (orderType === 'REMOVAL' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN') &&
-      !form.dump_site_id
-    ) {
-      throw new Error('Please select a dump site.')
-    }
-
-    if (orderType === 'DELIVERY') {
-      if (isEditing && form.bin_id) {
-        const selectedBin = await validateSelectedAvailableBin(form.bin_id, form.bin_size)
-        return {
-          payload: { ...basePayload, bin_id: selectedBin.id, old_bin_id: null },
-          assignedBinId: selectedBin.id,
-          releasedBinId:
-            editingOrder?.bin_id && editingOrder.bin_id !== selectedBin.id ? editingOrder.bin_id : null,
-        }
-      }
-
-      return {
-        payload: { ...basePayload, bin_id: editingOrder?.bin_id || null, old_bin_id: null },
-        assignedBinId: null,
-        releasedBinId: null,
-      }
-    }
-
-    if (orderType === 'EXCHANGE') {
-      if (!form.old_bin_id) throw new Error('Exchange requires the current bin from this Job Site.')
-
-      if (isEditing && form.bin_id) {
-        const selectedBin = await validateSelectedAvailableBin(form.bin_id, form.bin_size, form.old_bin_id)
-        return {
-          payload: { ...basePayload, bin_id: selectedBin.id, old_bin_id: form.old_bin_id },
-          assignedBinId: selectedBin.id,
-          releasedBinId: form.old_bin_id,
-        }
-      }
-
-      return {
-        payload: { ...basePayload, bin_id: editingOrder?.bin_id || null, old_bin_id: form.old_bin_id },
-        assignedBinId: null,
-        releasedBinId: null,
-      }
-    }
-
-    if (orderType === 'REMOVAL') {
-      if (!form.old_bin_id) throw new Error('Removal requires the current bin from this Job Site.')
-
-      return {
-        payload: { ...basePayload, bin_id: null, old_bin_id: form.old_bin_id },
-        assignedBinId: null,
-        releasedBinId: form.old_bin_id,
-      }
-    }
-
-    if (orderType === 'DUMP RETURN') {
-      const sameBinId = form.old_bin_id || editingOrder?.bin_id || null
-      if (!sameBinId) throw new Error('Dump return requires the existing bin from this Job Site.')
-
-      return {
-        payload: { ...basePayload, bin_id: sameBinId, old_bin_id: sameBinId },
-        assignedBinId: sameBinId,
-        releasedBinId: null,
-      }
-    }
-
-    throw new Error('Invalid order type.')
-  }
-
-  async function handleCreateOrUpdate() {
-    if (isReadOnlyModal) {
-      closeModal()
-      return
-    }
-
-    setSaving(true)
-    setPageError('')
-
-    try {
-      if (!form.customer_id && !form.customer_name.trim()) {
-        throw new Error('Customer is required.')
-      }
-
-      if (!form.pickup_address.trim()) {
-        throw new Error('Job Site Address is required.')
-      }
-
-      const previousDriverId = editingOrder?.driver_id || null
-      const previousBinId = editingOrder?.bin_id || null
-      const previousOldBinId = editingOrder?.old_bin_id || null
-
-      const { payload, assignedBinId, releasedBinId } = await applyWorkflowAndBuildPayload()
-
-      if (editingOrder) {
-        const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', editingOrder.id)
-        if (error) throw new Error(error.message)
-
-        if (previousDriverId && previousDriverId !== payload.driver_id) {
-          await syncDriverStatuses(previousDriverId)
-        }
-
-        if (payload.driver_id) {
-          await syncDriverStatuses(payload.driver_id)
-        }
-
-        if (
-          previousBinId &&
-          previousBinId !== assignedBinId &&
-          previousBinId !== releasedBinId &&
-          previousBinId !== previousOldBinId &&
-          payload.order_type !== 'DELIVERY' &&
-          payload.order_type !== 'EXCHANGE'
-        ) {
-          await releaseBin(previousBinId)
-        }
-
-        if (
-          previousOldBinId &&
-          previousOldBinId !== releasedBinId &&
-          previousOldBinId !== assignedBinId &&
-          payload.order_type === 'EXCHANGE'
-        ) {
-          await occupyBin(previousOldBinId, editingOrder?.service_address || editingOrder?.pickup_address || null)
-        }
-
-        if (releasedBinId && releasedBinId !== assignedBinId && payload.status !== 'cancelled') {
-          await releaseBin(releasedBinId)
-        }
-
-        if (assignedBinId) {
-          await occupyBin(assignedBinId, form.pickup_address.trim() || null)
-        }
-
-        if (payload.status === 'completed' || payload.status === 'issue' || payload.status === 'cancelled') {
-          if (payload.order_type === 'REMOVAL') {
-            await releaseBin(payload.old_bin_id)
-          } else if (payload.order_type === 'EXCHANGE') {
-            if (payload.old_bin_id) await releaseBin(payload.old_bin_id)
-            if (payload.status !== 'cancelled' && payload.bin_id) {
-              await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
-            }
-          } else if (payload.order_type === 'DELIVERY') {
-            if (payload.status === 'cancelled' && payload.bin_id) {
-              await releaseBin(payload.bin_id)
-            } else if (payload.bin_id) {
-              await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
-            }
-          } else if (payload.order_type === 'DUMP RETURN' && payload.bin_id) {
-            await occupyBin(payload.bin_id, form.pickup_address.trim() || null)
-          }
-        }
-
-        await refreshAll()
-        closeModal()
-        return
-      }
-
-      const insertPayload = {
-        ...payload,
-        ticket_number: generateTicketNumber(),
-      }
-
-      const { error } = await supabase.from(TABLE_NAME).insert([insertPayload])
-      if (error) throw new Error(error.message)
-
-      await refreshAll()
-      closeModal()
-    } catch (error: any) {
-      setPageError(error.message || 'Failed to save order.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleDelete(orderId: string, driverId?: string | null, binId?: string | null, oldBinId?: string | null) {
-    const orderToDelete = orders.find((item) => item.id === orderId)
-
-    if (orderToDelete?.status === 'completed' && !isAdmin) {
-      setPageError('Only admin can delete completed orders.')
-      return false
-    }
-
-    const confirmed = window.confirm('Delete this order?')
-    if (!confirmed) return false
-
-    setDeletingId(orderId)
-    setPageError('')
-
-    const { error } = await supabase.from(TABLE_NAME).delete().eq('id', orderId)
-    if (error) {
-      setPageError(error.message)
-      setDeletingId(null)
-      return false
-    }
-
-    try {
-      if (driverId) await syncDriverStatuses(driverId)
-
-      if (orderToDelete?.order_type === 'DELIVERY' && binId) await releaseBin(binId)
-
-      if (orderToDelete?.order_type === 'EXCHANGE') {
-        if (binId) await releaseBin(binId)
-        if (oldBinId) {
-          await occupyBin(oldBinId, orderToDelete.service_address || orderToDelete.pickup_address || null)
-        }
-      }
-
-      if (orderToDelete?.order_type === 'REMOVAL' && oldBinId) {
-        await occupyBin(oldBinId, orderToDelete.service_address || orderToDelete.pickup_address || null)
-      }
-
-      if (orderToDelete?.order_type === 'DUMP RETURN' && binId) {
-        await occupyBin(binId, orderToDelete.service_address || orderToDelete.pickup_address || null)
-      }
-
-      await refreshAll()
-      closeModal()
-      setDeletingId(null)
-      return true
-    } catch (error: any) {
-      setPageError(error.message || 'Failed while cleaning workflow after delete.')
-      setDeletingId(null)
-      return false
-    }
-  }
-
-  async function createLinkedWorkflowOrders(order: Order) {
-    const workflowStep = order.workflow_step || 'MAIN'
-    if (workflowStep !== 'MAIN') return
-    if (order.order_type === 'DELIVERY') return
-
-    if (
-      !order.dump_site_address &&
-      (order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN')
-    ) {
-      throw new Error('Dump site address is missing for this workflow.')
-    }
-
-    if (order.order_type === 'REMOVAL') {
-      const dumpOrder = {
-        ticket_number: generateTicketNumber(),
-        customer_id: order.customer_id,
-        customer_name: order.customer_name,
-        job_site_id: order.job_site_id || null,
-        pickup_address: order.service_address || order.pickup_address,
-        service_address: order.dump_site_address,
-        service_time: null,
-        service_window: null,
-        bin_id: order.old_bin_id,
-        old_bin_id: null,
-        dump_site_id: order.dump_site_id || null,
-        dump_site_address: order.dump_site_address || null,
-        parent_order_id: order.id,
-        workflow_step: 'DUMP',
-        bin_size: order.bin_size,
-        bin_type: order.bin_type,
-        order_type: 'REMOVAL',
-        driver_id: order.driver_id,
-        scheduled_date: order.scheduled_date,
-        status: 'assigned',
-        notes: `Auto-created dump stop for removal order ${order.ticket_number || order.id}`,
-      }
-
-      const { error } = await supabase.from(TABLE_NAME).insert([dumpOrder])
-      if (error) throw new Error(error.message)
-      return
-    }
-
-    if (order.order_type === 'EXCHANGE') {
-      const dumpOrder = {
-        ticket_number: generateTicketNumber(),
-        customer_id: order.customer_id,
-        customer_name: order.customer_name,
-        job_site_id: order.job_site_id || null,
-        pickup_address: order.service_address || order.pickup_address,
-        service_address: order.dump_site_address,
-        service_time: null,
-        service_window: null,
-        bin_id: order.old_bin_id,
-        old_bin_id: null,
-        dump_site_id: order.dump_site_id || null,
-        dump_site_address: order.dump_site_address || null,
-        parent_order_id: order.id,
-        workflow_step: 'DUMP',
-        bin_size: order.bin_size,
-        bin_type: order.bin_type,
-        order_type: 'EXCHANGE',
-        driver_id: order.driver_id,
-        scheduled_date: order.scheduled_date,
-        status: 'assigned',
-        notes: `Auto-created dump stop for exchange order ${order.ticket_number || order.id}`,
-      }
-
-      const { error } = await supabase.from(TABLE_NAME).insert([dumpOrder])
-      if (error) throw new Error(error.message)
-      return
-    }
-
-    if (order.order_type === 'DUMP RETURN') {
-      const returnOrder = {
-        ticket_number: generateTicketNumber(),
-        customer_id: order.customer_id,
-        customer_name: order.customer_name,
-        job_site_id: order.job_site_id || null,
-        pickup_address: order.dump_site_address,
-        service_address: order.service_address || order.pickup_address,
-        service_time: null,
-        service_window: null,
-        bin_id: order.bin_id,
-        old_bin_id: null,
-        dump_site_id: order.dump_site_id || null,
-        dump_site_address: order.dump_site_address || null,
-        parent_order_id: order.id,
-        workflow_step: 'RETURN',
-        bin_size: order.bin_size,
-        bin_type: order.bin_type,
-        order_type: 'DUMP RETURN',
-        driver_id: order.driver_id,
-        scheduled_date: order.scheduled_date,
-        status: 'assigned',
-        notes: `Auto-created return stop for dump return order ${order.ticket_number || order.id}`,
-      }
-
-      const { error } = await supabase.from(TABLE_NAME).insert([returnOrder])
-      if (error) throw new Error(error.message)
-    }
-  }
-
-  async function handleQuickStatus(order: Order, value: string) {
-    if (order.status === 'completed') {
-      setPageError('Completed orders are locked and cannot be edited.')
-      return
-    }
-
-    setPageError('')
-
-    const updatePayload: Record<string, string | null> = { status: value }
-    if (value === 'completed') {
-      updatePayload.completed_by = order.completed_by || getCompletedByLabel()
-      updatePayload.completed_at = order.completed_at || new Date().toISOString()
-    }
-
-    const { error } = await supabase.from(TABLE_NAME).update(updatePayload).eq('id', order.id)
-    if (error) {
-      setPageError(error.message)
-      return
-    }
-
-    try {
-      if (order.driver_id) await syncDriverStatuses(order.driver_id)
-
-      if (value === 'completed' || value === 'issue' || value === 'cancelled') {
-        const workflowStep = order.workflow_step || 'MAIN'
-
-        if (value === 'completed') {
-          if (workflowStep === 'MAIN') {
-            if (order.order_type === 'DELIVERY' && order.bin_id) {
-              await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
-            }
-
-            if (order.order_type === 'EXCHANGE') {
-              if (order.bin_id) {
-                await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
-              }
-              await createLinkedWorkflowOrders(order)
-            }
-
-            if (order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN') {
-              await createLinkedWorkflowOrders(order)
-            }
-          }
-
-          if (workflowStep === 'DUMP' && order.bin_id) {
-            await releaseBin(order.bin_id)
-          }
-
-          if (workflowStep === 'RETURN' && order.bin_id) {
-            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
-          }
-        }
-
-        if (value === 'cancelled') {
-          if (order.order_type === 'DELIVERY' && order.bin_id) {
-            await releaseBin(order.bin_id)
-          }
-
-          if (order.order_type === 'EXCHANGE') {
-            if (order.bin_id) await releaseBin(order.bin_id)
-            if (order.old_bin_id) {
-              await occupyBin(order.old_bin_id, order.service_address || order.pickup_address || null)
-            }
-          }
-
-          if (order.order_type === 'REMOVAL' && order.old_bin_id) {
-            await occupyBin(order.old_bin_id, order.service_address || order.pickup_address || null)
-          }
-
-          if (order.order_type === 'DUMP RETURN' && order.bin_id) {
-            await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
-          }
-        }
-      }
-
-      await refreshAll()
-    } catch (workflowError: any) {
-      setPageError(workflowError.message || 'Status changed, but workflow update failed.')
-    }
-  }
-
-  async function handleCancelOrder() {
-    if (!editingOrder) return
-
-    const confirmed = window.confirm('Cancel this order?')
-    if (!confirmed) return
-
-    setSaving(true)
-    setPageError('')
-
-    try {
-      await handleQuickStatus(editingOrder, 'cancelled')
-      closeModal()
-    } catch (error: any) {
-      setPageError(error.message || 'Failed to cancel order.')
-    } finally {
-      setSaving(false)
-    }
   }
 
   return (
-    <div className="light min-h-screen bg-slate-100 text-slate-900" style={{ colorScheme: 'light' }}>
-      <div className="mx-auto max-w-[92rem] p-4 md:p-6">
+    <div style={{ colorScheme: 'light' }} className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="mx-auto max-w-6xl p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Orders</h1>
-            </div>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              {driver?.name || 'Driver'}
+            </h1>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/dashboard"
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Back to Dashboard
-              </Link>
-              <button
-                onClick={refreshAll}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={openCreateModal}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-              >
-                New Order
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              Log Out
+            </button>
           </div>
 
           {pageError ? (
@@ -1337,609 +880,193 @@ function OrdersPageContent() {
               {pageError}
             </div>
           ) : null}
-
-          <div className="mt-6 grid gap-4 md:grid-cols-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{counts.total}</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Unassigned</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{counts.unassigned}</div>
-            </div>
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Assigned</div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">{counts.assigned}</div>
-            </div>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">In Progress</div>
-              <div className="mt-2 text-2xl font-bold text-amber-900">{counts.in_progress}</div>
-            </div>
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Completed</div>
-              <div className="mt-2 text-2xl font-bold text-emerald-900">{counts.completed}</div>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-3 md:grid-cols-4">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, job site address, driver, notes"
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-            />
-
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-            >
-              <option value="all">All Statuses</option>
-              {ORDER_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {formatStatus(status)}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={orderTypeFilter}
-              onChange={(e) => setOrderTypeFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-            >
-              <option value="all">All Order Types</option>
-              {ORDER_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={driverFilter}
-              onChange={(e) => setDriverFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-            >
-              <option value="all">All Drivers</option>
-              {drivers.map((driver) => (
-                <option key={driver.id} value={driver.id}>
-                  {driver.name || 'Unnamed Driver'}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
-        <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-          {loading ? (
-            <div className="p-10 text-center text-sm text-slate-500">Loading orders...</div>
-          ) : filteredOrders.length === 0 ? (
-            <div className="p-10 text-center text-sm text-slate-500">No orders found.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Ticket</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Order Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Customer</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Job Site Address</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Bin Size</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Material</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Driver</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Status</th>
-                  </tr>
-                </thead>
+        {isOffline || usingCachedOrders || queuedActions.length > 0 || syncingQueue ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {syncingQueue
+              ? 'Syncing offline updates...'
+              : queuedActions.length > 0
+              ? `Offline queue active: ${queuedActions.length} update${queuedActions.length === 1 ? '' : 's'} waiting to sync.`
+              : usingCachedOrders
+              ? 'Offline mode: showing last synced route.'
+              : 'Connection looks weak. Some actions may sync later.'}
+          </div>
+        ) : null}
 
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {filteredOrders.map((order) => {
-                    const driverRelation = firstRelation(order.drivers)
-                    const customerRelation = firstRelation(order.customers)
+        {loading ? (
+          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
+            Loading driver page...
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
+            No active orders for this driver.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {orders.map((order, index) => {
+              const isSaving = savingOrderId === order.id
+              const syncBadge = getOrderSyncBadge(order.id)
+              const stopAddress = getOrderAddress(order)
+              const assignedBin = firstRelation(order.bins)
+              const oldBin = firstRelation(order.old_bin)
+              const binSaveState = binSaveStates[order.id] || 'idle'
+              const stopRouteLink = buildGoogleMapsLinkFromStop(orders, index)
+              const usesExistingBin =
+                order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
+              const needsNewBin =
+                order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
+              const visibleBinNumber = usesExistingBin
+                ? oldBin?.bin_number || assignedBin?.bin_number || binInputs[order.id] || ''
+                : assignedBin?.bin_number || binInputs[order.id] || ''
 
-                    const driver =
-                      driverRelation?.name ||
-                      (order.driver_id ? driverMap[order.driver_id]?.name : null) ||
-                      'Unassigned'
-                    const customer = customerRelation?.name || order.customer_name || 'No customer'
-
-                    const badgeClass =
-                      statusClasses[order.status || 'unassigned'] || statusClasses.unassigned
-
-                    const orderTypeClass =
-                      orderTypeClasses[order.order_type || 'DELIVERY'] ||
-                      'bg-slate-100 text-slate-700 border-slate-200'
-
-                    return (
-                      <tr
-                        key={order.id}
-                        className="cursor-pointer hover:bg-slate-50/80"
-                        onClick={() => openEditModal(order)}
-                      >
-                        <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">{order.ticket_number || 'Pending'}</div>
-                          <div className="mt-1 text-xs text-slate-500">#{order.id.slice(0, 8)}</div>
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}>
-                            {formatOrderType(order.order_type)}
-                          </span>
-                        </td>
-
-                        <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">{customer}</div>
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {order.service_address || order.pickup_address || '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {formatServiceTime(order.service_time)}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {formatDate(order.scheduled_date)}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {order.bin_size ? `${order.bin_size}Y` : '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">{order.bin_type || '—'}</td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
-
-                        <td className="px-4 py-4 align-top">
-                          <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>
-                            {formatStatus(order.status || 'unassigned')}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-      </div>
-
-      {(showCreateModal || editingOrder) && (
-        <div
-          className={`fixed inset-0 z-50 overflow-y-auto transition-all duration-300 ease-out ${
-            modalVisible ? 'bg-slate-900/40 opacity-100' : 'bg-slate-900/0 opacity-0'
-          }`}
-        >
-          <div className="flex min-h-full items-start justify-center p-4 md:p-6">
-            <div
-              ref={modalCardRef}
-              className={`my-6 w-full max-w-3xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl transition-all duration-300 ease-out ${
-                modalVisible ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-[0.985] opacity-0'
-              }`}
-            >
-              <div className="mb-6 flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {editingOrder?.ticket_number || 'New Order'}
-                  </div>
-                  <h2 className="mt-1 text-xl font-bold text-slate-900">
-                    {editingOrder ? (isReadOnlyModal ? 'Order Details' : 'Edit Order') : 'Create Order'}
-                  </h2>
-                  {isReadOnlyModal ? (
-                    <p className="mt-1 text-sm text-slate-500">
-                      This completed order is locked. You can view it, but you cannot edit anything.
-                    </p>
-                  ) : null}
-                </div>
-
-                <button
-                  onClick={closeModal}
-                  className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+              return (
+                <div
+                  key={order.id}
+                  className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
                 >
-                  Close
-                </button>
-              </div>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                          Stop {order.route_position || index + 1}
+                        </span>
 
-              {pageError ? (
-                <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                  {pageError}
-                </div>
-              ) : null}
+                        <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
+                          {displayValue(order.bin_size)}Yd
+                        </span>
 
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                          {order.service_window
+                            ? displayValue(order.service_window)
+                            : formatServiceTime(order.service_time)}
+                        </span>
 
-              {editingOrder?.status === 'completed' && (
-                <div className="mb-4 grid gap-3 md:grid-cols-2">
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Completed By</div>
-                    <div className="mt-1 font-semibold">{editingOrder.completed_by || '—'}</div>
-                  </div>
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Completed At</div>
-                    <div className="mt-1 font-semibold">{formatDateTime(editingOrder.completed_at)}</div>
-                  </div>
-                </div>
-              )}
+                        {syncBadge}
+                      </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                {isReadOnlyModal ? (
-                  <>
-                    <ReadOnlyField label="Customer" value={selectedCustomer?.name || form.customer_name || '—'} />
-                    <ReadOnlyField label="Customer Name" value={form.customer_name || '—'} />
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Customer</label>
-                      <select
-                        ref={modalTitleRef}
-                        value={form.customer_id}
-                        onChange={(e) => handleCustomerChange(e.target.value)}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      >
-                        <option value="">Select customer</option>
-                        {customers.map((customer) => (
-                          <option key={customer.id} value={customer.id}>
-                            {customer.name || 'Unnamed Customer'}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <h2 className="text-lg font-bold text-slate-900">
+                          {order.customer_name || 'No customer'}
+                        </h2>
+
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
+                          {displayValue(order.order_type)}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Address
+                          </div>
+                          <div className="mt-2 text-sm text-slate-900">
+                            {displayValue(stopAddress)}
+                          </div>
+                        </div>
+
+                        {stopRouteLink ? (
+                          <a
+                            href={stopRouteLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-fit items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                          >
+                            Open Full Route
+                          </a>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Bin Number
+                        </div>
+
+                        {needsNewBin && !assignedBin?.bin_number ? (
+                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                            <input
+                              value={binInputs[order.id] || ''}
+                              onChange={(e) =>
+                                setBinInputs((current) => ({
+                                  ...current,
+                                  [order.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Enter bin number"
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => void saveBinNumber(order)}
+                              disabled={binSaveState === 'saving'}
+                              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                            <span className="font-semibold">{visibleBinNumber || 'Not set'}</span>
+                          </div>
+                        )}
+
+                        {order.order_type === 'EXCHANGE' && oldBin?.bin_number ? (
+                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                            Old bin at site: <span className="font-semibold">{oldBin.bin_number}</span>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Notes
+                        </div>
+                        <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
+                          {displayValue(order.notes)}
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Customer Name</label>
-                      <input
-                        value={form.customer_name}
-                        onChange={(e) => setForm((prev) => ({ ...prev, customer_name: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                        placeholder="Customer name"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {isReadOnlyModal ? (
-                  <>
-                    <ReadOnlyField label="Job Site Address" value={form.pickup_address || '—'} className="md:col-span-2" />
-                    <ReadOnlyField label="Order Type" value={form.order_type || '—'} />
-                    <ReadOnlyField label="Date" value={formatDate(form.scheduled_date)} />
-                    <ReadOnlyField label="Time" value={formatServiceTime(form.service_time)} />
-                    <ReadOnlyField label="Bin Size" value={form.bin_size ? `${form.bin_size} Yard` : '—'} />
-                    <ReadOnlyField label="Material / Bin" value={form.bin_type || '—'} />
-                    <ReadOnlyField
-                      label="Driver"
-                      value={form.driver_id ? drivers.find((d) => d.id === form.driver_id)?.name || 'Assigned' : 'Unassigned'}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <div className="md:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
-                      <input
-                        list={form.customer_id ? 'customer-job-site-addresses' : undefined}
-                        value={form.pickup_address}
-                        onChange={(e) => handleJobSiteAddressInput(e.target.value)}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                        placeholder={selectedCustomerJobSites.length > 0 ? 'Start typing a saved address' : 'Job site address'}
-                        autoComplete="street-address"
-                      />
-                      {selectedCustomerJobSites.length > 0 ? (
-                        <datalist id="customer-job-site-addresses">
-                          {selectedCustomerJobSites.map((site) => (
-                            <option key={site.id} value={site.address || ''} />
-                          ))}
-                        </datalist>
-                      ) : null}
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Order Type</label>
-                      <select
-                        value={form.order_type}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            order_type: e.target.value,
-                            old_bin_id: '',
-                            dump_site_id:
-                              e.target.value === 'REMOVAL' || e.target.value === 'EXCHANGE' || e.target.value === 'DUMP RETURN'
-                                ? prev.dump_site_id
-                                : '',
-                          }))
-                        }
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      >
-                        {ORDER_TYPES.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Date</label>
+                    <div className="w-full shrink-0 lg:w-[220px]">
                       <div className="grid gap-2">
-                        <div className="flex flex-wrap gap-2">
+                        {order.status !== 'in_progress' ? (
                           <button
                             type="button"
-                            onClick={() => setForm((prev) => ({ ...prev, scheduled_date: generateQuickDate(0) }))}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                            disabled={isSaving}
+                            className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            Today
+                            {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setForm((prev) => ({ ...prev, scheduled_date: generateQuickDate(1) }))}
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Tomorrow
-                          </button>
-                        </div>
-                        <input
-                          type="date"
-                          value={form.scheduled_date}
-                          onChange={(e) => setForm((prev) => ({ ...prev, scheduled_date: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                        />
-                      </div>
-                    </div>
+                        ) : null}
 
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Time</label>
-                      <select
-                        value={form.service_time}
-                        onChange={(e) => setForm((prev) => ({ ...prev, service_time: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      >
-                        <option value="">Select time</option>
-                        {QUICK_TIME_OPTIONS.map((timeOption) => (
-                          <option key={timeOption} value={timeOption}>
-                            {formatServiceTime(timeOption)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
-                      <select
-                        value={form.bin_size}
-                        onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '' }))}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      >
-                        {BIN_SIZES.map((size) => (
-                          <option key={size} value={size}>
-                            {size} Yard
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin</label>
-                      <select
-                        value={form.bin_type}
-                        onChange={(e) => setForm((prev) => ({ ...prev, bin_type: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      >
-                        {MATERIAL_TYPES.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-
-                {(form.order_type === 'REMOVAL' || form.order_type === 'EXCHANGE' || form.order_type === 'DUMP RETURN') &&
-                  (isReadOnlyModal ? (
-                    <>
-                      <ReadOnlyField label="Dump Site" value={selectedDumpSite?.name || '—'} />
-                      <ReadOnlyField label="Dump Site Address" value={selectedDumpSite?.address || editingOrder?.dump_site_address || '—'} />
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Dump Site</label>
-                        <select
-                          value={form.dump_site_id}
-                          onChange={(e) =>
-                            setForm((prev) => ({ ...prev, dump_site_id: e.target.value }))
-                          }
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                        <button
+                          type="button"
+                          onClick={() => void updateOrderStatus(order.id, 'completed')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <option value="">Select dump site</option>
-                          {dumpSites.map((site) => (
-                            <option key={site.id} value={site.id}>
-                              {site.name || 'Unnamed Dump Site'}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
+                        </button>
 
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Dump Site Address</label>
-                        <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                          {selectedDumpSite?.address || '—'}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void updateOrderStatus(order.id, 'issue')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
+                        </button>
                       </div>
-                    </>
-                  ))}
-
-                {(form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL' || form.order_type === 'DUMP RETURN') &&
-                  (isReadOnlyModal ? (
-                    <ReadOnlyField
-                      label={form.order_type === 'DUMP RETURN' ? 'Bin at this Job Site' : 'Old / Existing Bin at this Job Site'}
-                      value={
-                        jobSiteExistingBins.find((b) => b.id === form.old_bin_id)
-                          ? `${jobSiteExistingBins.find((b) => b.id === form.old_bin_id)?.bin_number || 'Bin'} • ${jobSiteExistingBins.find((b) => b.id === form.old_bin_id)?.bin_size || ''}Y`
-                          : '—'
-                      }
-                    />
-                  ) : (
-                    <div className="md:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        {form.order_type === 'DUMP RETURN' ? 'Bin at this Job Site' : 'Old / Existing Bin at this Job Site'}
-                      </label>
-                      <select
-                        value={form.old_bin_id}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            old_bin_id: e.target.value,
-                            bin_id: prev.order_type === 'DUMP RETURN' ? e.target.value : prev.bin_id,
-                          }))
-                        }
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      >
-                        <option value="">Select bin from this Job Site</option>
-                        {jobSiteExistingBins.map((bin) => (
-                          <option key={bin.id} value={bin.id}>
-                            {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y{bin.location ? ` • ${bin.location}` : ''}
-                          </option>
-                        ))}
-                      </select>
                     </div>
-                  ))}
-
-                {editingOrder && (
-                  isReadOnlyModal ? (
-                    <>
-                      <ReadOnlyField label="Status" value={formatStatus(form.status)} />
-                      <ReadOnlyField
-                        label="Assigned Bin"
-                        value={currentAssignedBin ? `${currentAssignedBin.bin_number || 'Bin'} • ${currentAssignedBin.bin_size || ''}Y` : 'Not set'}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Status</label>
-                        <select
-                          value={form.status}
-                          onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                        >
-                          {ORDER_STATUSES.map((status) => (
-                            <option key={status} value={status}>
-                              {formatStatus(status)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-slate-700">Driver</label>
-                        <select
-                          value={form.driver_id}
-                          onChange={(e) => setForm((prev) => ({ ...prev, driver_id: e.target.value }))}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                        >
-                          <option value="">Unassigned</option>
-                          {drivers
-                            .filter((driver) => driver.status !== 'offline')
-                            .map((driver) => (
-                              <option key={driver.id} value={driver.id}>
-                                {driver.name || 'Unnamed Driver'}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    </>
-                  )
-                )}
-
-                {editingOrder && form.bin_id && (
-                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    Assigned bin on this order: <span className="font-semibold">{currentAssignedBin?.bin_number || form.bin_id}</span>
                   </div>
-                )}
-
-                {form.order_type === 'DUMP RETURN' && (
-                  <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                    DUMP RETURN uses the same bin already at the client job site.
-                  </div>
-                )}
-
-                {(form.order_type === 'EXCHANGE' || form.order_type === 'DUMP RETURN') && (
-                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    Bins found at this Job Site: <span className="font-semibold">{jobSiteExistingBins.length}</span>
-                  </div>
-                )}
-
-                {isReadOnlyModal ? (
-                  <ReadOnlyField label="Notes" value={form.notes || '—'} className="md:col-span-2" />
-                ) : (
-                  <div className="md:col-span-2">
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Note</label>
-                    <textarea
-                      rows={4}
-                      value={form.notes}
-                      onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
-                      placeholder="Special observation or instruction"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-6 flex flex-wrap justify-end gap-3">
-                {editingOrder && !isReadOnlyModal && (
-                  <button
-                    onClick={handleCancelOrder}
-                    disabled={saving}
-                    className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-                  >
-                    Cancel Order
-                  </button>
-                )}
-
-                {editingOrder && !isReadOnlyModal && (
-                  <button
-                    onClick={() =>
-                      void handleDelete(editingOrder.id, editingOrder.driver_id, editingOrder.bin_id, editingOrder.old_bin_id)
-                    }
-                    disabled={saving || deletingId === editingOrder.id}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {deletingId === editingOrder.id ? 'Deleting...' : 'Delete'}
-                  </button>
-                )}
-
-                <button
-                  onClick={closeModal}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Close
-                </button>
-
-                {!isReadOnlyModal && (
-                  <button
-                    onClick={handleCreateOrUpdate}
-                    disabled={saving}
-                    className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : editingOrder ? 'Save Changes' : 'Create Order'}
-                  </button>
-                )}
-              </div>
-            </div>
+                </div>
+              )
+            })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
-  )
-}
-
-export default function OrdersPage() {
-  return (
-    <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading...</div>}>
-      <OrdersPageContent />
-    </Suspense>
   )
 }
