@@ -13,6 +13,14 @@ type Driver = {
   auth_user_id?: string | null
 }
 
+type Bin = {
+  id: string
+  bin_number: string | null
+  bin_size: string | number | null
+  status?: string | null
+  location?: string | null
+}
+
 type OrderBinRelation = {
   id: string
   bin_number: string | null
@@ -194,6 +202,7 @@ export default function DriverPage() {
 
   const [driver, setDriver] = useState<Driver | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
+  const [binsMap, setBinsMap] = useState<Record<string, Bin>>({})
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
@@ -389,6 +398,38 @@ export default function DriverPage() {
     }
   }
 
+  async function loadBinsForOrders(nextOrders: Order[]) {
+    const ids = Array.from(
+      new Set(
+        nextOrders
+          .flatMap((order) => [order.bin_id, order.old_bin_id])
+          .filter(Boolean)
+          .map((id) => String(id))
+      )
+    )
+
+    if (ids.length === 0) {
+      setBinsMap({})
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('bins')
+      .select('id,bin_number,bin_size,status,location')
+      .in('id', ids)
+
+    if (error) {
+      setPageError((prev) => prev || error.message)
+      return
+    }
+
+    const nextMap: Record<string, Bin> = {}
+    for (const bin of (data as Bin[]) || []) {
+      nextMap[String(bin.id)] = bin
+    }
+    setBinsMap(nextMap)
+  }
+
   async function loadPage() {
     setPageError('')
     setLoading(true)
@@ -455,16 +496,30 @@ export default function DriverPage() {
     const nextOrders = (orderData as Order[]) || []
     persistOrders(nextOrders)
     setUsingCachedOrders(false)
+    await loadBinsForOrders(nextOrders)
 
     setBinInputs((current) => {
       const next = { ...current }
       for (const order of nextOrders) {
         const assignedBin = firstRelation(order.bins)
         const oldBin = firstRelation(order.old_bin)
+        const mappedAssigned = order.bin_id ? binsMap[String(order.bin_id)] : null
+        const mappedOld = order.old_bin_id ? binsMap[String(order.old_bin_id)] : null
+
         if (order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN') {
-          next[order.id] = oldBin?.bin_number || assignedBin?.bin_number || current[order.id] || ''
+          next[order.id] =
+            oldBin?.bin_number ||
+            mappedOld?.bin_number ||
+            assignedBin?.bin_number ||
+            mappedAssigned?.bin_number ||
+            current[order.id] ||
+            ''
         } else {
-          next[order.id] = assignedBin?.bin_number || current[order.id] || ''
+          next[order.id] =
+            assignedBin?.bin_number ||
+            mappedAssigned?.bin_number ||
+            current[order.id] ||
+            ''
         }
       }
       return next
@@ -558,7 +613,7 @@ export default function DriverPage() {
     const actualSize = String(matchedBin.bin_size ?? '').trim()
 
     if (expectedSize && actualSize && expectedSize !== actualSize) {
-      setPageError(`Bin ${normalizedInput} is ${actualSize}Y, but this order needs ${expectedSize}Y.`)
+      setPageError(`Bin ${normalizedInput} is ${actualSize}Yd, but this order needs ${expectedSize}Yd.`)
       setBinSaveState(order.id, 'error')
       return
     }
@@ -603,6 +658,11 @@ export default function DriverPage() {
       setBinSaveState(order.id, 'error')
       return
     }
+
+    setBinsMap((current) => ({
+      ...current,
+      [String(matchedBin.id)]: matchedBin as Bin,
+    }))
 
     setOrders((current) =>
       current.map((item) =>
@@ -717,7 +777,8 @@ export default function DriverPage() {
     }
 
     const requiresDriverBin = order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
-    const currentBinRelation = firstRelation(order.bins)
+    const currentBinRelation =
+      firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
 
     if (nextStatus === 'completed' && requiresDriverBin && !currentBinRelation?.id) {
       setPageError('Please save the bin number before completing this order.')
@@ -908,15 +969,17 @@ export default function DriverPage() {
               const isSaving = savingOrderId === order.id
               const syncBadge = getOrderSyncBadge(order.id)
               const stopAddress = getOrderAddress(order)
-              const assignedBin = firstRelation(order.bins)
-              const oldBin = firstRelation(order.old_bin)
+              const assignedBin = firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
+              const oldBin = firstRelation(order.old_bin) || (order.old_bin_id ? binsMap[String(order.old_bin_id)] : null)
               const binSaveState = binSaveStates[order.id] || 'idle'
               const stopRouteLink = buildGoogleMapsLinkFromStop(orders, index)
-
               const usesExistingBin =
                 order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
               const needsNewBin =
                 order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
+              const visibleBinNumber = usesExistingBin
+                ? oldBin?.bin_number || assignedBin?.bin_number || binInputs[order.id] || ''
+                : assignedBin?.bin_number || binInputs[order.id] || ''
 
               return (
                 <div
@@ -931,28 +994,26 @@ export default function DriverPage() {
                         </span>
 
                         <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
-                          {displayValue(order.bin_size)}Y
+                          {displayValue(order.bin_size)}Yd
                         </span>
-
-                        {syncBadge}
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap items-center gap-3">
-                        <h2 className="text-lg font-bold text-slate-900">
-                          {order.customer_name || 'No customer'}
-                        </h2>
 
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
                           {displayValue(order.order_type)}
                         </span>
-                      </div>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
                           {order.service_window
                             ? displayValue(order.service_window)
                             : formatServiceTime(order.service_time)}
                         </span>
+
+                        {syncBadge}
+                      </div>
+
+                      <div className="mt-3">
+                        <h2 className="text-lg font-bold text-slate-900">
+                          {order.customer_name || 'No customer'}
+                        </h2>
                       </div>
 
                       <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
@@ -982,46 +1043,34 @@ export default function DriverPage() {
                           Bin Number
                         </div>
 
-                        {needsNewBin ? (
-                          <>
-                            {assignedBin?.bin_number ? (
-                              <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                                <span className="font-semibold">{assignedBin.bin_number}</span>
-                              </div>
-                            ) : (
-                              <div className="mt-3 flex flex-col gap-3 md:flex-row">
-                                <input
-                                  value={binInputs[order.id] || ''}
-                                  onChange={(e) =>
-                                    setBinInputs((current) => ({
-                                      ...current,
-                                      [order.id]: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="Enter bin number"
-                                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                                />
+                        {needsNewBin && !assignedBin?.bin_number ? (
+                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                            <input
+                              value={binInputs[order.id] || ''}
+                              onChange={(e) =>
+                                setBinInputs((current) => ({
+                                  ...current,
+                                  [order.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Enter bin number"
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                            />
 
-                                <button
-                                  type="button"
-                                  onClick={() => void saveBinNumber(order)}
-                                  disabled={binSaveState === 'saving'}
-                                  className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        ) : null}
-
-                        {usesExistingBin ? (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                            <span className="font-semibold">
-                              {oldBin?.bin_number || assignedBin?.bin_number || binInputs[order.id] || 'Not set'}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void saveBinNumber(order)}
+                              disabled={binSaveState === 'saving'}
+                              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
+                            </button>
                           </div>
-                        ) : null}
+                        ) : (
+                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                            <span className="font-semibold">{visibleBinNumber || 'Not set'}</span>
+                          </div>
+                        )}
 
                         {order.order_type === 'EXCHANGE' && oldBin?.bin_number ? (
                           <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
