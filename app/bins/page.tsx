@@ -22,6 +22,9 @@ type Order = {
   order_type: string | null
   scheduled_date: string | null
   service_address: string | null
+  pickup_address?: string | null
+  dump_site_address?: string | null
+  workflow_step?: string | null
   created_at: string | null
 }
 
@@ -30,7 +33,7 @@ type UserRole = 'admin' | 'dispatcher' | 'unknown'
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const BIN_STATUSES = ['available', 'in_use', 'maintenance'] as const
 
-const ACTIVE_ORDER_STATUSES = ['assigned', 'scheduled', 'in_progress', 'on_route'] as const
+const ACTIVE_ORDER_STATUSES = ['assigned', 'scheduled', 'in_progress', 'on_route', 'unassigned'] as const
 const CLOSED_ORDER_STATUSES = ['completed', 'issue'] as const
 
 const statusClasses: Record<string, string> = {
@@ -143,6 +146,66 @@ export default function BinsPage() {
     return [...getOrdersForBin(binId)].sort(sortOrdersNewest)[0] || null
   }
 
+  function getOrdersForBinFromSet(binId: string, orderSet: Order[]) {
+    return orderSet.filter((order) => order.bin_id === binId || order.old_bin_id === binId)
+  }
+
+  function getLatestOrderForBinFromSet(binId: string, orderSet: Order[]) {
+    return [...getOrdersForBinFromSet(binId, orderSet)].sort(sortOrdersNewest)[0] || null
+  }
+
+  function getActiveServiceOrdersForBinFromSet(binId: string, orderSet: Order[]) {
+    return orderSet.filter(
+      (order) => (order.bin_id === binId || order.old_bin_id === binId) && isActiveOrder(order)
+    )
+  }
+
+  function getActiveLocationForBin(bin: Bin, activeOrders: Order[]) {
+    if (activeOrders.length === 0) return null
+
+    const latestActive = [...activeOrders].sort(sortOrdersNewest)[0]
+    const type = latestActive.order_type || ''
+    const workflowStep = latestActive.workflow_step || 'MAIN'
+    const serviceAddress = latestActive.service_address?.trim() || ''
+    const pickupAddress = latestActive.pickup_address?.trim() || ''
+    const dumpSiteAddress = latestActive.dump_site_address?.trim() || ''
+
+    if (type === 'DELIVERY') {
+      return serviceAddress || pickupAddress || 'Client Site'
+    }
+
+    if (type === 'REMOVAL') {
+      if (workflowStep === 'DUMP') {
+        return dumpSiteAddress || serviceAddress || 'Dump Site'
+      }
+      return serviceAddress || pickupAddress || 'Client Site'
+    }
+
+    if (type === 'EXCHANGE') {
+      if (latestActive.bin_id === bin.id) {
+        return serviceAddress || pickupAddress || 'Client Site'
+      }
+      if (latestActive.old_bin_id === bin.id) {
+        if (workflowStep === 'DUMP') {
+          return dumpSiteAddress || serviceAddress || 'Dump Site'
+        }
+        return serviceAddress || pickupAddress || 'Client Site'
+      }
+    }
+
+    if (type === 'DUMP RETURN') {
+      if (workflowStep === 'DUMP') {
+        return dumpSiteAddress || serviceAddress || 'Dump Site'
+      }
+      if (workflowStep === 'RETURN') {
+        return serviceAddress || pickupAddress || 'Client Site'
+      }
+      return serviceAddress || pickupAddress || 'Client Site'
+    }
+
+    return serviceAddress || pickupAddress || 'On Service'
+  }
+
   function getBinServiceState(bin: Bin, currentOrders: Order[] = orders) {
     if ((bin.status || 'available') === 'maintenance') {
       return {
@@ -159,10 +222,9 @@ export default function BinsPage() {
     const latestOrder = [...linkedOrders].sort(sortOrdersNewest)[0] || null
 
     if (activeServiceOrders.length > 0) {
-      const latestActive = [...activeServiceOrders].sort(sortOrdersNewest)[0]
       return {
         nextStatus: 'in_use',
-        nextLocation: latestActive.service_address?.trim() || 'On Service',
+        nextLocation: getActiveLocationForBin(bin, activeServiceOrders) || 'On Service',
         latestOrder,
         totalOrders: linkedOrders.length,
         activeOrders: activeServiceOrders.length,
@@ -171,7 +233,9 @@ export default function BinsPage() {
 
     if (latestOrder && isClosedOrder(latestOrder)) {
       const type = latestOrder.order_type || ''
-      const siteAddress = latestOrder.service_address?.trim() || 'Client Site'
+      const workflowStep = latestOrder.workflow_step || 'MAIN'
+      const siteAddress = latestOrder.service_address?.trim() || latestOrder.pickup_address?.trim() || 'Client Site'
+      const dumpSiteAddress = latestOrder.dump_site_address?.trim() || 'Dump Site'
 
       if (type === 'DELIVERY' && latestOrder.bin_id === bin.id) {
         return {
@@ -184,6 +248,16 @@ export default function BinsPage() {
       }
 
       if (type === 'DUMP RETURN' && latestOrder.bin_id === bin.id) {
+        if (workflowStep === 'DUMP') {
+          return {
+            nextStatus: 'in_use',
+            nextLocation: dumpSiteAddress,
+            latestOrder,
+            totalOrders: linkedOrders.length,
+            activeOrders: 0,
+          }
+        }
+
         return {
           nextStatus: 'in_use',
           nextLocation: siteAddress,
@@ -205,6 +279,16 @@ export default function BinsPage() {
         }
 
         if (latestOrder.old_bin_id === bin.id) {
+          if (workflowStep === 'DUMP') {
+            return {
+              nextStatus: 'available',
+              nextLocation: 'Yard',
+              latestOrder,
+              totalOrders: linkedOrders.length,
+              activeOrders: 0,
+            }
+          }
+
           return {
             nextStatus: 'in_use',
             nextLocation: 'Dump / Return to Yard',
@@ -216,6 +300,16 @@ export default function BinsPage() {
       }
 
       if (type === 'REMOVAL' && latestOrder.old_bin_id === bin.id) {
+        if (workflowStep === 'DUMP') {
+          return {
+            nextStatus: 'available',
+            nextLocation: 'Yard',
+            latestOrder,
+            totalOrders: linkedOrders.length,
+            activeOrders: 0,
+          }
+        }
+
         return {
           nextStatus: 'in_use',
           nextLocation: 'Dump / Return to Yard',
@@ -236,18 +330,6 @@ export default function BinsPage() {
       totalOrders: linkedOrders.length,
       activeOrders: 0,
     }
-  }
-
-  function getOrdersForBinFromSet(binId: string, orderSet: Order[]) {
-    return orderSet.filter((order) => order.bin_id === binId || order.old_bin_id === binId)
-  }
-
-  function getLatestOrderForBinFromSet(binId: string, orderSet: Order[]) {
-    return [...getOrdersForBinFromSet(binId, orderSet)].sort(sortOrdersNewest)[0] || null
-  }
-
-  function getActiveServiceOrdersForBinFromSet(binId: string, orderSet: Order[]) {
-    return orderSet.filter((order) => order.bin_id === binId && isActiveOrder(order))
   }
 
   async function loadCurrentUserRole() {
@@ -363,7 +445,7 @@ export default function BinsPage() {
   async function loadOrders() {
     const { data, error } = await supabase
       .from('order')
-      .select('id,bin_id,old_bin_id,status,order_type,scheduled_date,service_address,created_at')
+      .select('id,bin_id,old_bin_id,status,order_type,scheduled_date,service_address,pickup_address,dump_site_address,workflow_step,created_at')
 
     if (error) {
       setPageError(error.message)
@@ -442,7 +524,7 @@ export default function BinsPage() {
       for (const binId of linkedBinIds) {
         totalOrdersByBin[binId] = (totalOrdersByBin[binId] || 0) + 1
 
-        if (order.bin_id === binId && isActiveOrder(order)) {
+        if ((order.bin_id === binId || order.old_bin_id === binId) && isActiveOrder(order)) {
           activeOrdersByBin[binId] = (activeOrdersByBin[binId] || 0) + 1
         }
       }
@@ -568,7 +650,7 @@ export default function BinsPage() {
     }
 
     const relatedActiveOrders = orders.filter(
-      (order) => order.bin_id === binId && isActiveOrder(order)
+      (order) => (order.bin_id === binId || order.old_bin_id === binId) && isActiveOrder(order)
     )
 
     if (relatedActiveOrders.length > 0) {
@@ -1081,7 +1163,7 @@ export default function BinsPage() {
                                     {formatDate(order.scheduled_date)}
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-700">
-                                    {order.service_address || '—'}
+                                    {order.service_address || order.pickup_address || '—'}
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-700">
                                     {order.bin_id === editingBin.id
