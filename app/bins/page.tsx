@@ -231,10 +231,51 @@ export default function BinsPage() {
       }
     }
 
+    const removalDumpCompleted = linkedOrders
+      .filter(
+        (order) =>
+          order.order_type === 'REMOVAL' &&
+          (order.workflow_step || 'MAIN') === 'DUMP' &&
+          order.bin_id === bin.id &&
+          isClosedOrder(order)
+      )
+      .sort(sortOrdersNewest)[0]
+
+    if (removalDumpCompleted) {
+      return {
+        nextStatus: 'available',
+        nextLocation: 'Yard',
+        latestOrder: removalDumpCompleted,
+        totalOrders: linkedOrders.length,
+        activeOrders: 0,
+      }
+    }
+
+    const exchangeOldBinDumpCompleted = linkedOrders
+      .filter(
+        (order) =>
+          order.order_type === 'EXCHANGE' &&
+          (order.workflow_step || 'MAIN') === 'DUMP' &&
+          order.bin_id === bin.id &&
+          isClosedOrder(order)
+      )
+      .sort(sortOrdersNewest)[0]
+
+    if (exchangeOldBinDumpCompleted) {
+      return {
+        nextStatus: 'available',
+        nextLocation: 'Yard',
+        latestOrder: exchangeOldBinDumpCompleted,
+        totalOrders: linkedOrders.length,
+        activeOrders: 0,
+      }
+    }
+
     if (latestOrder && isClosedOrder(latestOrder)) {
       const type = latestOrder.order_type || ''
       const workflowStep = latestOrder.workflow_step || 'MAIN'
-      const siteAddress = latestOrder.service_address?.trim() || latestOrder.pickup_address?.trim() || 'Client Site'
+      const siteAddress =
+        latestOrder.service_address?.trim() || latestOrder.pickup_address?.trim() || 'Client Site'
       const dumpSiteAddress = latestOrder.dump_site_address?.trim() || 'Dump Site'
 
       if (type === 'DELIVERY' && latestOrder.bin_id === bin.id) {
@@ -279,19 +320,10 @@ export default function BinsPage() {
         }
 
         if (latestOrder.old_bin_id === bin.id) {
-          if (workflowStep === 'DUMP') {
-            return {
-              nextStatus: 'available',
-              nextLocation: 'Yard',
-              latestOrder,
-              totalOrders: linkedOrders.length,
-              activeOrders: 0,
-            }
-          }
-
           return {
             nextStatus: 'in_use',
-            nextLocation: 'Dump / Return to Yard',
+            nextLocation:
+              workflowStep === 'DUMP' ? 'Yard' : (dumpSiteAddress || 'Dump / Return to Yard'),
             latestOrder,
             totalOrders: linkedOrders.length,
             activeOrders: 0,
@@ -300,19 +332,9 @@ export default function BinsPage() {
       }
 
       if (type === 'REMOVAL' && latestOrder.old_bin_id === bin.id) {
-        if (workflowStep === 'DUMP') {
-          return {
-            nextStatus: 'available',
-            nextLocation: 'Yard',
-            latestOrder,
-            totalOrders: linkedOrders.length,
-            activeOrders: 0,
-          }
-        }
-
         return {
-          nextStatus: 'in_use',
-          nextLocation: 'Dump / Return to Yard',
+          nextStatus: workflowStep === 'DUMP' ? 'available' : 'in_use',
+          nextLocation: workflowStep === 'DUMP' ? 'Yard' : (dumpSiteAddress || 'Dump / Return to Yard'),
           latestOrder,
           totalOrders: linkedOrders.length,
           activeOrders: 0,
