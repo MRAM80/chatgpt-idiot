@@ -875,7 +875,11 @@ export default function BinsPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div>{state.nextLocation || 'Yard'}</div>
+                          <div>
+                            {state.nextStatus === 'available'
+                              ? (state.nextLocation || 'Yard')
+                              : ((state.nextLocation || 'Client Site').split(' — ').slice(1).join(' — ') || state.nextLocation || 'Client Site')}
+                          </div>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -913,7 +917,7 @@ export default function BinsPage() {
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            <span>↑</span>
+            <span className="text-base font-extrabold leading-none">↑</span>
             <span>Top</span>
           </button>
         </div>
@@ -1056,7 +1060,11 @@ export default function BinsPage() {
 
                     <ReadOnlyField
                       label="Current Location"
-                      value={selectedBinState?.nextLocation || editingBin.location || 'Yard'}
+                      value={
+                        (selectedBinState?.nextStatus || editingBin.status || 'available') === 'available'
+                          ? (selectedBinState?.nextLocation || editingBin.location || 'Yard')
+                          : (((selectedBinState?.nextLocation || editingBin.location || 'Client Site').split(' — ').slice(1).join(' — ')) || (selectedBinState?.nextLocation || editingBin.location || 'Client Site'))
+                      }
                       className="md:col-span-2"
                     />
 
