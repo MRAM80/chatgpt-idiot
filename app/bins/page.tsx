@@ -16,16 +16,19 @@ type Bin = {
 
 type Order = {
   id: string
+  customer_name?: string | null
   bin_id: string | null
   old_bin_id: string | null
   status: string | null
   order_type: string | null
   scheduled_date: string | null
+  service_time?: string | null
   service_address: string | null
   pickup_address?: string | null
   dump_site_address?: string | null
   workflow_step?: string | null
   created_at: string | null
+  updated_at?: string | null
 }
 
 type UserRole = 'admin' | 'dispatcher' | 'unknown'
@@ -70,10 +73,16 @@ function formatDateTime(date: string | null) {
   })
 }
 
+function getOrderSortTime(order: Order) {
+  return new Date(order.updated_at || order.created_at || order.scheduled_date || 0).getTime()
+}
+
 function sortOrdersNewest(a: Order, b: Order) {
-  const aDate = new Date(a.scheduled_date || a.created_at || 0).getTime()
-  const bDate = new Date(b.scheduled_date || b.created_at || 0).getTime()
-  return bDate - aDate
+  return getOrderSortTime(b) - getOrderSortTime(a)
+}
+
+function sortOrdersOldest(a: Order, b: Order) {
+  return getOrderSortTime(a) - getOrderSortTime(b)
 }
 
 function ReadOnlyField({
@@ -492,7 +501,7 @@ export default function BinsPage() {
   async function loadOrders() {
     const { data, error } = await supabase
       .from('order')
-      .select('id,bin_id,old_bin_id,status,order_type,scheduled_date,service_address,pickup_address,dump_site_address,workflow_step,created_at')
+      .select('id,customer_name,bin_id,old_bin_id,status,order_type,scheduled_date,service_time,service_address,pickup_address,dump_site_address,workflow_step,created_at,updated_at')
 
     if (error) {
       setPageError(error.message)
@@ -769,7 +778,8 @@ export default function BinsPage() {
 
   const selectedBinOrders = useMemo(() => {
     if (!editingBin) return []
-    return [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest).slice(0, 20)
+    const latestTwenty = [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest).slice(0, 20)
+    return latestTwenty.sort(sortOrdersOldest)
   }, [editingBin, orders])
 
   return (
@@ -1171,13 +1181,16 @@ export default function BinsPage() {
                             <thead className="bg-slate-50">
                               <tr>
                                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                                  Date / Time
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                                  Company
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                                   Order Type
                                 </th>
                                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                                   Status
-                                </th>
-                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                                  Date
                                 </th>
                                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                                   Job Site
@@ -1191,13 +1204,16 @@ export default function BinsPage() {
                               {selectedBinOrders.map((order) => (
                                 <tr key={order.id}>
                                   <td className="px-4 py-3 text-sm text-slate-700">
+                                    {formatDateTime(order.updated_at || order.created_at)}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-slate-700">
+                                    {order.customer_name || '—'}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-slate-700">
                                     {order.order_type || '—'}
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-700">
                                     {formatStatus(order.status)}
-                                  </td>
-                                  <td className="px-4 py-3 text-sm text-slate-700">
-                                    {formatDate(order.scheduled_date)}
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-700">
                                     {order.service_address || order.pickup_address || '—'}
