@@ -121,6 +121,7 @@ const ORDER_STATUSES = [
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
+const ACTIVE_BIN_ORDER_STATUSES = ['unassigned', 'assigned', 'in_progress'] as const
 
 const statusClasses: Record<string, string> = {
   unassigned: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -620,6 +621,23 @@ function OrdersPageContent() {
     return linkedOrders.find((order) => order.bin_type)?.bin_type || ''
   }, [orders, form.old_bin_id])
 
+  function getActiveBinConflict(binId: string | null | undefined, currentOrderId?: string | null) {
+    if (!binId) return null
+
+    return (
+      orders.find((order) => {
+        if (currentOrderId && order.id === currentOrderId) return false
+        if (!ACTIVE_BIN_ORDER_STATUSES.includes((order.status || 'unassigned') as (typeof ACTIVE_BIN_ORDER_STATUSES)[number])) return false
+
+        return order.bin_id === binId || order.old_bin_id === binId
+      }) || null
+    )
+  }
+
+  function getConflictMessage(conflictOrder: Order) {
+    return `This bin is still linked to active order ${conflictOrder.ticket_number || conflictOrder.id.slice(0, 8)}. Finish that order first.`
+  }
+
   useEffect(() => {
     if (!form.old_bin_id) return
     if (
@@ -1012,6 +1030,14 @@ function OrdersPageContent() {
 
       const { payload, assignedBinId, releasedBinId } = await applyWorkflowAndBuildPayload()
 
+      const conflictIds = Array.from(new Set([payload.bin_id, payload.old_bin_id].filter(Boolean))) as string[]
+      for (const binId of conflictIds) {
+        const conflictOrder = getActiveBinConflict(binId, editingOrder?.id)
+        if (conflictOrder) {
+          throw new Error(getConflictMessage(conflictOrder))
+        }
+      }
+
       if (editingOrder) {
         const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', editingOrder.id)
         if (error) throw new Error(error.message)
@@ -1289,6 +1315,17 @@ function OrdersPageContent() {
     }
 
     setPageError('')
+
+    if (value === 'completed') {
+      const conflictIds = Array.from(new Set([order.bin_id, order.old_bin_id].filter(Boolean))) as string[]
+      for (const binId of conflictIds) {
+        const conflictOrder = getActiveBinConflict(binId, order.id)
+        if (conflictOrder) {
+          setPageError(getConflictMessage(conflictOrder))
+          return
+        }
+      }
+    }
 
     const updatePayload: Record<string, string | null> = { status: value }
     if (value === 'completed') {
