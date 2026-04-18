@@ -1101,7 +1101,6 @@ function OrdersPageContent() {
 
   async function createLinkedWorkflowOrders(order: Order) {
     const workflowStep = order.workflow_step || 'MAIN'
-    if (workflowStep !== 'MAIN') return
     if (order.order_type === 'DELIVERY') return
 
     if (
@@ -1112,6 +1111,8 @@ function OrdersPageContent() {
     }
 
     if (order.order_type === 'REMOVAL') {
+      if (workflowStep !== 'MAIN') return
+
       const dumpOrder = {
         ticket_number: generateTicketNumber(),
         customer_id: order.customer_id,
@@ -1142,6 +1143,8 @@ function OrdersPageContent() {
     }
 
     if (order.order_type === 'EXCHANGE') {
+      if (workflowStep !== 'MAIN') return
+
       const dumpOrder = {
         ticket_number: generateTicketNumber(),
         customer_id: order.customer_id,
@@ -1172,32 +1175,64 @@ function OrdersPageContent() {
     }
 
     if (order.order_type === 'DUMP RETURN') {
-      const returnOrder = {
-        ticket_number: generateTicketNumber(),
-        customer_id: order.customer_id,
-        customer_name: order.customer_name,
-        job_site_id: order.job_site_id || null,
-        pickup_address: order.dump_site_address,
-        service_address: order.service_address || order.pickup_address,
-        service_time: null,
-        service_window: null,
-        bin_id: order.bin_id,
-        old_bin_id: null,
-        dump_site_id: order.dump_site_id || null,
-        dump_site_address: order.dump_site_address || null,
-        parent_order_id: order.id,
-        workflow_step: 'RETURN',
-        bin_size: order.bin_size,
-        bin_type: order.bin_type,
-        order_type: 'DUMP RETURN',
-        driver_id: order.driver_id,
-        scheduled_date: order.scheduled_date,
-        status: 'assigned',
-        notes: `Auto-created return stop for dump return order ${order.ticket_number || order.id}`,
+      if (workflowStep === 'MAIN') {
+        const dumpOrder = {
+          ticket_number: generateTicketNumber(),
+          customer_id: order.customer_id,
+          customer_name: order.customer_name,
+          job_site_id: order.job_site_id || null,
+          pickup_address: order.service_address || order.pickup_address,
+          service_address: order.dump_site_address,
+          service_time: null,
+          service_window: null,
+          bin_id: order.bin_id,
+          old_bin_id: null,
+          dump_site_id: order.dump_site_id || null,
+          dump_site_address: order.dump_site_address || null,
+          parent_order_id: order.id,
+          workflow_step: 'DUMP',
+          bin_size: order.bin_size,
+          bin_type: order.bin_type,
+          order_type: 'DUMP RETURN',
+          driver_id: order.driver_id,
+          scheduled_date: order.scheduled_date,
+          status: 'assigned',
+          notes: `Auto-created dump stop for dump return order ${order.ticket_number || order.id}`,
+        }
+
+        const { error } = await supabase.from(TABLE_NAME).insert([dumpOrder])
+        if (error) throw new Error(error.message)
+        return
       }
 
-      const { error } = await supabase.from(TABLE_NAME).insert([returnOrder])
-      if (error) throw new Error(error.message)
+      if (workflowStep === 'DUMP') {
+        const returnOrder = {
+          ticket_number: generateTicketNumber(),
+          customer_id: order.customer_id,
+          customer_name: order.customer_name,
+          job_site_id: order.job_site_id || null,
+          pickup_address: order.dump_site_address,
+          service_address: order.pickup_address || order.service_address,
+          service_time: null,
+          service_window: null,
+          bin_id: order.bin_id,
+          old_bin_id: null,
+          dump_site_id: order.dump_site_id || null,
+          dump_site_address: order.dump_site_address || null,
+          parent_order_id: order.parent_order_id || order.id,
+          workflow_step: 'RETURN',
+          bin_size: order.bin_size,
+          bin_type: order.bin_type,
+          order_type: 'DUMP RETURN',
+          driver_id: order.driver_id,
+          scheduled_date: order.scheduled_date,
+          status: 'assigned',
+          notes: `Auto-created return stop for dump return order ${order.ticket_number || order.id}`,
+        }
+
+        const { error } = await supabase.from(TABLE_NAME).insert([returnOrder])
+        if (error) throw new Error(error.message)
+      }
     }
   }
 
@@ -1245,8 +1280,13 @@ function OrdersPageContent() {
             }
           }
 
-          if (workflowStep === 'DUMP' && order.bin_id) {
-            await releaseBin(order.bin_id)
+          if (workflowStep === 'DUMP') {
+            if (order.order_type === 'DUMP RETURN' && order.bin_id) {
+              await occupyBin(order.bin_id, order.service_address || order.pickup_address || null)
+              await createLinkedWorkflowOrders(order)
+            } else if (order.bin_id) {
+              await releaseBin(order.bin_id)
+            }
           }
 
           if (workflowStep === 'RETURN' && order.bin_id) {
@@ -1862,7 +1902,7 @@ function OrdersPageContent() {
 
                 {form.order_type === 'DUMP RETURN' && (
                   <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                    DUMP RETURN uses the same bin already at the client job site.
+                    DUMP RETURN uses the same bin already at the client job site. It goes to the dump site and returns to the same customer.
                   </div>
                 )}
 
