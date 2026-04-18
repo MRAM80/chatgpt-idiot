@@ -198,6 +198,36 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray
 }
 
+const ACTIVE_ORDER_STATUSES = ['unassigned', 'assigned', 'in_progress'] as const
+
+function getOrderTimeValue(order: Order) {
+  return new Date(order.updated_at || order.created_at || order.scheduled_date || 0).getTime()
+}
+
+function getPrimaryBinId(order: Order) {
+  return String(order.bin_id || order.old_bin_id || '')
+}
+
+function hasOpenPreviousOrder(currentOrder: Order, allOrders: Order[]) {
+  const currentBinId = getPrimaryBinId(currentOrder)
+  if (!currentBinId) return false
+
+  const currentTime = getOrderTimeValue(currentOrder)
+
+  return allOrders.some((order) => {
+    if (order.id === currentOrder.id) return false
+    if (!ACTIVE_ORDER_STATUSES.includes((order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number])) {
+      return false
+    }
+
+    const otherPrimaryBinId = getPrimaryBinId(order)
+    if (!otherPrimaryBinId) return false
+    if (otherPrimaryBinId !== currentBinId) return false
+
+    return getOrderTimeValue(order) < currentTime
+  })
+}
+
 export default function DriverPage() {
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
@@ -790,6 +820,12 @@ export default function DriverPage() {
       return
     }
 
+    if (nextStatus === 'completed' && hasOpenPreviousOrder(order, orders)) {
+      setPageError('Finish previous job before continuing.')
+      setSavingOrderId(null)
+      return
+    }
+
     const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
 
     if (isOffline) {
@@ -1119,11 +1155,27 @@ export default function DriverPage() {
 
                         <button
                           type="button"
-                          onClick={() => void updateOrderStatus(order.id, 'completed')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => {
+                            if (hasOpenPreviousOrder(order, orders)) {
+                              setPageError('Finish previous job before continuing.')
+                              return
+                            }
+                            void updateOrderStatus(order.id, 'completed')
+                          }}
+                          disabled={isSaving || hasOpenPreviousOrder(order, orders)}
+                          className={`inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            hasOpenPreviousOrder(order, orders)
+                              ? 'bg-slate-400'
+                              : 'bg-emerald-600 hover:opacity-90'
+                          }`}
                         >
-                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
+                          {hasOpenPreviousOrder(order, orders)
+                            ? 'Complete Blocked'
+                            : isSaving
+                              ? 'Saving...'
+                              : isOffline
+                                ? 'Complete Order (Queue)'
+                                : 'Complete Order'}
                         </button>
 
                         <button
