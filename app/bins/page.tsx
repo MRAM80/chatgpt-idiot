@@ -176,29 +176,32 @@ export default function BinsPage() {
   const type = latestActive.order_type || ''
   const serviceAddress = latestActive.service_address?.trim() || ''
   const pickupAddress = latestActive.pickup_address?.trim() || ''
+  const customerName = latestActive.customer_name?.trim() || ''
+
+  const jobSiteWithCompany = [serviceAddress || pickupAddress, customerName].filter(Boolean).join(' — ')
 
   if (type === 'DELIVERY') {
-    return serviceAddress || pickupAddress || 'Client Site'
+    return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
   }
 
   if (type === 'REMOVAL') {
-    return serviceAddress || pickupAddress || 'Client Site'
+    return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
   }
 
   if (type === 'EXCHANGE') {
     if (latestActive.bin_id === bin.id) {
-      return serviceAddress || pickupAddress || 'Client Site'
+      return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
     }
     if (latestActive.old_bin_id === bin.id) {
-      return serviceAddress || pickupAddress || 'Client Site'
+      return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
     }
   }
 
   if (type === 'DUMP RETURN') {
-    return serviceAddress || pickupAddress || 'Client Site'
+    return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
   }
 
-  return serviceAddress || pickupAddress || 'On Service'
+  return jobSiteWithCompany || serviceAddress || pickupAddress || 'On Service'
 }
 
   function getBinServiceState(bin: Bin, currentOrders: Order[] = orders) {
@@ -709,6 +712,13 @@ export default function BinsPage() {
                 Back to Dashboard
               </Link>
 
+              <Link
+                href="/dispatch"
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Dispatch Board
+              </Link>
+
               <button
                 onClick={refreshAll}
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -866,11 +876,6 @@ export default function BinsPage() {
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
                           <div>{state.nextLocation || 'Yard'}</div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {state.nextStatus === 'available'
-                              ? 'Ready for new service'
-                              : 'Not available for new service'}
-                          </div>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -906,9 +911,10 @@ export default function BinsPage() {
         <div className="mt-6 flex justify-center">
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            Top
+            <span>↑</span>
+            <span>Top</span>
           </button>
         </div>
       </div>
@@ -1107,7 +1113,7 @@ export default function BinsPage() {
                               {selectedBinOrders.map((order) => (
                                 <tr key={order.id}>
                                   <td className="px-4 py-3 text-sm text-slate-700">
-                                    {formatDateTime(order.updated_at || order.created_at)}
+                                    {formatDateTime(order.updated_at || order.created_at || order.scheduled_date || null)}
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-700">
                                     {order.customer_name || '—'}
