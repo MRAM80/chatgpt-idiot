@@ -112,6 +112,13 @@ function normalizeBinNumber(value: string) {
   return value.trim().replace(/\s+/g, ' ').toUpperCase()
 }
 
+function formatDriverOperationalStatus(status: string | null | undefined) {
+  if (!status) return ''
+  if (status === 'heading_back') return 'Heading Back'
+  if (status === 'parked') return 'Parked'
+  return ''
+}
+
 function getOrderAddress(order: Order) {
   return order.service_address || order.pickup_address || ''
 }
@@ -963,9 +970,23 @@ export default function DriverPage() {
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              {driver?.name || 'Driver'}
-            </h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                {driver?.name || 'Driver'}
+              </h1>
+
+              {driver?.status === 'heading_back' ? (
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                  HB
+                </span>
+              ) : null}
+
+              {driver?.status === 'parked' ? (
+                <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                  Parked
+                </span>
+              ) : null}
+            </div>
 
             <button
               type="button"
@@ -979,6 +1000,18 @@ export default function DriverPage() {
           {pageError ? (
             <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {pageError}
+            </div>
+          ) : null}
+
+          {driver?.status === 'heading_back' ? (
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+              Dispatcher message: Head back.
+            </div>
+          ) : null}
+
+          {driver?.status === 'parked' ? (
+            <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
+              Dispatcher message: Park and finish for today.
             </div>
           ) : null}
         </div>
