@@ -170,50 +170,36 @@ export default function BinsPage() {
   }
 
   function getActiveLocationForBin(bin: Bin, activeOrders: Order[]) {
-    if (activeOrders.length === 0) return null
+  if (activeOrders.length === 0) return null
 
-    const latestActive = [...activeOrders].sort(sortOrdersNewest)[0]
-    const type = latestActive.order_type || ''
-    const workflowStep = latestActive.workflow_step || 'MAIN'
-    const serviceAddress = latestActive.service_address?.trim() || ''
-    const pickupAddress = latestActive.pickup_address?.trim() || ''
-    const dumpSiteAddress = latestActive.dump_site_address?.trim() || ''
+  const latestActive = [...activeOrders].sort(sortOrdersNewest)[0]
+  const type = latestActive.order_type || ''
+  const serviceAddress = latestActive.service_address?.trim() || ''
+  const pickupAddress = latestActive.pickup_address?.trim() || ''
 
-    if (type === 'DELIVERY') {
-      return serviceAddress || pickupAddress || 'Client Site'
-    }
-
-    if (type === 'REMOVAL') {
-      if (workflowStep === 'DUMP') {
-        return dumpSiteAddress || serviceAddress || 'Dump Site'
-      }
-      return serviceAddress || pickupAddress || 'Client Site'
-    }
-
-    if (type === 'EXCHANGE') {
-      if (latestActive.bin_id === bin.id) {
-        return serviceAddress || pickupAddress || 'Client Site'
-      }
-      if (latestActive.old_bin_id === bin.id) {
-        if (workflowStep === 'DUMP') {
-          return dumpSiteAddress || serviceAddress || 'Dump Site'
-        }
-        return serviceAddress || pickupAddress || 'Client Site'
-      }
-    }
-
-    if (type === 'DUMP RETURN') {
-      if (workflowStep === 'DUMP') {
-        return dumpSiteAddress || serviceAddress || 'Dump Site'
-      }
-      if (workflowStep === 'RETURN') {
-        return serviceAddress || pickupAddress || 'Client Site'
-      }
-      return serviceAddress || pickupAddress || 'Client Site'
-    }
-
-    return serviceAddress || pickupAddress || 'On Service'
+  if (type === 'DELIVERY') {
+    return serviceAddress || pickupAddress || 'Client Site'
   }
+
+  if (type === 'REMOVAL') {
+    return serviceAddress || pickupAddress || 'Client Site'
+  }
+
+  if (type === 'EXCHANGE') {
+    if (latestActive.bin_id === bin.id) {
+      return serviceAddress || pickupAddress || 'Client Site'
+    }
+    if (latestActive.old_bin_id === bin.id) {
+      return serviceAddress || pickupAddress || 'Client Site'
+    }
+  }
+
+  if (type === 'DUMP RETURN') {
+    return serviceAddress || pickupAddress || 'Client Site'
+  }
+
+  return serviceAddress || pickupAddress || 'On Service'
+}
 
   function getBinServiceState(bin: Bin, currentOrders: Order[] = orders) {
     if ((bin.status || 'available') === 'maintenance') {
@@ -240,61 +226,10 @@ export default function BinsPage() {
       }
     }
 
-    const removalDumpCompleted = linkedOrders
-      .filter(
-        (order) =>
-          order.order_type === 'REMOVAL' &&
-          (order.workflow_step || 'MAIN') === 'DUMP' &&
-          order.bin_id === bin.id &&
-          isClosedOrder(order)
-      )
-      .sort(sortOrdersNewest)[0]
-
-    if (removalDumpCompleted) {
-      return {
-        nextStatus: 'available',
-        nextLocation:
-          removalDumpCompleted.service_address?.trim() ||
-          removalDumpCompleted.dump_site_address?.trim() ||
-          bin.location ||
-          'Dump Site',
-        latestOrder: removalDumpCompleted,
-        totalOrders: linkedOrders.length,
-        activeOrders: 0,
-      }
-    }
-
-    const exchangeOldBinDumpCompleted = linkedOrders
-      .filter(
-        (order) =>
-          order.order_type === 'EXCHANGE' &&
-          (order.workflow_step || 'DUMP') === 'DUMP' &&
-          order.bin_id === bin.id &&
-          isClosedOrder(order)
-      )
-      .sort(sortOrdersNewest)[0]
-
-    if (exchangeOldBinDumpCompleted) {
-      return {
-        nextStatus: 'available',
-        nextLocation:
-          exchangeOldBinDumpCompleted.service_address?.trim() ||
-          exchangeOldBinDumpCompleted.dump_site_address?.trim() ||
-          bin.location ||
-          'Dump Site',
-        latestOrder: exchangeOldBinDumpCompleted,
-        totalOrders: linkedOrders.length,
-        activeOrders: 0,
-      }
-    }
-
     if (latestOrder && isClosedOrder(latestOrder)) {
       const type = latestOrder.order_type || ''
-      const workflowStep = latestOrder.workflow_step || 'MAIN'
       const siteAddress =
         latestOrder.service_address?.trim() || latestOrder.pickup_address?.trim() || 'Client Site'
-      const dumpSiteAddress =
-        latestOrder.dump_site_address?.trim() || latestOrder.service_address?.trim() || 'Dump Site'
 
       if (type === 'DELIVERY' && latestOrder.bin_id === bin.id) {
         return {
@@ -306,20 +241,10 @@ export default function BinsPage() {
         }
       }
 
-      if (type === 'DUMP RETURN' && latestOrder.bin_id === bin.id) {
-        if (workflowStep === 'DUMP') {
-          return {
-            nextStatus: 'in_use',
-            nextLocation: dumpSiteAddress,
-            latestOrder,
-            totalOrders: linkedOrders.length,
-            activeOrders: 0,
-          }
-        }
-
+      if (type === 'REMOVAL' && latestOrder.old_bin_id === bin.id) {
         return {
-          nextStatus: 'in_use',
-          nextLocation: siteAddress,
+          nextStatus: 'available',
+          nextLocation: 'Yard',
           latestOrder,
           totalOrders: linkedOrders.length,
           activeOrders: 0,
@@ -338,19 +263,9 @@ export default function BinsPage() {
         }
 
         if (latestOrder.old_bin_id === bin.id) {
-          if (workflowStep === 'DUMP') {
-            return {
-              nextStatus: 'available',
-              nextLocation: dumpSiteAddress,
-              latestOrder,
-              totalOrders: linkedOrders.length,
-              activeOrders: 0,
-            }
-          }
-
           return {
-            nextStatus: 'in_use',
-            nextLocation: dumpSiteAddress,
+            nextStatus: 'available',
+            nextLocation: 'Yard',
             latestOrder,
             totalOrders: linkedOrders.length,
             activeOrders: 0,
@@ -358,20 +273,10 @@ export default function BinsPage() {
         }
       }
 
-      if (type === 'REMOVAL' && latestOrder.old_bin_id === bin.id) {
-        if (workflowStep === 'DUMP') {
-          return {
-            nextStatus: 'available',
-            nextLocation: dumpSiteAddress,
-            latestOrder,
-            totalOrders: linkedOrders.length,
-            activeOrders: 0,
-          }
-        }
-
+      if (type === 'DUMP RETURN' && latestOrder.bin_id === bin.id) {
         return {
           nextStatus: 'in_use',
-          nextLocation: dumpSiteAddress,
+          nextLocation: siteAddress,
           latestOrder,
           totalOrders: linkedOrders.length,
           activeOrders: 0,
@@ -797,6 +702,13 @@ export default function BinsPage() {
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Back to Dashboard
+              </Link>
+
               <button
                 onClick={refreshAll}
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -820,12 +732,6 @@ export default function BinsPage() {
               {pageError}
             </div>
           ) : null}
-
-          {!isAdmin && (
-            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-              Dispatcher view: bin details are visible, but create, edit, delete, and manual status changes are admin-only.
-            </div>
-          )}
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -998,12 +904,12 @@ export default function BinsPage() {
         </div>
 
         <div className="mt-6 flex justify-center">
-          <Link
-            href="/dashboard"
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            Back to Dashboard
-          </Link>
+            Top
+          </button>
         </div>
       </div>
 
@@ -1195,9 +1101,6 @@ export default function BinsPage() {
                                 <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                                   Job Site
                                 </th>
-                                <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                                  Role
-                                </th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 bg-white">
@@ -1217,13 +1120,6 @@ export default function BinsPage() {
                                   </td>
                                   <td className="px-4 py-3 text-sm text-slate-700">
                                     {order.service_address || order.pickup_address || '—'}
-                                  </td>
-                                  <td className="px-4 py-3 text-sm text-slate-700">
-                                    {order.bin_id === editingBin.id
-                                      ? 'Service Bin'
-                                      : order.old_bin_id === editingBin.id
-                                        ? 'Picked Up Bin'
-                                        : 'Linked'}
                                   </td>
                                 </tr>
                               ))}
