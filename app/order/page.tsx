@@ -587,39 +587,61 @@ function OrdersPageContent() {
     const jobSite = normalizeAddress(form.pickup_address)
     if (!jobSite) return []
 
-    const linkedBinIds = new Set<string>()
-
-    for (const order of orders) {
-      const orderAddress = normalizeAddress(order.service_address || order.pickup_address)
-      if (orderAddress !== jobSite) continue
-      if (order.bin_id) linkedBinIds.add(order.bin_id)
-      if (order.old_bin_id) linkedBinIds.add(order.old_bin_id)
-    }
-
-    const combined = bins.filter((bin) => {
-      const byLocation = normalizeAddress(bin.location) === jobSite
-      const byOrderHistory = linkedBinIds.has(bin.id)
-      return byLocation || byOrderHistory
+    return bins.filter((bin) => {
+      const sameLocation = normalizeAddress(bin.location) === jobSite
+      const onHoldAtSite = sameLocation && (bin.status || '') === 'in_use'
+      return onHoldAtSite
     })
-
-    const uniqueMap = new Map<string, Bin>()
-    for (const bin of combined) uniqueMap.set(bin.id, bin)
-    return Array.from(uniqueMap.values())
-  }, [bins, orders, form.pickup_address])
+  }, [bins, form.pickup_address])
 
   const jobSiteExistingBins = useMemo(() => {
-    return binsAtSelectedJobSite.filter((bin) => {
-      if (form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL') {
-        return (
-          bin.status === 'in_use' ||
-          normalizeAddress(bin.location) === normalizeAddress(form.pickup_address)
-        )
-      }
+    if (form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL' || form.order_type === 'DUMP RETURN') {
+      return binsAtSelectedJobSite
+    }
 
-      if (form.order_type === 'DUMP RETURN') return true
-      return false
+    return []
+  }, [binsAtSelectedJobSite, form.order_type])
+
+  const selectedExistingJobSiteBin = useMemo(() => {
+    return jobSiteExistingBins.find((bin) => bin.id === form.old_bin_id) || null
+  }, [jobSiteExistingBins, form.old_bin_id])
+
+  const selectedExistingBinMaterial = useMemo(() => {
+    if (!form.old_bin_id) return ''
+
+    const linkedOrders = orders
+      .filter((order) => order.bin_id === form.old_bin_id || order.old_bin_id === form.old_bin_id)
+      .sort((a, b) => {
+        const aTime = new Date(a.updated_at || a.created_at || a.scheduled_date || 0).getTime()
+        const bTime = new Date(b.updated_at || b.created_at || b.scheduled_date || 0).getTime()
+        return bTime - aTime
+      })
+
+    return linkedOrders.find((order) => order.bin_type)?.bin_type || ''
+  }, [orders, form.old_bin_id])
+
+  useEffect(() => {
+    if (!form.old_bin_id) return
+    if (
+      form.order_type !== 'REMOVAL' &&
+      form.order_type !== 'DUMP RETURN' &&
+      form.order_type !== 'EXCHANGE'
+    ) {
+      return
+    }
+
+    setForm((prev) => {
+      const nextBinSize = selectedExistingJobSiteBin?.bin_size || prev.bin_size
+      const nextBinType = selectedExistingBinMaterial || prev.bin_type
+
+      return {
+        ...prev,
+        bin_size: nextBinSize,
+        bin_type: nextBinType,
+        bin_id: prev.order_type === 'DUMP RETURN' ? prev.old_bin_id : prev.bin_id,
+      }
     })
-  }, [binsAtSelectedJobSite, form.order_type, form.pickup_address])
+  }, [form.old_bin_id, form.order_type, selectedExistingJobSiteBin, selectedExistingBinMaterial])
 
   function getCompletedByLabel() {
     if (!currentUser) return 'System'
@@ -703,6 +725,30 @@ function OrdersPageContent() {
       pickup_address: address,
     }))
   }
+
+  useEffect(() => {
+    if (
+      form.order_type !== 'REMOVAL' &&
+      form.order_type !== 'DUMP RETURN' &&
+      form.order_type !== 'EXCHANGE'
+    ) {
+      return
+    }
+
+    if (jobSiteExistingBins.length !== 1) return
+    if (form.old_bin_id) return
+
+    const onlyBin = jobSiteExistingBins[0]
+
+    setForm((prev) => ({
+      ...prev,
+      old_bin_id: onlyBin.id,
+      bin_id: prev.order_type === 'DUMP RETURN' ? onlyBin.id : prev.bin_id,
+      bin_size: onlyBin.bin_size || prev.bin_size,
+      bin_type: selectedExistingBinMaterial || prev.bin_type,
+    }))
+  }, [form.order_type, form.old_bin_id, jobSiteExistingBins])
+
 
   async function ensureJobSiteForOrder(customerId: string, address: string) {
     const trimmedAddress = address.trim()
@@ -1828,19 +1874,32 @@ function OrdersPageContent() {
                       </label>
                       <select
                         value={form.old_bin_id}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const selectedId = e.target.value
+                          const selectedBin = jobSiteExistingBins.find((bin) => bin.id === selectedId) || null
+                          const linkedOrders = orders
+                            .filter((order) => order.bin_id === selectedId || order.old_bin_id === selectedId)
+                            .sort((a, b) => {
+                              const aTime = new Date(a.updated_at || a.created_at || a.scheduled_date || 0).getTime()
+                              const bTime = new Date(b.updated_at || b.created_at || b.scheduled_date || 0).getTime()
+                              return bTime - aTime
+                            })
+                          const latestBinType = linkedOrders.find((order) => order.bin_type)?.bin_type || ''
+
                           setForm((prev) => ({
                             ...prev,
-                            old_bin_id: e.target.value,
-                            bin_id: prev.order_type === 'DUMP RETURN' ? e.target.value : prev.bin_id,
+                            old_bin_id: selectedId,
+                            bin_id: prev.order_type === 'DUMP RETURN' ? selectedId : prev.bin_id,
+                            bin_size: selectedBin?.bin_size || prev.bin_size,
+                            bin_type: latestBinType || prev.bin_type,
                           }))
-                        }
+                        }}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       >
                         <option value="">Select bin from this Job Site</option>
                         {jobSiteExistingBins.map((bin) => (
                           <option key={bin.id} value={bin.id}>
-                            {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y{bin.location ? ` • ${bin.location}` : ''}
+                            {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y • {bin.location || 'Job Site'}
                           </option>
                         ))}
                       </select>
@@ -1902,7 +1961,7 @@ function OrdersPageContent() {
 
                 {form.order_type === 'DUMP RETURN' && (
                   <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                    DUMP RETURN uses the same bin already at the client job site. It goes to the dump site and returns to the same customer.
+                    DUMP RETURN uses the same bin already on hold at this Job Site. Bin size and material are filled automatically from that bin.
                   </div>
                 )}
 
