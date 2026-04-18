@@ -39,6 +39,8 @@ type Order = {
   service_window?: string | null
   bin_id: string | number | null
   old_bin_id: string | number | null
+  dump_site_id?: string | null
+  dump_site_address?: string | null
   bin_size: string | number | null
   bin_type: string | null
   order_type: string | null
@@ -457,6 +459,8 @@ export default function DriverPage() {
         service_window,
         bin_id,
         old_bin_id,
+        dump_site_id,
+        dump_site_address,
         bin_size,
         bin_type,
         order_type,
@@ -1078,6 +1082,17 @@ export default function DriverPage() {
                           </div>
                         ) : null}
                       </div>
+
+                      {order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN' ? (
+                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Dump Site
+                          </div>
+                          <div className="mt-2 text-sm text-slate-900">
+                            {displayValue(order.dump_site_address)}
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
