@@ -244,7 +244,11 @@ export default function BinsPage() {
     if (removalDumpCompleted) {
       return {
         nextStatus: 'available',
-        nextLocation: 'Yard',
+        nextLocation:
+          removalDumpCompleted.service_address?.trim() ||
+          removalDumpCompleted.dump_site_address?.trim() ||
+          bin.location ||
+          'Dump Site',
         latestOrder: removalDumpCompleted,
         totalOrders: linkedOrders.length,
         activeOrders: 0,
@@ -255,7 +259,7 @@ export default function BinsPage() {
       .filter(
         (order) =>
           order.order_type === 'EXCHANGE' &&
-          (order.workflow_step || 'MAIN') === 'DUMP' &&
+          (order.workflow_step || 'DUMP') === 'DUMP' &&
           order.bin_id === bin.id &&
           isClosedOrder(order)
       )
@@ -264,7 +268,11 @@ export default function BinsPage() {
     if (exchangeOldBinDumpCompleted) {
       return {
         nextStatus: 'available',
-        nextLocation: 'Yard',
+        nextLocation:
+          exchangeOldBinDumpCompleted.service_address?.trim() ||
+          exchangeOldBinDumpCompleted.dump_site_address?.trim() ||
+          bin.location ||
+          'Dump Site',
         latestOrder: exchangeOldBinDumpCompleted,
         totalOrders: linkedOrders.length,
         activeOrders: 0,
@@ -276,7 +284,8 @@ export default function BinsPage() {
       const workflowStep = latestOrder.workflow_step || 'MAIN'
       const siteAddress =
         latestOrder.service_address?.trim() || latestOrder.pickup_address?.trim() || 'Client Site'
-      const dumpSiteAddress = latestOrder.dump_site_address?.trim() || 'Dump Site'
+      const dumpSiteAddress =
+        latestOrder.dump_site_address?.trim() || latestOrder.service_address?.trim() || 'Dump Site'
 
       if (type === 'DELIVERY' && latestOrder.bin_id === bin.id) {
         return {
@@ -320,10 +329,19 @@ export default function BinsPage() {
         }
 
         if (latestOrder.old_bin_id === bin.id) {
+          if (workflowStep === 'DUMP') {
+            return {
+              nextStatus: 'available',
+              nextLocation: dumpSiteAddress,
+              latestOrder,
+              totalOrders: linkedOrders.length,
+              activeOrders: 0,
+            }
+          }
+
           return {
             nextStatus: 'in_use',
-            nextLocation:
-              workflowStep === 'DUMP' ? 'Yard' : (dumpSiteAddress || 'Dump / Return to Yard'),
+            nextLocation: dumpSiteAddress,
             latestOrder,
             totalOrders: linkedOrders.length,
             activeOrders: 0,
@@ -332,9 +350,19 @@ export default function BinsPage() {
       }
 
       if (type === 'REMOVAL' && latestOrder.old_bin_id === bin.id) {
+        if (workflowStep === 'DUMP') {
+          return {
+            nextStatus: 'available',
+            nextLocation: dumpSiteAddress,
+            latestOrder,
+            totalOrders: linkedOrders.length,
+            activeOrders: 0,
+          }
+        }
+
         return {
-          nextStatus: workflowStep === 'DUMP' ? 'available' : 'in_use',
-          nextLocation: workflowStep === 'DUMP' ? 'Yard' : (dumpSiteAddress || 'Dump / Return to Yard'),
+          nextStatus: 'in_use',
+          nextLocation: dumpSiteAddress,
           latestOrder,
           totalOrders: linkedOrders.length,
           activeOrders: 0,
@@ -342,12 +370,9 @@ export default function BinsPage() {
       }
     }
 
-    const normalizedLocation = (bin.location || '').trim().toLowerCase()
-    const isInYard = normalizedLocation === '' || normalizedLocation === 'yard'
-
     return {
-      nextStatus: isInYard ? 'available' : 'in_use',
-      nextLocation: isInYard ? 'Yard' : bin.location || 'Client Site',
+      nextStatus: bin.status || 'available',
+      nextLocation: bin.location || 'Yard',
       latestOrder,
       totalOrders: linkedOrders.length,
       activeOrders: 0,
@@ -715,16 +740,6 @@ export default function BinsPage() {
       return
     }
 
-    const currentLocation = (bin.location || '').trim()
-    const canBecomeAvailable = currentLocation.toLowerCase() === 'yard'
-
-    if (value === 'available' && !canBecomeAvailable) {
-      window.alert(
-        'A bin can only become Available when it is back in the Yard.'
-      )
-      return
-    }
-
     setPageError('')
 
     const updatePayload: { status: string; location?: string | null } = {
@@ -732,7 +747,7 @@ export default function BinsPage() {
     }
 
     if (value === 'available') {
-      updatePayload.location = 'Yard'
+      updatePayload.location = bin.location || 'Yard'
     }
 
     const { error } = await supabase
@@ -814,7 +829,7 @@ export default function BinsPage() {
 
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                Available In Yard
+                Available
               </div>
               <div className="mt-2 text-2xl font-bold text-emerald-900">
                 {dashboardCounts.available}
@@ -937,7 +952,7 @@ export default function BinsPage() {
                           <div>{state.nextLocation || 'Yard'}</div>
                           <div className="mt-1 text-xs text-slate-500">
                             {state.nextStatus === 'available'
-                              ? 'Ready in yard'
+                              ? 'Ready for new service'
                               : 'Not available for new service'}
                           </div>
                         </td>
@@ -1084,7 +1099,7 @@ export default function BinsPage() {
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      A bin is only truly available when it is back in the <strong>Yard</strong>.
+                      A bin can be available for a new order from its current location.
                     </div>
                   </div>
 
@@ -1210,7 +1225,7 @@ export default function BinsPage() {
                           onClick={() => handleQuickStatus(editingBin, 'available')}
                           className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                         >
-                          Return to Yard
+                          Mark Available
                         </button>
 
                         <button
