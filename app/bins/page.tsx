@@ -917,7 +917,7 @@ export default function BinsPage() {
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            <span className="text-base font-extrabold leading-none">↑</span>
+            <span className="text-lg font-black leading-none">↑</span>
             <span>Top</span>
           </button>
         </div>
@@ -1063,7 +1063,7 @@ export default function BinsPage() {
                       value={
                         (selectedBinState?.nextStatus || editingBin.status || 'available') === 'available'
                           ? (selectedBinState?.nextLocation || editingBin.location || 'Yard')
-                          : (((selectedBinState?.nextLocation || editingBin.location || 'Client Site').split(' — ').slice(1).join(' — ')) || (selectedBinState?.nextLocation || editingBin.location || 'Client Site'))
+                          : ((((selectedBinState?.nextLocation || editingBin.location || 'Client Site').split(' — ').slice(1).join(' — ')) || 'Client Site'))
                       }
                       className="md:col-span-2"
                     />
