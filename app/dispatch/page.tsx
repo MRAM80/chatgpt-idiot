@@ -59,6 +59,20 @@ const statusStyles: Record<string, string> = {
   issue: 'border-rose-200 bg-rose-50 text-rose-700',
 }
 
+const driverStatusStyles: Record<string, string> = {
+  available: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  busy: 'border-amber-200 bg-amber-50 text-amber-700',
+  heading_back: 'border-blue-200 bg-blue-50 text-blue-700',
+  parked: 'border-slate-300 bg-slate-100 text-slate-700',
+}
+
+function formatDriverStatus(status: string | null | undefined) {
+  if (!status) return 'Available'
+  if (status === 'heading_back') return 'HB'
+  if (status === 'parked') return 'Parked'
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
 function getWorkflowLabel(step?: string | null) {
   if (step === 'DUMP') return { label: 'Dump Site', color: 'bg-orange-100 text-orange-700' }
   if (step === 'RETURN') return { label: 'Return', color: 'bg-blue-100 text-blue-700' }
@@ -337,6 +351,30 @@ export default function DispatchBoardPage() {
     }
   }
 
+  async function setDriverOperationalStatus(driverId: string, nextStatus: 'heading_back' | 'parked') {
+    setPageError('')
+
+    const { error } = await supabase
+      .from('drivers')
+      .update({ status: nextStatus })
+      .eq('id', driverId)
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    setDrivers((current) =>
+      current.map((driver) => (driver.id === driverId ? { ...driver, status: nextStatus } : driver))
+    )
+
+    await loadDrivers()
+  }
+
+  function formatDeliveryTime(order: Order) {
+    return order.service_time || order.service_window || '—'
+  }
+
   async function normalizeRoutePositionsForDriver(driverId: string) {
     const driverOrders = orders
       .filter((order) => order.driver_id === driverId)
@@ -495,7 +533,7 @@ export default function DispatchBoardPage() {
     return boardColumns.reduce<Record<string, Order[]>>((acc, column) => {
       const matchingOrders = filteredOrders.filter((order) => {
         if (column.key === 'unassigned') return !order.driver_id
-        return order.driver_id === column.key
+        return order.driver_id === column.key && order.status !== 'completed'
       })
 
       acc[column.key] = [...matchingOrders].sort((a, b) => {
@@ -765,14 +803,49 @@ export default function DispatchBoardPage() {
                           {column.label}
                         </h2>
 
-                        <div className="mt-2 text-xs text-slate-500">
-                          {column.key === 'unassigned' ? 'Waiting for driver' : 'Route for today'}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <span>
+                            {column.key === 'unassigned' ? 'Waiting for driver' : 'Route for today'}
+                          </span>
+
+                          {column.type === 'driver' ? (
+                            <span
+                              className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                driverStatusStyles[driverMap[column.key]?.status || 'available'] || driverStatusStyles.available
+                              }`}
+                            >
+                              {formatDriverStatus(driverMap[column.key]?.status)}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
 
-                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                        {columnOrders.length}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {column.type === 'driver' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(column.key, 'heading_back')}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 transition hover:bg-blue-100"
+                              title="Heading Back"
+                            >
+                              HB
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(column.key, 'parked')}
+                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 transition hover:bg-slate-100"
+                              title="Park"
+                            >
+                              Park
+                            </button>
+                          </>
+                        ) : null}
+
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                          {columnOrders.length}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -848,14 +921,34 @@ export default function DispatchBoardPage() {
                                   ) : null}
                                 </div>
 
-                              <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                  Destination
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                    Destination
+                                  </div>
+                                  <div className="mt-1 line-clamp-2 text-sm text-slate-700">
+                                    {order.workflow_step === 'DUMP'
+                                      ? order.dump_site_address || 'No dump site address'
+                                      : order.service_address || 'No service address'}
+                                  </div>
                                 </div>
-                                <div className="mt-1 line-clamp-2 text-sm text-slate-700">
-                                  {order.workflow_step === 'DUMP'
-                                    ? order.dump_site_address || 'No dump site address'
-                                    : order.service_address || 'No service address'}
+
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                    Bin Size
+                                  </div>
+                                  <div className="mt-1 text-sm text-slate-700">
+                                    {displayValue(order.bin_size)}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                    Time of Delivery
+                                  </div>
+                                  <div className="mt-1 text-sm text-slate-700">
+                                    {displayValue(formatDeliveryTime(order))}
+                                  </div>
                                 </div>
                               </div>
 
