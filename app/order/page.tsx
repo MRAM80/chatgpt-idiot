@@ -185,8 +185,15 @@ function formatStatus(status: string | null | undefined) {
 
 function formatDate(date: string | null) {
   if (!date) return '—'
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
+
+   const parts = String(date).slice(0, 10).split('-')
+  if (parts.length !== 3) return String(date)
+
+  const [year, month, day] = parts.map(Number)
+  const parsed = new Date(year, month - 1, day)
+
+  if (Number.isNaN(parsed.getTime())) return String(date)
+
   return parsed.toLocaleDateString()
 }
 

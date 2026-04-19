@@ -53,17 +53,38 @@ function formatStatus(status: string | null | undefined) {
     .join(' ')
 }
 
+function parseDateSafely(value: string | null | undefined) {
+  if (!value) return null
+
+  const normalized = String(value).trim()
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const [year, month, day] = normalized.split('-').map(Number)
+    const parsed = new Date(year, month - 1, day)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  const parsed = new Date(normalized)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
 function formatDate(date: string | null) {
   if (!date) return '—'
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
-  return parsed.toLocaleDateString()
+  const parsed = parseDateSafely(date)
+  if (!parsed) return date
+
+  return parsed.toLocaleDateString([], {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
 }
 
 function formatDateTime(date: string | null) {
   if (!date) return '—'
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return date
+  const parsed = parseDateSafely(date)
+  if (!parsed) return date
+
   return parsed.toLocaleString([], {
     year: 'numeric',
     month: 'numeric',
@@ -74,15 +95,33 @@ function formatDateTime(date: string | null) {
 }
 
 function getOrderSortTime(order: Order) {
-  return new Date(order.updated_at || order.created_at || order.scheduled_date || 0).getTime()
+  const updated = parseDateSafely(order.updated_at || null)?.getTime()
+  if (typeof updated === 'number' && !Number.isNaN(updated)) return updated
+
+  const created = parseDateSafely(order.created_at || null)?.getTime()
+  if (typeof created === 'number' && !Number.isNaN(created)) return created
+
+  const scheduled = parseDateSafely(order.scheduled_date || null)?.getTime()
+  if (typeof scheduled === 'number' && !Number.isNaN(scheduled)) return scheduled
+
+  return 0
 }
 
 function sortOrdersNewest(a: Order, b: Order) {
   return getOrderSortTime(b) - getOrderSortTime(a)
 }
 
-function sortOrdersOldest(a: Order, b: Order) {
-  return getOrderSortTime(a) - getOrderSortTime(b)
+function formatRecentOrderLabel(order: Order | null) {
+  if (!order) return '—'
+
+  const pieces = [
+    order.customer_name || '',
+    order.order_type || '',
+    order.service_address || order.pickup_address || '',
+    formatDateTime(order.updated_at || order.created_at || order.scheduled_date || null),
+  ].filter(Boolean)
+
+  return pieces.join(' • ')
 }
 
 function ReadOnlyField({
@@ -106,6 +145,7 @@ function ReadOnlyField({
 
 export default function BinsPage() {
   const supabase = createClient()
+  const topAnchorRef = useRef<HTMLDivElement | null>(null)
 
   const [bins, setBins] = useState<Bin[]>([])
   const [orders, setOrders] = useState<Order[]>([])
@@ -169,46 +209,64 @@ export default function BinsPage() {
     )
   }
 
+  function getCurrentCompanyForBin(bin: Bin, activeOrders: Order[]) {
+    if (activeOrders.length === 0) return ''
+    const latestActive = [...activeOrders].sort(sortOrdersNewest)[0]
+    return latestActive.customer_name?.trim() || ''
+  }
+
+  function getLocationOnly(value: string | null | undefined) {
+    if (!value) return 'Yard'
+    return value.split(' — ')[0]?.trim() || value
+  }
+
+  function getCompanyOnly(value: string | null | undefined) {
+    if (!value) return '—'
+    const company = value.split(' — ').slice(1).join(' — ').trim()
+    return company || '—'
+  }
+
   function getActiveLocationForBin(bin: Bin, activeOrders: Order[]) {
-  if (activeOrders.length === 0) return null
+    if (activeOrders.length === 0) return null
 
-  const latestActive = [...activeOrders].sort(sortOrdersNewest)[0]
-  const type = latestActive.order_type || ''
-  const serviceAddress = latestActive.service_address?.trim() || ''
-  const pickupAddress = latestActive.pickup_address?.trim() || ''
-  const customerName = latestActive.customer_name?.trim() || ''
+    const latestActive = [...activeOrders].sort(sortOrdersNewest)[0]
+    const type = latestActive.order_type || ''
+    const serviceAddress = latestActive.service_address?.trim() || ''
+    const pickupAddress = latestActive.pickup_address?.trim() || ''
+    const customerName = latestActive.customer_name?.trim() || ''
 
-  const jobSiteWithCompany = [serviceAddress || pickupAddress, customerName].filter(Boolean).join(' — ')
+    const jobSiteWithCompany = [serviceAddress || pickupAddress, customerName].filter(Boolean).join(' — ')
 
-  if (type === 'DELIVERY') {
-    return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
-  }
-
-  if (type === 'REMOVAL') {
-    return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
-  }
-
-  if (type === 'EXCHANGE') {
-    if (latestActive.bin_id === bin.id) {
+    if (type === 'DELIVERY') {
       return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
     }
-    if (latestActive.old_bin_id === bin.id) {
+
+    if (type === 'REMOVAL') {
       return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
     }
-  }
 
-  if (type === 'DUMP RETURN') {
-    return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
-  }
+    if (type === 'EXCHANGE') {
+      if (latestActive.bin_id === bin.id) {
+        return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
+      }
+      if (latestActive.old_bin_id === bin.id) {
+        return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
+      }
+    }
 
-  return jobSiteWithCompany || serviceAddress || pickupAddress || 'On Service'
-}
+    if (type === 'DUMP RETURN') {
+      return jobSiteWithCompany || serviceAddress || pickupAddress || 'Client Site'
+    }
+
+    return jobSiteWithCompany || serviceAddress || pickupAddress || 'On Service'
+  }
 
   function getBinServiceState(bin: Bin, currentOrders: Order[] = orders) {
     if ((bin.status || 'available') === 'maintenance') {
       return {
         nextStatus: 'maintenance',
         nextLocation: bin.location || 'Yard',
+        nextCompany: '—',
         latestOrder: getLatestOrderForBinFromSet(bin.id, currentOrders),
         totalOrders: getOrdersForBinFromSet(bin.id, currentOrders).length,
         activeOrders: getActiveServiceOrdersForBinFromSet(bin.id, currentOrders).length,
@@ -220,9 +278,11 @@ export default function BinsPage() {
     const latestOrder = [...linkedOrders].sort(sortOrdersNewest)[0] || null
 
     if (activeServiceOrders.length > 0) {
+      const nextLocation = getActiveLocationForBin(bin, activeServiceOrders) || 'On Service'
       return {
         nextStatus: 'in_use',
-        nextLocation: getActiveLocationForBin(bin, activeServiceOrders) || 'On Service',
+        nextLocation,
+        nextCompany: getCurrentCompanyForBin(bin, activeServiceOrders) || getCompanyOnly(nextLocation),
         latestOrder,
         totalOrders: linkedOrders.length,
         activeOrders: activeServiceOrders.length,
@@ -233,11 +293,13 @@ export default function BinsPage() {
       const type = latestOrder.order_type || ''
       const siteAddress =
         latestOrder.service_address?.trim() || latestOrder.pickup_address?.trim() || 'Client Site'
+      const companyName = latestOrder.customer_name?.trim() || '—'
 
       if (type === 'DELIVERY' && latestOrder.bin_id === bin.id) {
         return {
           nextStatus: 'in_use',
           nextLocation: siteAddress,
+          nextCompany: companyName,
           latestOrder,
           totalOrders: linkedOrders.length,
           activeOrders: 0,
@@ -248,6 +310,7 @@ export default function BinsPage() {
         return {
           nextStatus: 'available',
           nextLocation: 'Yard',
+          nextCompany: '—',
           latestOrder,
           totalOrders: linkedOrders.length,
           activeOrders: 0,
@@ -259,6 +322,7 @@ export default function BinsPage() {
           return {
             nextStatus: 'in_use',
             nextLocation: siteAddress,
+            nextCompany: companyName,
             latestOrder,
             totalOrders: linkedOrders.length,
             activeOrders: 0,
@@ -269,6 +333,7 @@ export default function BinsPage() {
           return {
             nextStatus: 'available',
             nextLocation: 'Yard',
+            nextCompany: '—',
             latestOrder,
             totalOrders: linkedOrders.length,
             activeOrders: 0,
@@ -280,6 +345,7 @@ export default function BinsPage() {
         return {
           nextStatus: 'in_use',
           nextLocation: siteAddress,
+          nextCompany: companyName,
           latestOrder,
           totalOrders: linkedOrders.length,
           activeOrders: 0,
@@ -290,10 +356,18 @@ export default function BinsPage() {
     return {
       nextStatus: bin.status || 'available',
       nextLocation: bin.location || 'Yard',
+      nextCompany: '—',
       latestOrder,
       totalOrders: linkedOrders.length,
       activeOrders: 0,
     }
+  }
+
+  function scrollToTop() {
+    topAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    document.documentElement.scrollTo({ top: 0, behavior: 'smooth' })
+    document.body.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function loadCurrentUserRole() {
@@ -510,11 +584,15 @@ export default function BinsPage() {
     const query = search.trim().toLowerCase()
 
     return bins.filter((bin) => {
+      const state = getBinServiceState(bin)
+
       const matchesSearch =
         !query ||
         (bin.bin_number || '').toLowerCase().includes(query) ||
         (bin.bin_size || '').toLowerCase().includes(query) ||
-        (bin.location || '').toLowerCase().includes(query)
+        (bin.location || '').toLowerCase().includes(query) ||
+        (state.nextLocation || '').toLowerCase().includes(query) ||
+        (state.nextCompany || '').toLowerCase().includes(query)
 
       const matchesStatus =
         statusFilter === 'all' || (bin.status || 'available') === statusFilter
@@ -524,7 +602,7 @@ export default function BinsPage() {
 
       return matchesSearch && matchesStatus && matchesSize
     })
-  }, [bins, search, statusFilter, sizeFilter])
+  }, [bins, search, statusFilter, sizeFilter, orders])
 
   function openCreateModal() {
     if (!isAdmin) return
@@ -684,14 +762,19 @@ export default function BinsPage() {
     return getBinServiceState(editingBin)
   }, [editingBin, orders])
 
+  const selectedBinLatestOrder = useMemo(() => {
+    if (!editingBin) return null
+    return getLatestOrderForBin(editingBin.id)
+  }, [editingBin, orders])
+
   const selectedBinOrders = useMemo(() => {
     if (!editingBin) return []
-    const latestTwenty = [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest).slice(0, 20)
-    return latestTwenty.sort(sortOrdersOldest)
+    return [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest).slice(0, 20)
   }, [editingBin, orders])
 
   return (
     <div className="min-h-screen bg-slate-100">
+      <div ref={topAnchorRef} />
       <div className="mx-auto max-w-[92rem] p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -785,7 +868,7 @@ export default function BinsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search bin number, size, or location"
+              placeholder="Search bin number, size, location, or company"
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
@@ -828,7 +911,7 @@ export default function BinsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] divide-y divide-slate-200">
+              <table className="w-full min-w-[1160px] divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -839,6 +922,9 @@ export default function BinsPage() {
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Current Location
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                      Company
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       Order History
@@ -875,11 +961,11 @@ export default function BinsPage() {
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div>
-                            {state.nextStatus === 'available'
-                              ? (state.nextLocation || 'Yard')
-                              : ((state.nextLocation || 'Client Site').split(' — ').slice(1).join(' — ') || state.nextLocation || 'Client Site')}
-                          </div>
+                          {getLocationOnly(state.nextLocation || 'Yard')}
+                        </td>
+
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                          {state.nextStatus === 'available' ? '—' : (state.nextCompany || getCompanyOnly(state.nextLocation) || '—')}
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
@@ -914,11 +1000,11 @@ export default function BinsPage() {
 
         <div className="mt-6 flex justify-center">
           <button
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            onClick={scrollToTop}
+            className="inline-flex items-center justify-center gap-3 rounded-3xl border border-slate-200 bg-white px-6 py-4 text-base font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            <span className="text-lg font-black leading-none">↑</span>
-            <span>Top</span>
+            <span className="text-3xl font-extrabold leading-none text-slate-700">↑</span>
+            <span className="font-bold">Top</span>
           </button>
         </div>
       </div>
@@ -1060,12 +1146,15 @@ export default function BinsPage() {
 
                     <ReadOnlyField
                       label="Current Location"
+                      value={getLocationOnly(selectedBinState?.nextLocation || editingBin.location || 'Yard')}
+                    />
+                    <ReadOnlyField
+                      label="Company"
                       value={
                         (selectedBinState?.nextStatus || editingBin.status || 'available') === 'available'
-                          ? (selectedBinState?.nextLocation || editingBin.location || 'Yard')
-                          : ((((selectedBinState?.nextLocation || editingBin.location || 'Client Site').split(' — ').slice(1).join(' — ')) || 'Client Site'))
+                          ? '—'
+                          : (selectedBinState?.nextCompany || getCompanyOnly(selectedBinState?.nextLocation || editingBin.location || '') || '—')
                       }
-                      className="md:col-span-2"
                     />
 
                     <ReadOnlyField
@@ -1084,6 +1173,12 @@ export default function BinsPage() {
                     <ReadOnlyField
                       label="Order History Count"
                       value={String(selectedBinState?.totalOrders || 0)}
+                    />
+
+                    <ReadOnlyField
+                      label="Most Recent Order"
+                      value={formatRecentOrderLabel(selectedBinLatestOrder)}
+                      className="md:col-span-2"
                     />
 
                     <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white">
