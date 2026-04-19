@@ -126,6 +126,19 @@ function notifyInApp(title: string, body: string) {
   if (Notification.permission !== 'granted') return
 
   try {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready
+        .then((registration) => registration.showNotification(title, { body }))
+        .catch(() => {
+          try {
+            new Notification(title, { body })
+          } catch {
+            // keep page usable
+          }
+        })
+      return
+    }
+
     new Notification(title, { body })
   } catch {
     // keep page usable
@@ -786,6 +799,16 @@ export default function DriverPage() {
   useEffect(() => {
     void loadPage()
 
+    const handleWindowFocus = () => {
+      void loadPage()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadPage()
+      }
+    }
+
     const channel = supabase
       .channel('driver-page-realtime')
       .on(
@@ -804,7 +827,12 @@ export default function DriverPage() {
       )
       .subscribe()
 
+    window.addEventListener('focus', handleWindowFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       supabase.removeChannel(channel)
     }
   }, [supabase])
