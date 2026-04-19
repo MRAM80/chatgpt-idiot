@@ -716,7 +716,7 @@ export default function DispatchBoardPage() {
               </Link>
 
               <Link
-                href="/order"
+                href="/order?newOrder=1"
                 className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
               >
                 New Order
@@ -793,33 +793,6 @@ export default function DispatchBoardPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">{column.label}</h2>
-                          {column.type === 'driver' ? (
-                            <>
-                              <span
-                                className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                  driverStatusStyles[driverMap[column.key]?.status || 'available'] || driverStatusStyles.available
-                                }`}
-                              >
-                                {formatDriverStatus(driverMap[column.key]?.status)}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => void setDriverOperationalStatus(column.key, 'heading_back')}
-                                className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 transition hover:bg-blue-100"
-                                title="Heading Back"
-                              >
-                                HB
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void setDriverOperationalStatus(column.key, 'parked')}
-                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 transition hover:bg-slate-100"
-                                title="Park"
-                              >
-                                Park
-                              </button>
-                            </>
-                          ) : null}
                         </div>
                       </div>
 
@@ -827,6 +800,27 @@ export default function DispatchBoardPage() {
                         <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
                           {columnOrders.length}
                         </span>
+
+                        {column.type === 'driver' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(column.key, 'heading_back')}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 transition hover:bg-blue-100"
+                              title="Heading Back"
+                            >
+                              HB
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(column.key, 'parked')}
+                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 transition hover:bg-slate-100"
+                              title="Park"
+                            >
+                              Park
+                            </button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -884,7 +878,7 @@ export default function DispatchBoardPage() {
                                   <div>
                                     <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Driver</div>
                                     <div className="mt-1 text-sm text-slate-700">
-                                      {assignedDriver?.name || 'Unassigned'}
+                                      {assignedDriver?.name || '—'}
                                     </div>
                                   </div>
 
@@ -904,13 +898,15 @@ export default function DispatchBoardPage() {
                                 </div>
 
                                 <div className="flex items-center justify-between gap-2 pt-1">
-                                  <span
-                                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                                      statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
-                                    }`}
-                                  >
-                                    {formatStatus(order.status || 'unassigned')}
-                                  </span>
+                                  {column.key !== 'unassigned' ? (
+                                    <span
+                                      className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                                        statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
+                                      }`}
+                                    >
+                                      {formatStatus(order.status || 'unassigned')}
+                                    </span>
+                                  ) : <span />}
 
                                   <span className="text-[11px] text-slate-400">
                                     {order.ticket_number || `#${order.id.slice(0, 8)}`}
