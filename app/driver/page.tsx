@@ -73,6 +73,17 @@ const TABLE_NAME = 'order'
 const CACHED_ORDERS_KEY = 'driver_cached_orders'
 const QUEUED_ACTIONS_KEY = 'driver_queued_actions'
 
+function toLocalDayKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getTodayKey() {
+  return toLocalDayKey(new Date())
+}
+
 function firstRelation<T>(value?: T[] | null): T | null {
   return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
@@ -567,7 +578,7 @@ export default function DriverPage() {
       `
       )
       .eq('driver_id', driver.id)
-      .eq('scheduled_date', new Date().toISOString().slice(0, 10))
+      .eq('scheduled_date', getTodayKey())
       .neq('status', 'completed')
       .order('route_position', { ascending: true })
       .order('created_at', { ascending: true })
@@ -634,7 +645,7 @@ export default function DriverPage() {
       `
       )
       .eq('driver_id', resolvedDriver.id)
-      .eq('scheduled_date', new Date().toISOString().slice(0, 10))
+      .eq('scheduled_date', getTodayKey())
       .neq('status', 'completed')
       .order('route_position', { ascending: true })
       .order('created_at', { ascending: true })
@@ -896,7 +907,7 @@ export default function DriverPage() {
         async (payload) => {
           const nextOrder = (payload as any)?.new
           const oldOrder = (payload as any)?.old
-          const todayKey = new Date().toISOString().slice(0, 10)
+          const todayKey = getTodayKey()
 
           const nextOrderDay = String(nextOrder?.scheduled_date || '').slice(0, 10)
           const oldOrderDay = String(oldOrder?.scheduled_date || '').slice(0, 10)
@@ -908,7 +919,7 @@ export default function DriverPage() {
           const affectsToday =
             nextOrderDay === todayKey || oldOrderDay === todayKey
 
-          if (!affectsThisDriver) return
+          if (!affectsThisDriver ||!affectsToday) return
 
           if ((payload as any).eventType === 'INSERT') {
             notifyInApp('SimpliiTrash', 'You received a new order')
@@ -935,7 +946,7 @@ export default function DriverPage() {
     const interval = window.setInterval(() => {
       void loadPage()
       void flushQueuedActions()
-    }, 60000)
+    }, 15000)
 
     return () => {
       window.clearInterval(interval)
