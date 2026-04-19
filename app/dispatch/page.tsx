@@ -488,18 +488,6 @@ export default function DispatchBoardPage() {
     const currentOrder = orders.find((order) => order.id === orderId)
     if (!currentOrder || currentOrder.status === 'completed') return
 
-    setOrders((current) =>
-      current.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              driver_id: driverId || null,
-              status: driverId ? 'assigned' : 'unassigned',
-            }
-          : order
-      )
-    )
-
     if (!driverId) {
       const ok = await updateOrder(orderId, { driver_id: null, route_position: null, status: 'unassigned' })
       if (!ok) return
