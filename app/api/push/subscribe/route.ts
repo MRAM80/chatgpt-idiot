@@ -63,20 +63,20 @@ export async function POST(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey)
 
+    await supabase
+      .from('driver_push_subscriptions')
+      .delete()
+      .eq('endpoint', endpoint)
+
     const { data, error } = await supabase
       .from('driver_push_subscriptions')
-      .upsert(
-        {
-          driver_id: driverId,
-          endpoint,
-          p256dh,
-          auth,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'driver_id,endpoint',
-        }
-      )
+      .insert({
+        driver_id: driverId,
+        endpoint,
+        p256dh,
+        auth,
+        updated_at: new Date().toISOString(),
+      })
       .select()
 
     if (error) {

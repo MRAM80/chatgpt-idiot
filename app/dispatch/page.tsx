@@ -368,14 +368,21 @@ export default function DispatchBoardPage() {
   }, [drivers])
 
   const assignableDrivers = useMemo(() => {
-    return drivers.filter(
-      (driver) =>
+    return drivers.filter((driver) => {
+      if (!driver) return false
+
+      if (selectedDayKey === todayKey) {
+      return driver.status === 'available'
+      }
+
+      return (
         driver.status === 'available' ||
         driver.status === 'busy' ||
         driver.status === 'heading_back' ||
         driver.status === 'parked'
-    )
-  }, [drivers])
+      )
+    })
+  }, [drivers, selectedDayKey, todayKey])
 
   const selectedOrder = useMemo(() => {
     if (!selectedOrderId) return null
@@ -553,6 +560,17 @@ export default function DispatchBoardPage() {
       return
     }
 
+    const selectedDriver = drivers.find((driver) => driver.id === driverId) || null
+
+    if (driverId) {
+      const canAssignToday = selectedDayKey !== todayKey || selectedDriver?.status === 'available'
+
+      if (!canAssignToday) {
+        setPageError('Today orders can only be assigned to available drivers.')
+        return
+      }
+    }
+    
     const maxRoute = boardOrders
       .filter((order) => order.driver_id === driverId && order.status !== 'completed')
       .reduce((max, order) => Math.max(max, order.route_position || 0), 0)
