@@ -813,7 +813,7 @@ export default function DriverPage() {
     const interval = window.setInterval(() => {
       void loadPage()
       void flushQueuedActions()
-    }, 15000)
+    }, 600000)
 
     return () => {
       window.clearInterval(interval)
@@ -1069,13 +1069,19 @@ export default function DriverPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => driver?.id && void markDriverAvailable(driver.id)}
-                className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-              >
-                Available
-              </button>
+              {driver?.status !== 'available' ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!driver?.id) return
+                    const ok = await markDriverAvailable(driver.id)
+                    if (ok) await loadPage()
+                  }}
+                  className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                >
+                  Available
+                </button>
+              ) : null}
 
               <button
                 type="button"
