@@ -372,7 +372,8 @@ export default function DispatchBoardPage() {
       (driver) =>
         driver.status === 'available' ||
         driver.status === 'busy' ||
-        driver.status === 'heading_back'
+        driver.status === 'heading_back' ||
+        driver.status === 'parked'
     )
   }, [drivers])
 
