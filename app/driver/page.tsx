@@ -896,10 +896,17 @@ export default function DriverPage() {
         async (payload) => {
           const nextOrder = (payload as any)?.new
           const oldOrder = (payload as any)?.old
+          const todayKey = new Date().toISOString().slice(0, 10)
+
+          const nextOrderDay = String(nextOrder?.scheduled_date || '').slice(0, 10)
+          const oldOrderDay = String(oldOrder?.scheduled_date || '').slice(0, 10)
 
           const affectsThisDriver =
             (driver?.id && nextOrder?.driver_id === driver.id) ||
             (driver?.id && oldOrder?.driver_id === driver.id)
+
+          const affectsToday =
+            nextOrderDay === todayKey || oldOrderDay === todayKey
 
           if (!affectsThisDriver) return
 
