@@ -1,32 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type Driver = {
   id: string
   name: string | null
-  email?: string | null
   phone: string | null
   status: string | null
-  auth_user_id?: string | null
-}
-
-type Bin = {
-  id: string
-  bin_number: string | null
-  bin_size: string | number | null
-  status?: string | null
-  location?: string | null
-}
-
-type OrderBinRelation = {
-  id: string
-  bin_number: string | null
-  bin_size: string | number | null
-  status?: string | null
-  location?: string | null
 }
 
 type Order = {
@@ -39,8 +21,6 @@ type Order = {
   service_window?: string | null
   bin_id: string | number | null
   old_bin_id: string | number | null
-  dump_site_id?: string | null
-  dump_site_address?: string | null
   bin_size: string | number | null
   bin_type: string | null
   order_type: string | null
@@ -53,49 +33,95 @@ type Order = {
   updated_at: string | null
   completed_by?: string | null
   completed_at?: string | null
-  bins?: OrderBinRelation[] | null
-  old_bin?: OrderBinRelation[] | null
+  workflow_step?: string | null
+  parent_order_id?: string | null
+  dump_site_address?: string | null
 }
 
-type QueuedAction = {
-  id: string
+type BoardColumn = {
+  key: string
+  label: string
+  type: 'unassigned' | 'driver'
+}
+
+type DragState = {
   orderId: string
-  nextStatus: string
-  completedAt: string | null
-  completedBy: string | null
-  createdAt: string
-}
-
-type SyncState = 'idle' | 'pending' | 'error'
-type BinSaveState = 'idle' | 'saving' | 'saved' | 'error'
+  fromColumnKey: string
+} | null
 
 const TABLE_NAME = 'order'
-const CACHED_ORDERS_KEY = 'driver_cached_orders'
-const QUEUED_ACTIONS_KEY = 'driver_queued_actions'
 
-function firstRelation<T>(value?: T[] | null): T | null {
-  return Array.isArray(value) && value.length > 0 ? value[0] : null
+const statusStyles: Record<string, string> = {
+  unassigned: 'border-slate-200 bg-slate-50 text-slate-700',
+  assigned: 'border-blue-200 bg-blue-50 text-blue-700',
+  in_progress: 'border-amber-200 bg-amber-50 text-amber-700',
+  completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  issue: 'border-rose-200 bg-rose-50 text-rose-700',
 }
 
-function displayValue(value: unknown) {
-  if (value === null || value === undefined) return '—'
-  if (typeof value === 'string') return value.trim() ? value : '—'
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
+const driverStatusStyles: Record<string, string> = {
+  available: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  busy: 'border-amber-200 bg-amber-50 text-amber-700',
+  heading_back: 'border-blue-200 bg-blue-50 text-blue-700',
+  parked: 'border-slate-300 bg-slate-100 text-slate-700',
+}
+
+function getDriverColumnStyle(status?: string | null) {
+  switch (status) {
+    case 'available':
+      return 'bg-emerald-50 ring-emerald-200'
+    case 'heading_back':
+      return 'bg-blue-50 ring-blue-200'
+    case 'parked':
+      return 'bg-slate-100 ring-slate-300'
+    case 'busy':
+      return 'bg-amber-50 ring-amber-200'
+    default:
+      return 'bg-white ring-slate-200'
   }
 }
 
-function formatServiceTime(value: string | null | undefined) {
-  if (!value) return '—'
-  const cleaned = String(value).trim()
+function getWorkflowLabel(step?: string | null) {
+  if (step === 'DUMP') return { label: 'Dump Site', color: 'bg-orange-100 text-orange-700' }
+  if (step === 'RETURN') return { label: 'Return', color: 'bg-blue-100 text-blue-700' }
+  return { label: 'Job Site', color: 'bg-emerald-100 text-emerald-700' }
+}
+
+function formatStatus(status: string | null | undefined) {
+  if (!status) return 'Unassigned'
+  if (status === 'in_progress') return 'In Progress'
+  return status
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function formatDriverStatus(status: string | null | undefined) {
+  if (!status) return 'Available'
+  if (status === 'heading_back') return 'HB'
+  if (status === 'parked') return 'Parked'
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function formatDate(dateValue: string | null | undefined) {
+  if (!dateValue) return '—'
+  const date = new Date(dateValue)
+  if (Number.isNaN(date.getTime())) return String(dateValue)
+  return date.toLocaleDateString()
+}
+
+function formatServiceTime(timeValue: string | null | undefined) {
+  if (!timeValue) return '—'
+  const cleaned = String(timeValue).trim()
   if (!cleaned) return '—'
 
-  const [hourStr, minuteStr] = cleaned.split(':')
-  const hour = Number(hourStr)
-  const minute = Number(minuteStr)
+  if (/am|pm/i.test(cleaned)) return cleaned
+
+  const parts = cleaned.split(':')
+  if (parts.length < 2) return cleaned
+
+  const hour = Number(parts[0])
+  const minute = Number(parts[1])
 
   if (Number.isNaN(hour) || Number.isNaN(minute)) return cleaned
 
@@ -108,1221 +134,973 @@ function formatServiceTime(value: string | null | undefined) {
   })
 }
 
-function normalizeBinNumber(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toUpperCase()
+function displayValue(value: unknown) {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') {
+    return value.trim() ? value : '—'
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
 }
 
-function formatDriverOperationalStatus(status: string | null | undefined) {
-  if (!status) return ''
-  if (status === 'heading_back') return 'Heading Back'
-  if (status === 'parked') return 'Parked'
-  if (status === 'available') return 'Available'
+function DetailItem({
+  label,
+  value,
+}: {
+  label: string
+  value: unknown
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-2 text-sm text-slate-900">{displayValue(value)}</div>
+    </div>
+  )
+}
+
+function DragHandleIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+      <path d="M7 4.5A1.5 1.5 0 1 1 4 4.5a1.5 1.5 0 0 1 3 0Zm0 5.5A1.5 1.5 0 1 1 4 10a1.5 1.5 0 0 1 3 0Zm-1.5 7A1.5 1.5 0 1 0 5.5 14a1.5 1.5 0 0 0 0 3Zm10-12.5a1.5 1.5 0 1 1-3 0a1.5 1.5 0 0 1 3 0Zm-1.5 7a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3Zm1.5 4a1.5 1.5 0 1 1-3 0a1.5 1.5 0 0 1 3 0Z" />
+    </svg>
+  )
+}
+
+function reorderIds(orderIds: string[], movingId: string, beforeId?: string | null) {
+  const withoutMoving = orderIds.filter((id) => id !== movingId)
+
+  if (!beforeId) return [...withoutMoving, movingId]
+
+  const insertIndex = withoutMoving.indexOf(beforeId)
+  if (insertIndex === -1) return [...withoutMoving, movingId]
+
+  return [
+    ...withoutMoving.slice(0, insertIndex),
+    movingId,
+    ...withoutMoving.slice(insertIndex),
+  ]
+}
+
+function mergeDriverRouteOrder(currentOrders: Order[]) {
+  const assigned = currentOrders
+    .filter((order) => !!order.driver_id)
+    .sort((a, b) => {
+      const driverCompare = String(a.driver_id || '').localeCompare(String(b.driver_id || ''))
+      if (driverCompare !== 0) return driverCompare
+
+      const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
+      const bPos = b.route_position ?? Number.MAX_SAFE_INTEGER
+      if (aPos !== bPos) return aPos - bPos
+
+      const aDate = a.scheduled_date || ''
+      const bDate = b.scheduled_date || ''
+      if (aDate !== bDate) return aDate.localeCompare(bDate)
+
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    })
+
+  return assigned.map((order) => order.id)
+}
+
+function toLocalDayKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getTodayKey() {
+  return toLocalDayKey(new Date())
+}
+
+function getOrderDayKey(order: Order) {
+  if (order.scheduled_date) return String(order.scheduled_date).slice(0, 10)
+
+  if (order.created_at) {
+    const parsed = new Date(order.created_at)
+    if (!Number.isNaN(parsed.getTime())) return toLocalDayKey(parsed)
+  }
+
   return ''
 }
 
-function notifyInApp(title: string, body: string) {
-  if (typeof window === 'undefined') return
-  if (!('Notification' in window)) return
-  if (Notification.permission !== 'granted') return
+export default function DispatchBoardPage() {
+  const supabase = useMemo(() => createClient(), [])
 
-  try {
-    new Notification(title, { body })
-  } catch {
-    // keep page usable
-  }
-}
+  const [orders, setOrders] = useState<Order[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
+  const [loading, setLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
+  const [search, setSearch] = useState('')
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [dragState, setDragState] = useState<DragState>(null)
+  const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
+  const [assignSelections, setAssignSelections] = useState<Record<string, string>>({})
 
-function getOrderAddress(order: Order) {
-  return order.service_address || order.pickup_address || ''
-}
+  const todayKey = useMemo(() => getTodayKey(), [])
 
-function buildGoogleMapsLinkForOrders(orders: Order[]) {
-  const addresses = orders
-    .map((order) => getOrderAddress(order))
-    .filter((value): value is string => Boolean(value && value.trim()))
+  async function loadDrivers() {
+    const { data, error } = await supabase
+      .from('drivers')
+      .select('id,name,phone,status')
+      .neq('status', 'offline')
+      .order('name', { ascending: true })
 
-  if (addresses.length === 0) return ''
+    if (error) {
+      setPageError(error.message)
+      return
+    }
 
-  if (addresses.length === 1) {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addresses[0])}`
-  }
-
-  const origin = addresses[0]
-  const destination = addresses[addresses.length - 1]
-  const waypoints = addresses.slice(1, -1)
-
-  const params = new URLSearchParams({
-    api: '1',
-    origin,
-    destination,
-    travelmode: 'driving',
-  })
-
-  if (waypoints.length > 0) {
-    params.set('waypoints', waypoints.join('|'))
+    setDrivers((data as Driver[]) || [])
   }
 
-  return `https://www.google.com/maps/dir/?${params.toString()}`
-}
+  async function loadOrders() {
+    setLoading(true)
 
-function buildGoogleMapsLinkFromStop(orders: Order[], startIndex: number) {
-  return buildGoogleMapsLinkForOrders(orders.slice(startIndex))
-}
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at')
+      .order('scheduled_date', { ascending: true })
+      .order('created_at', { ascending: true })
 
-function readQueuedActions(): QueuedAction[] {
-  if (typeof window === 'undefined') return []
-  const raw = window.localStorage.getItem(QUEUED_ACTIONS_KEY)
-  if (!raw) return []
+    if (error) {
+      setPageError(error.message)
+      setLoading(false)
+      return
+    }
 
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as QueuedAction[]) : []
-  } catch {
-    return []
-  }
-}
-
-function writeQueuedActions(actions: QueuedAction[]) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(QUEUED_ACTIONS_KEY, JSON.stringify(actions))
-}
-
-function writeCachedOrders(orders: Order[]) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(CACHED_ORDERS_KEY, JSON.stringify(orders))
-}
-
-function readCachedOrders(): Order[] {
-  if (typeof window === 'undefined') return []
-  const raw = window.localStorage.getItem(CACHED_ORDERS_KEY)
-  if (!raw) return []
-
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as Order[]) : []
-  } catch {
-    return []
-  }
-}
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = window.atob(base64)
-  const outputArray = new Uint8Array(rawData.length)
-
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i)
+    setOrders((data as Order[]) || [])
+    setLoading(false)
   }
 
-  return outputArray
-}
+  async function refreshAll() {
+    setPageError('')
+    await Promise.all([loadDrivers(), loadOrders()])
+  }
 
-const ACTIVE_ORDER_STATUSES = ['unassigned', 'assigned', 'in_progress'] as const
+  useEffect(() => {
+    void refreshAll()
 
-function getOrderTimeValue(order: Order) {
-  return new Date(order.updated_at || order.created_at || order.scheduled_date || 0).getTime()
-}
+    const interval = window.setInterval(() => {
+      void refreshAll()
+    }, 15000)
 
-function getPrimaryBinId(order: Order) {
-  return String(order.bin_id || order.old_bin_id || '')
-}
+    const channel = supabase
+      .channel('dispatch-board-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLE_NAME }, async () => {
+        await loadOrders()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, async () => {
+        await loadDrivers()
+      })
+      .subscribe()
 
-function hasOpenPreviousOrder(currentOrder: Order, allOrders: Order[]) {
-  const currentBinId = getPrimaryBinId(currentOrder)
-  if (!currentBinId) return false
+    return () => {
+      window.clearInterval(interval)
+      supabase.removeChannel(channel)
+    }
+  }, [supabase])
 
-  const currentTime = getOrderTimeValue(currentOrder)
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setModalOpen(false)
+        setSelectedOrderId(null)
+      }
+    }
 
-  return allOrders.some((order) => {
-    if (order.id === currentOrder.id) return false
-    if (!ACTIVE_ORDER_STATUSES.includes((order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number])) {
+    if (modalOpen) {
+      document.body.style.overflow = 'hidden'
+      window.addEventListener('keydown', handleEscape)
+    } else {
+      document.body.style.overflow = ''
+    }
+
+    return () => {
+      document.body.style.overflow = ''
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [modalOpen])
+
+  const driverMap = useMemo(() => {
+    return drivers.reduce<Record<string, Driver>>((acc, driver) => {
+      acc[driver.id] = driver
+      return acc
+    }, {})
+  }, [drivers])
+
+  const activeDrivers = useMemo(() => {
+    return drivers.filter((driver) => driver.status !== 'offline')
+  }, [drivers])
+
+  const assignableDrivers = useMemo(() => {
+    return drivers.filter(
+      (driver) =>
+        driver.status === 'available' ||
+        driver.status === 'busy' ||
+        driver.status === 'heading_back'
+    )
+  }, [drivers])
+
+  const selectedOrder = useMemo(() => {
+    if (!selectedOrderId) return null
+    return orders.find((order) => order.id === selectedOrderId) || null
+  }, [orders, selectedOrderId])
+
+  const todayOrders = useMemo(() => {
+    return orders.filter((order) => getOrderDayKey(order) === todayKey)
+  }, [orders, todayKey])
+
+  const boardColumns = useMemo<BoardColumn[]>(() => {
+    return [
+      { key: 'unassigned', label: 'Unassigned', type: 'unassigned' },
+      ...activeDrivers.map((driver) => ({
+        key: driver.id,
+        label: driver.name || 'Unnamed Driver',
+        type: 'driver' as const,
+      })),
+    ]
+  }, [activeDrivers])
+
+  async function syncDriverStatuses(driverId: string) {
+    const { data: orderData, error: ordersError } = await supabase
+      .from(TABLE_NAME)
+      .select('status,scheduled_date')
+      .eq('driver_id', driverId)
+
+    if (ordersError) {
+      setPageError(ordersError.message)
+      return
+    }
+
+    const activeStatuses = ['assigned', 'in_progress']
+    const hasActiveOrdersToday = (orderData || []).some(
+      (order) =>
+        activeStatuses.includes(order.status || '') &&
+        String(order.scheduled_date || '').slice(0, 10) === todayKey
+    )
+
+    const { data: driver, error: driverError } = await supabase
+      .from('drivers')
+      .select('status')
+      .eq('id', driverId)
+      .single()
+
+    if (driverError) {
+      setPageError(driverError.message)
+      return
+    }
+
+    if (driver?.status === 'offline') return
+    if (driver?.status === 'heading_back' || driver?.status === 'parked') return
+
+    const { error: updateError } = await supabase
+      .from('drivers')
+      .update({ status: hasActiveOrdersToday ? 'busy' : 'available' })
+      .eq('id', driverId)
+
+    if (updateError) {
+      setPageError(updateError.message)
+    }
+  }
+
+  async function setDriverOperationalStatus(driverId: string, nextStatus: 'available' | 'heading_back' | 'parked') {
+    setPageError('')
+
+    const { error } = await supabase
+      .from('drivers')
+      .update({ status: nextStatus })
+      .eq('id', driverId)
+
+    if (error) {
+      setPageError(error.message)
+      return
+    }
+
+    if (nextStatus === 'parked') {
+      const todaysDriverOrders = todayOrders.filter((order) => order.driver_id === driverId)
+      for (const order of todaysDriverOrders) {
+        await supabase.from(TABLE_NAME).update({ route_position: null }).eq('id', order.id)
+      }
+    }
+
+    setDrivers((current) =>
+      current.map((driver) => (driver.id === driverId ? { ...driver, status: nextStatus } : driver))
+    )
+
+    await Promise.all([loadDrivers(), loadOrders()])
+  }
+
+  async function normalizeRoutePositionsForDriver(driverId: string) {
+    const driverOrders = todayOrders
+      .filter((order) => order.driver_id === driverId && order.status !== 'completed')
+      .sort((a, b) => {
+        const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
+        const bPos = b.route_position ?? Number.MAX_SAFE_INTEGER
+        if (aPos !== bPos) return aPos - bPos
+        const aDate = a.scheduled_date || ''
+        const bDate = b.scheduled_date || ''
+        if (aDate !== bDate) return aDate.localeCompare(bDate)
+        return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+      })
+
+    for (let index = 0; index < driverOrders.length; index += 1) {
+      const order = driverOrders[index]
+      const nextPosition = index + 1
+      if ((order.route_position ?? null) !== nextPosition) {
+        const { error } = await supabase.from(TABLE_NAME).update({ route_position: nextPosition }).eq('id', order.id)
+        if (error) {
+          setPageError(error.message)
+          return
+        }
+      }
+    }
+  }
+
+  async function updateOrder(id: string, values: Partial<Order>) {
+    setPageError('')
+    const currentOrder = orders.find((order) => order.id === id)
+    if (!currentOrder) return false
+
+    if (currentOrder.status === 'completed' && Object.prototype.hasOwnProperty.call(values, 'status')) {
       return false
     }
 
-    const otherPrimaryBinId = getPrimaryBinId(order)
-    if (!otherPrimaryBinId) return false
-    if (otherPrimaryBinId !== currentBinId) return false
-
-    return getOrderTimeValue(order) < currentTime
-  })
-}
-
-export default function DriverPage() {
-  const router = useRouter()
-  const supabase = useMemo(() => createClient(), [])
-
-  const [driver, setDriver] = useState<Driver | null>(null)
-  const [orders, setOrders] = useState<Order[]>([])
-  const [binsMap, setBinsMap] = useState<Record<string, Bin>>({})
-  const [loading, setLoading] = useState(true)
-  const [pageError, setPageError] = useState('')
-  const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
-  const [showSplash, setShowSplash] = useState(true)
-  const [isOffline, setIsOffline] = useState(false)
-  const [usingCachedOrders, setUsingCachedOrders] = useState(false)
-  const [syncingQueue, setSyncingQueue] = useState(false)
-  const [queuedActions, setQueuedActions] = useState<QueuedAction[]>([])
-  const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
-  const [binInputs, setBinInputs] = useState<Record<string, string>>({})
-  const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
-  const hasInitializedPresenceRef = useRef(false)
-  const previousDriverStatusRef = useRef<string | null>(null)
-  const previousOrderIdsRef = useRef<string[]>([])
-
-  function persistOrders(nextOrders: Order[]) {
-    setOrders(nextOrders)
-    writeCachedOrders(nextOrders)
-  }
-
-  function markOrderSyncState(orderId: string, state: SyncState) {
-    setSyncStates((current) => ({
-      ...current,
-      [orderId]: state,
-    }))
-  }
-
-  function clearOrderSyncState(orderId: string) {
-    setSyncStates((current) => {
-      const next = { ...current }
-      delete next[orderId]
-      return next
-    })
-  }
-
-  function setBinSaveState(orderId: string, state: BinSaveState) {
-    setBinSaveStates((current) => ({
-      ...current,
-      [orderId]: state,
-    }))
-  }
-
-  function updateLocalOrderStatus(orderId: string, nextStatus: string) {
-    const completedAt = nextStatus === 'completed' ? new Date().toISOString() : null
-    const completedBy = nextStatus === 'completed' ? driver?.name || 'Driver' : null
-
-    if (nextStatus === 'completed') {
-      const filtered = orders.filter((order) => order.id !== orderId)
-      persistOrders(filtered)
-      return { completedAt, completedBy }
-    }
-
-    const updated = orders.map((order) =>
-      order.id === orderId
-        ? {
-            ...order,
-            status: nextStatus,
-            completed_at: completedAt,
-            completed_by: completedBy,
-          }
-        : order
-    )
-
-    persistOrders(updated)
-    return { completedAt, completedBy }
-  }
-
-  function queueOrderAction(orderId: string, nextStatus: string, completedAt: string | null, completedBy: string | null) {
-    const action: QueuedAction = {
-      id: `${orderId}-${Date.now()}`,
-      orderId,
-      nextStatus,
-      completedAt,
-      completedBy,
-      createdAt: new Date().toISOString(),
-    }
-
-    const current = readQueuedActions().filter((item) => item.orderId !== orderId)
-    const next = [...current, action]
-
-    writeQueuedActions(next)
-    setQueuedActions(next)
-    markOrderSyncState(orderId, 'pending')
-  }
-
-  async function markDriverAvailable(driverId: string) {
-    const { error } = await supabase
-      .from('drivers')
-      .update({ status: 'available' })
-      .eq('id', driverId)
+    const previousDriverId = currentOrder.driver_id
+    const { error } = await supabase.from(TABLE_NAME).update(values).eq('id', id)
 
     if (error) {
       setPageError(error.message)
       return false
     }
 
-    setDriver((current) => (current ? { ...current, status: 'available' } : current))
+    if (previousDriverId && previousDriverId !== values.driver_id) {
+      await syncDriverStatuses(previousDriverId)
+    }
+
+    if (values.driver_id) {
+      await syncDriverStatuses(values.driver_id)
+    }
+
+    setOrders((current) => current.map((order) => (order.id === id ? { ...order, ...values } : order)))
+    await refreshAll()
     return true
   }
 
-  async function resolveDriver() {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      router.push('/login')
-      return null
-    }
-
-    const { data: driverByAuth, error: driverByAuthError } = await supabase
-      .from('drivers')
-      .select('id,name,email,phone,status,auth_user_id')
-      .eq('auth_user_id', user.id)
-      .maybeSingle()
-
-    if (driverByAuthError) {
-      setPageError(driverByAuthError.message)
-      return null
-    }
-
-    if (driverByAuth) {
-      return driverByAuth as Driver
-    }
-
-    const normalizedEmail = (user.email || '').trim().toLowerCase()
-
-    if (!normalizedEmail) {
-      setPageError('This account is not linked to a driver profile.')
-      return null
-    }
-
-    const { data: driverByEmail, error: driverByEmailError } = await supabase
-      .from('drivers')
-      .select('id,name,email,phone,status,auth_user_id')
-      .ilike('email', normalizedEmail)
-      .maybeSingle()
-
-    if (driverByEmailError) {
-      setPageError(driverByEmailError.message)
-      return null
-    }
-
-    if (!driverByEmail) {
-      setPageError('This account is not linked to a driver profile.')
-      return null
-    }
-
-    const { error: linkError } = await supabase
-      .from('drivers')
-      .update({
-        auth_user_id: user.id,
-        last_login_at: new Date().toISOString(),
-      })
-      .eq('id', driverByEmail.id)
-
-    if (linkError) {
-      setPageError(linkError.message)
-      return null
-    }
-
-    return {
-      ...driverByEmail,
-      auth_user_id: user.id,
-    } as Driver
-  }
-
-  async function ensureNotificationsSubscribed(driverId: string) {
-    if (typeof window === 'undefined') return
-    if ('Notification' in window && Notification.permission === 'default') {
-      try {
-        await Notification.requestPermission()
-      } catch {
-        // keep page usable
-      }
-    }
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
-
-    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-    if (!vapidPublicKey) return
-
+  async function sendAssignedOrderNotification(params: {
+    driverId: string
+    orderId: string
+    customerName?: string | null
+    address?: string | null
+  }) {
     try {
-      await navigator.serviceWorker.register('/sw.js')
-      const registration = await navigator.serviceWorker.ready
-
-      let permission = Notification.permission
-      if (permission === 'default') {
-        permission = await Notification.requestPermission()
-      }
-
-      if (permission !== 'granted') return
-
-      let subscription = await registration.pushManager.getSubscription()
-
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        })
-      }
-
-      const raw = subscription.toJSON()
-      if (!raw?.endpoint || !raw?.keys?.p256dh || !raw?.keys?.auth) return
-
-      await fetch('/api/push/subscribe', {
+      await fetch('/api/push/order-assigned', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          driverId,
-          endpoint: raw.endpoint,
-          p256dh: raw.keys.p256dh,
-          auth: raw.keys.auth,
-        }),
+        body: JSON.stringify(params),
       })
-    } catch {
-      // keep page usable
+    } catch (error) {
+      console.error('Push notification failed:', error)
     }
   }
 
-  async function loadBinsForOrders(nextOrders: Order[]) {
-    const ids = Array.from(
-      new Set(
-        nextOrders
-          .flatMap((order) => [order.bin_id, order.old_bin_id])
-          .filter(Boolean)
-          .map((id) => String(id))
-      )
-    )
+  async function handleAssign(orderId: string, driverId: string) {
+    const currentOrder = orders.find((order) => order.id === orderId)
+    if (!currentOrder || currentOrder.status === 'completed') return
 
-    if (ids.length === 0) {
-      setBinsMap({})
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('bins')
-      .select('id,bin_number,bin_size,status,location')
-      .in('id', ids)
-
-    if (error) {
-      setPageError((prev) => prev || error.message)
-      return
-    }
-
-    const nextMap: Record<string, Bin> = {}
-    for (const bin of (data as Bin[]) || []) {
-      nextMap[String(bin.id)] = bin
-    }
-    setBinsMap(nextMap)
-  }
-
-  async function loadPage() {
-    setPageError('')
-    setLoading(true)
-
-    let resolvedDriver = await resolveDriver()
-
-    if (!resolvedDriver) {
-      setLoading(false)
-      return
-    }
-
-    if (!hasInitializedPresenceRef.current) {
-      const becameAvailable = await markDriverAvailable(resolvedDriver.id)
-      if (becameAvailable) {
-        resolvedDriver = { ...resolvedDriver, status: 'available' }
+    if (!driverId) {
+      const ok = await updateOrder(orderId, { driver_id: null, route_position: null, status: 'unassigned' })
+      if (!ok) return
+      if (currentOrder.driver_id) {
+        await normalizeRoutePositionsForDriver(currentOrder.driver_id)
       }
-      hasInitializedPresenceRef.current = true
-    }
-
-    setDriver(resolvedDriver)
-    void ensureNotificationsSubscribed(resolvedDriver.id)
-
-    const { data: orderData, error: ordersError } = await supabase
-      .from(TABLE_NAME)
-      .select(
-        `
-        id,
-        ticket_number,
-        customer_name,
-        pickup_address,
-        service_address,
-        service_time,
-        service_window,
-        bin_id,
-        old_bin_id,
-        dump_site_id,
-        dump_site_address,
-        bin_size,
-        bin_type,
-        order_type,
-        scheduled_date,
-        driver_id,
-        route_position,
-        status,
-        notes,
-        created_at,
-        updated_at,
-        completed_by,
-        completed_at,
-        bins:bin_id ( id, bin_number, bin_size, status, location ),
-        old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
-      `
-      )
-      .eq('driver_id', resolvedDriver.id)
-      .neq('status', 'completed')
-      .order('route_position', { ascending: true })
-      .order('created_at', { ascending: true })
-
-    if (ordersError) {
-      const cachedOrders = readCachedOrders()
-
-      if (cachedOrders.length > 0) {
-        persistOrders(cachedOrders)
-        setUsingCachedOrders(true)
-        setLoading(false)
-        return
-      }
-
-      setPageError(ordersError.message)
-      setLoading(false)
+      await refreshAll()
       return
     }
 
-    const nextOrders = (orderData as Order[]) || []
-    persistOrders(nextOrders)
-    setUsingCachedOrders(false)
-    await loadBinsForOrders(nextOrders)
+    const maxRoute = todayOrders
+      .filter((order) => order.driver_id === driverId && order.status !== 'completed')
+      .reduce((max, order) => Math.max(max, order.route_position || 0), 0)
 
-    setBinInputs((current) => {
-      const next = { ...current }
-      for (const order of nextOrders) {
-        const assignedBin = firstRelation(order.bins)
-        const oldBin = firstRelation(order.old_bin)
-        const mappedAssigned = order.bin_id ? binsMap[String(order.bin_id)] : null
-        const mappedOld = order.old_bin_id ? binsMap[String(order.old_bin_id)] : null
+    const ok = await updateOrder(orderId, { driver_id: driverId, route_position: maxRoute + 1, status: 'assigned' })
+    if (!ok) return
 
-        if (order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN') {
-          next[order.id] =
-            oldBin?.bin_number ||
-            mappedOld?.bin_number ||
-            assignedBin?.bin_number ||
-            mappedAssigned?.bin_number ||
-            current[order.id] ||
-            ''
-        } else {
-          next[order.id] =
-            assignedBin?.bin_number ||
-            mappedAssigned?.bin_number ||
-            current[order.id] ||
-            ''
-        }
-      }
-      return next
+    await sendAssignedOrderNotification({
+      driverId,
+      orderId,
+      customerName: currentOrder.customer_name,
+      address: currentOrder.service_address || currentOrder.pickup_address,
     })
 
-    setLoading(false)
+    if (currentOrder.driver_id && currentOrder.driver_id !== driverId) {
+      await normalizeRoutePositionsForDriver(currentOrder.driver_id)
+    }
+
+    setAssignSelections((current) => ({ ...current, [orderId]: '' }))
+    await refreshAll()
   }
 
-  async function flushQueuedActions() {
-    if (syncingQueue || typeof window === 'undefined') return
-    if (!navigator.onLine) return
+  const filteredOrders = useMemo(() => {
+    return todayOrders.filter((order) => {
+      const q = search.trim().toLowerCase()
+      const driverName = driverMap[order.driver_id || '']?.name || ''
+      return (
+        !q ||
+        (order.ticket_number || '').toLowerCase().includes(q) ||
+        (order.customer_name || '').toLowerCase().includes(q) ||
+        driverName.toLowerCase().includes(q)
+      )
+    })
+  }, [todayOrders, search, driverMap])
 
-    const pending = readQueuedActions()
-    if (pending.length === 0) {
-      setQueuedActions([])
-      return
-    }
+  const visibleBoardOrders = useMemo(() => {
+    return filteredOrders.filter((order) => order.status !== 'completed')
+  }, [filteredOrders])
 
-    setSyncingQueue(true)
-    let remaining = [...pending]
+  const routeIndexMap = useMemo(() => {
+    return mergeDriverRouteOrder(visibleBoardOrders).reduce<Record<string, number>>((acc, id, index) => {
+      acc[id] = index
+      return acc
+    }, {})
+  }, [visibleBoardOrders])
 
-    for (const action of pending) {
-      try {
-        const payload: Record<string, unknown> = {
-          status: action.nextStatus,
-          completed_at: action.nextStatus === 'completed' ? action.completedAt : null,
-          completed_by: action.nextStatus === 'completed' ? action.completedBy : null,
-        }
-
-        const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', action.orderId)
-
-        if (error) {
-          markOrderSyncState(action.orderId, 'error')
-          continue
-        }
-
-        remaining = remaining.filter((item) => item.id !== action.id)
-        writeQueuedActions(remaining)
-        setQueuedActions(remaining)
-        clearOrderSyncState(action.orderId)
-      } catch {
-        markOrderSyncState(action.orderId, 'error')
-      }
-    }
-
-    setSyncingQueue(false)
-
-    const stillPending = readQueuedActions()
-    if (stillPending.length === 0) {
-      await loadPage()
-    }
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
-  async function saveBinNumber(order: Order) {
-    const rawInput = binInputs[order.id] || ''
-    const normalizedInput = normalizeBinNumber(rawInput)
-
-    if (!normalizedInput) {
-      setPageError('Please enter a bin number.')
-      setBinSaveState(order.id, 'error')
-      return
-    }
-
-    setPageError('')
-    setBinSaveState(order.id, 'saving')
-
-    const { data: matchedBin, error: binError } = await supabase
-      .from('bins')
-      .select('id,bin_number,bin_size,status,location')
-      .ilike('bin_number', normalizedInput)
-      .maybeSingle()
-
-    if (binError) {
-      setPageError(binError.message)
-      setBinSaveState(order.id, 'error')
-      return
-    }
-
-    if (!matchedBin) {
-      setPageError(`Bin ${normalizedInput} was not found.`)
-      setBinSaveState(order.id, 'error')
-      return
-    }
-
-    const expectedSize = String(order.bin_size ?? '').trim()
-    const actualSize = String(matchedBin.bin_size ?? '').trim()
-
-    if (expectedSize && actualSize && expectedSize !== actualSize) {
-      setPageError(`Bin ${normalizedInput} is ${actualSize}Yd, but this order needs ${expectedSize}Yd.`)
-      setBinSaveState(order.id, 'error')
-      return
-    }
-
-    const currentOldBinId = order.old_bin_id ? String(order.old_bin_id) : null
-    if (
-      currentOldBinId &&
-      String(matchedBin.id) === currentOldBinId &&
-      order.order_type === 'EXCHANGE'
-    ) {
-      setPageError('The new bin cannot be the same as the old bin.')
-      setBinSaveState(order.id, 'error')
-      return
-    }
-
-    const stopAddress = getOrderAddress(order) || null
-    const nextOrderPayload: Record<string, unknown> = {
-      bin_id: matchedBin.id,
-    }
-
-    const { error: orderError } = await supabase
-      .from(TABLE_NAME)
-      .update(nextOrderPayload)
-      .eq('id', order.id)
-
-    if (orderError) {
-      setPageError(orderError.message)
-      setBinSaveState(order.id, 'error')
-      return
-    }
-
-    const { error: updateBinError } = await supabase
-      .from('bins')
-      .update({
-        status: 'in_use',
-        location: stopAddress,
+  const groupedOrders = useMemo(() => {
+    return boardColumns.reduce<Record<string, Order[]>>((acc, column) => {
+      const matchingOrders = visibleBoardOrders.filter((order) => {
+        if (column.key === 'unassigned') return !order.driver_id
+        return order.driver_id === column.key
       })
-      .eq('id', matchedBin.id)
 
-    if (updateBinError) {
-      setPageError(updateBinError.message)
-      setBinSaveState(order.id, 'error')
-      return
-    }
+      acc[column.key] = [...matchingOrders].sort((a, b) => {
+        if (column.key === 'unassigned') {
+          const aDate = a.scheduled_date || ''
+          const bDate = b.scheduled_date || ''
+          if (aDate !== bDate) return aDate.localeCompare(bDate)
+          return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+        }
 
-    setBinsMap((current) => ({
-      ...current,
-      [String(matchedBin.id)]: matchedBin as Bin,
-    }))
+        const aIndex = routeIndexMap[a.id] ?? Number.MAX_SAFE_INTEGER
+        const bIndex = routeIndexMap[b.id] ?? Number.MAX_SAFE_INTEGER
+        return aIndex - bIndex
+      })
 
-    setOrders((current) =>
-      current.map((item) =>
-        item.id === order.id
-          ? {
-              ...item,
-              bin_id: matchedBin.id,
-              bins: [
-                {
-                  id: matchedBin.id,
-                  bin_number: matchedBin.bin_number,
-                  bin_size: matchedBin.bin_size,
-                  status: matchedBin.status,
-                  location: matchedBin.location,
-                },
-              ],
-            }
-          : item
-      )
+      return acc
+    }, {})
+  }, [visibleBoardOrders, boardColumns, routeIndexMap])
+
+  const stats = useMemo(() => {
+    const total = todayOrders.length
+    const unassigned = todayOrders.filter((order) => !order.driver_id && order.status !== 'completed').length
+    const activeDriverIds = new Set(
+      todayOrders.filter((order) => order.driver_id && order.status !== 'completed').map((order) => order.driver_id as string)
     )
+    const inProgress = todayOrders.filter((order) => order.status === 'in_progress').length
+    const completed = todayOrders.filter((order) => order.status === 'completed').length
+    return { total, unassigned, activeDrivers: activeDriverIds.size, inProgress, completed }
+  }, [todayOrders])
 
-    setBinInputs((current) => ({
-      ...current,
-      [order.id]: matchedBin.bin_number || normalizedInput,
-    }))
-
-    setBinSaveState(order.id, 'saved')
+  function openOrder(orderId: string) {
+    setSelectedOrderId(orderId)
+    setModalOpen(true)
   }
 
-  useEffect(() => {
-    setQueuedActions(readQueuedActions())
-  }, [])
-
-  useEffect(() => {
-    void loadPage()
-
-    const channel = supabase
-      .channel('driver-page-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: TABLE_NAME },
-        async () => {
-          await loadPage()
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'drivers' },
-        async () => {
-          await loadPage()
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [supabase])
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      void loadPage()
-      void flushQueuedActions()
-    }, 600000)
-
-    return () => {
-      window.clearInterval(interval)
-    }
-  }, [syncingQueue])
-
-  useEffect(() => {
-    if (!loading) {
-      const timer = window.setTimeout(() => {
-        setShowSplash(false)
-      }, 700)
-
-      return () => window.clearTimeout(timer)
-    }
-
-    setShowSplash(true)
-  }, [loading])
-
-  useEffect(() => {
-    const updateOnlineStatus = async () => {
-      const offline = !navigator.onLine
-      setIsOffline(offline)
-
-      if (!offline) {
-        await flushQueuedActions()
-      }
-    }
-
-    void updateOnlineStatus()
-
-    window.addEventListener('online', updateOnlineStatus)
-    window.addEventListener('offline', updateOnlineStatus)
-
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus)
-      window.removeEventListener('offline', updateOnlineStatus)
-    }
-  }, [syncingQueue])
-
-  async function updateOrderStatus(orderId: string, nextStatus: string) {
-    setSavingOrderId(orderId)
-    setPageError('')
-
-    const order = orders.find((o) => o.id === orderId)
-    if (!order) {
-      setSavingOrderId(null)
-      return
-    }
-
-    const requiresDriverBin = order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
-    const currentBinRelation =
-      firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
-
-    if (nextStatus === 'completed' && requiresDriverBin && !currentBinRelation?.id) {
-      setPageError('Please save the bin number before completing this order.')
-      setSavingOrderId(null)
-      return
-    }
-
-    if (nextStatus === 'completed' && hasOpenPreviousOrder(order, orders)) {
-      setPageError('Finish previous job before continuing.')
-      setSavingOrderId(null)
-      return
-    }
-
-    const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
-
-    if (isOffline) {
-      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
-      setSavingOrderId(null)
-      return
-    }
-
-    const payload: Record<string, unknown> = {
-      status: nextStatus,
-      completed_at: nextStatus === 'completed' ? completedAt : null,
-      completed_by: nextStatus === 'completed' ? completedBy : null,
-    }
-
-    const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', orderId)
-
-    if (!error && nextStatus === 'completed') {
-      const stopAddress = getOrderAddress(order)
-
-      if (order.order_type === 'DELIVERY' && order.bin_id) {
-        await supabase
-          .from('bins')
-          .update({
-            status: 'in_use',
-            location: stopAddress,
-          })
-          .eq('id', order.bin_id)
-      }
-
-      if (order.order_type === 'EXCHANGE') {
-        if (order.bin_id) {
-          await supabase
-            .from('bins')
-            .update({
-              status: 'in_use',
-              location: stopAddress,
-            })
-            .eq('id', order.bin_id)
-        }
-
-        if (order.old_bin_id) {
-          await supabase
-            .from('bins')
-            .update({
-              status: 'available',
-              location: 'Yard',
-            })
-            .eq('id', order.old_bin_id)
-        }
-      }
-
-      if (order.order_type === 'REMOVAL' && order.old_bin_id) {
-        await supabase
-          .from('bins')
-          .update({
-            status: 'available',
-            location: 'Yard',
-          })
-          .eq('id', order.old_bin_id)
-      }
-
-      if (order.order_type === 'DUMP RETURN' && order.old_bin_id) {
-        await supabase
-          .from('bins')
-          .update({
-            status: 'in_use',
-            location: stopAddress,
-          })
-          .eq('id', order.old_bin_id)
-      }
-    }
-
-    if (error) {
-      queueOrderAction(orderId, nextStatus, completedAt, completedBy)
-      setPageError('Connection issue: saved locally and will sync automatically.')
-      setSavingOrderId(null)
-      return
-    }
-
-    clearOrderSyncState(orderId)
-    setSavingOrderId(null)
+  function closeOrderModal() {
+    setModalOpen(false)
+    setSelectedOrderId(null)
   }
 
-  function getOrderSyncBadge(orderId: string) {
-    const state = syncStates[orderId]
-    if (state === 'pending') {
-      return (
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-          Pending Sync
-        </span>
-      )
-    }
-
-    if (state === 'error') {
-      return (
-        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
-          Sync Failed
-        </span>
-      )
-    }
-
-    return null
+  function handleDragStart(event: React.DragEvent<HTMLButtonElement>, orderId: string, fromColumnKey: string) {
+    event.stopPropagation()
+    setDragState({ orderId, fromColumnKey })
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', orderId)
   }
 
-  useEffect(() => {
-    if (!driver) return
+  function handleDragEnd() {
+    setDragState(null)
+    setDropTarget(null)
+  }
 
-    const currentStatus = driver.status || null
-    const previousStatus = previousDriverStatusRef.current
+  function allowDrop(event: React.DragEvent<HTMLDivElement>, columnKey: string, beforeId: string | null) {
+    event.preventDefault()
+    if (!dragState) return
+    setDropTarget({ columnKey, beforeId })
+  }
 
-    if (previousStatus !== null && previousStatus !== currentStatus) {
-      if (currentStatus === 'heading_back') {
-        notifyInApp('SimpliiTrash', 'HEAD BACK')
-      } else if (currentStatus === 'parked') {
-        notifyInApp('SimpliiTrash', 'Park and finish today')
-      } else if (currentStatus === 'available') {
-        notifyInApp('SimpliiTrash', 'You are available')
+  async function saveDriverRouteOrder(driverId: string, orderedIds: string[]) {
+    for (let index = 0; index < orderedIds.length; index += 1) {
+      const orderId = orderedIds[index]
+      const { error } = await supabase
+        .from(TABLE_NAME)
+        .update({ driver_id: driverId, route_position: index + 1, status: 'assigned' })
+        .eq('id', orderId)
+
+      if (error) {
+        setPageError(error.message)
+        return false
       }
     }
+    return true
+  }
 
-    previousDriverStatusRef.current = currentStatus
-  }, [driver?.status])
+  async function moveOrderToColumn(movingOrderId: string, targetColumnKey: string, beforeId: string | null) {
+    const movingOrder = orders.find((order) => order.id === movingOrderId)
+    if (!movingOrder || movingOrder.status === 'completed') return
 
-  useEffect(() => {
-    const currentIds = orders.map((order) => order.id).sort()
-    const previousIds = previousOrderIdsRef.current
+    const previousDriverId = movingOrder.driver_id
+    const nextDriverId = targetColumnKey === 'unassigned' ? null : targetColumnKey
 
-    const newOrderIds = currentIds.filter((id) => !previousIds.includes(id))
-    if (previousIds.length > 0 && newOrderIds.length > 0) {
-      notifyInApp(
-        'SimpliiTrash',
-        newOrderIds.length === 1 ? 'You received a new order' : `You received ${newOrderIds.length} new orders`
-      )
+    if (!nextDriverId) {
+      const ok = await updateOrder(movingOrderId, { driver_id: null, route_position: null, status: 'unassigned' })
+      if (!ok) return
+
+      if (previousDriverId) {
+        await normalizeRoutePositionsForDriver(previousDriverId)
+      }
+      await refreshAll()
+      return
     }
 
-    previousOrderIdsRef.current = currentIds
-  }, [orders])
+    const targetOrders = todayOrders
+      .filter((order) => order.driver_id === nextDriverId && order.id !== movingOrderId && order.status !== 'completed')
+      .sort((a, b) => {
+        const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
+        const bPos = b.route_position ?? Number.MAX_SAFE_INTEGER
+        return aPos - bPos
+      })
 
-  if (showSplash) {
-    return (
-      <div style={{ colorScheme: 'light' }} className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
-        <div className="w-full max-w-md rounded-[2rem] bg-white/10 p-10 text-center shadow-2xl backdrop-blur-md">
-          <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
-            <img
-              src="/icons/icon-512.png"
-              alt="SimpliiTrash"
-              className="h-16 w-16 rounded-2xl object-contain"
-            />
-          </div>
+    const targetIds = targetOrders.map((order) => order.id)
+    const reorderedIds = reorderIds(targetIds, movingOrderId, beforeId)
 
-          <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
-            SimpliiTrash
-          </h1>
+    const updateMovingOrder = await supabase
+      .from(TABLE_NAME)
+      .update({ driver_id: nextDriverId, status: 'assigned' })
+      .eq('id', movingOrderId)
 
-          <p className="mt-2 text-sm text-white/90">
-            Loading route...
-          </p>
+    if (updateMovingOrder.error) {
+      setPageError(updateMovingOrder.error.message)
+      return
+    }
 
-          <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
-            <div className="h-full w-2/3 animate-pulse rounded-full bg-white" />
-          </div>
-        </div>
-      </div>
-    )
+    const saved = await saveDriverRouteOrder(nextDriverId, reorderedIds)
+    if (!saved) return
+
+    if (previousDriverId && previousDriverId !== nextDriverId) {
+      await normalizeRoutePositionsForDriver(previousDriverId)
+    }
+
+    await syncDriverStatuses(nextDriverId)
+    if (previousDriverId && previousDriverId !== nextDriverId) {
+      await syncDriverStatuses(previousDriverId)
+    }
+
+    await refreshAll()
+  }
+
+  async function handleDrop(event: React.DragEvent<HTMLDivElement>, targetColumnKey: string, beforeId: string | null) {
+    event.preventDefault()
+    if (!dragState) return
+
+    const movingOrderId = dragState.orderId
+    setDropTarget(null)
+    setDragState(null)
+
+    await moveOrderToColumn(movingOrderId, targetColumnKey, beforeId)
   }
 
   return (
-    <div style={{ colorScheme: 'light' }} className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto max-w-6xl p-4 md:p-6">
-        <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                {driver?.name || 'Driver'}
-              </h1>
-
-              {driver?.status === 'heading_back' ? (
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                  HB
-                </span>
-              ) : null}
-
-              {driver?.status === 'parked' ? (
-                <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                  Parked
-                </span>
-              ) : null}
+    <div className="min-h-screen bg-slate-100">
+      <div className="mx-auto max-w-[1800px] p-4 md:p-6">
+        <div className="mb-6 flex flex-col gap-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dispatch Board</h1>
+              <p className="text-sm text-slate-500">Driver-based route planning and daily workflow monitoring</p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {driver?.status !== 'available' ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!driver?.id) return
-                    const ok = await markDriverAvailable(driver.id)
-                    if (ok) await loadPage()
-                  }}
-                  className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                >
-                  Available
-                </button>
-              ) : null}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Back to Dashboard
+              </Link>
+
+              <Link
+                href="/order?newOrder=1"
+                className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                New Order
+              </Link>
 
               <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                onClick={refreshAll}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                Log Out
+                Refresh
               </button>
             </div>
           </div>
 
           {pageError ? (
-            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {pageError}
             </div>
           ) : null}
 
-          {driver?.status === 'heading_back' ? (
-            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-              HEAD BACK
+          <div className="grid gap-4 md:grid-cols-5">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total Orders</div>
+              <div className="mt-2 text-2xl font-bold text-slate-900">{stats.total}</div>
             </div>
-          ) : null}
 
-          {driver?.status === 'parked' ? (
-            <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
-              Park and finish today
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Unassigned</div>
+              <div className="mt-2 text-2xl font-bold text-slate-900">{stats.unassigned}</div>
             </div>
-          ) : null}
-        </div>
 
-        {isOffline || usingCachedOrders || queuedActions.length > 0 || syncingQueue ? (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {syncingQueue
-              ? 'Syncing offline updates...'
-              : queuedActions.length > 0
-              ? `Offline queue active: ${queuedActions.length} update${queuedActions.length === 1 ? '' : 's'} waiting to sync.`
-              : usingCachedOrders
-              ? 'Offline mode: showing last synced route.'
-              : 'Connection looks weak. Some actions may sync later.'}
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-blue-700">Active Drivers</div>
+              <div className="mt-2 text-2xl font-bold text-blue-900">{stats.activeDrivers}</div>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-amber-700">In Progress</div>
+              <div className="mt-2 text-2xl font-bold text-amber-900">{stats.inProgress}</div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Completed</div>
+              <div className="mt-2 text-2xl font-bold text-emerald-900">{stats.completed}</div>
+            </div>
           </div>
-        ) : null}
+
+          <div className="grid gap-3 md:grid-cols-1">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search ticket, customer, or driver"
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-400"
+            />
+          </div>
+        </div>
 
         {loading ? (
           <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            Loading driver page...
-          </div>
-        ) : orders.length === 0 ? (
-          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            No active orders for this driver.
+            Loading dispatch board...
           </div>
         ) : (
-          <div className="space-y-4">
-            {orders.map((order, index) => {
-              const isSaving = savingOrderId === order.id
-              const syncBadge = getOrderSyncBadge(order.id)
-              const stopAddress = getOrderAddress(order)
-              const assignedBin = firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
-              const oldBin = firstRelation(order.old_bin) || (order.old_bin_id ? binsMap[String(order.old_bin_id)] : null)
-              const binSaveState = binSaveStates[order.id] || 'idle'
-              const stopRouteLink = buildGoogleMapsLinkFromStop(orders, index)
-              const usesExistingBin =
-                order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
-              const needsNewBin =
-                order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
-              const visibleBinNumber = usesExistingBin
-                ? oldBin?.bin_number || assignedBin?.bin_number || binInputs[order.id] || ''
-                : assignedBin?.bin_number || binInputs[order.id] || ''
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: `repeat(${Math.max(boardColumns.length, 1)}, minmax(300px, 1fr))` }}
+          >
+            {boardColumns.map((column) => {
+              const columnOrders = groupedOrders[column.key] || []
 
               return (
                 <div
-                  key={order.id}
-                  className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
+                  key={column.key}
+                  className={`min-h-[420px] rounded-3xl p-4 shadow-sm ring-1 ${
+                    column.type === 'driver'
+                      ? getDriverColumnStyle(driverMap[column.key]?.status)
+                      : 'bg-white ring-slate-200'
+                  }`}
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          Stop {order.route_position || index + 1}
-                        </span>
-
-                        <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
-                          {displayValue(order.bin_size)}Yd
-                        </span>
-
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          {displayValue(order.order_type)}
-                        </span>
-
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          {order.service_window
-                            ? displayValue(order.service_window)
-                            : formatServiceTime(order.service_time)}
-                        </span>
-
-                        {syncBadge}
-                      </div>
-
-                      <div className="mt-3">
-                        <h2 className="text-lg font-bold text-slate-900">
-                          {order.customer_name || 'No customer'}
-                        </h2>
-                      </div>
-
-                      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Address
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(stopAddress)}
-                          </div>
+                  <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">{column.label}</h2>
+                          {column.type === 'driver' ? (
+                            <span
+                              className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                driverStatusStyles[driverMap[column.key]?.status || 'available'] || driverStatusStyles.available
+                              }`}
+                            >
+                              {formatDriverStatus(driverMap[column.key]?.status)}
+                            </span>
+                          ) : null}
                         </div>
-
-                        {stopRouteLink ? (
-                          <a
-                            href={stopRouteLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-fit items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-                          >
-                            Open Full Route
-                          </a>
-                        ) : null}
                       </div>
 
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Number
-                        </div>
-
-                        {needsNewBin && !assignedBin?.bin_number ? (
-                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
-                            <input
-                              value={binInputs[order.id] || ''}
-                              onChange={(e) =>
-                                setBinInputs((current) => ({
-                                  ...current,
-                                  [order.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Enter bin number"
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                            />
-
+                      <div className="flex items-center gap-2">
+                        {column.type === 'driver' ? (
+                          <>
                             <button
                               type="button"
-                              onClick={() => void saveBinNumber(order)}
-                              disabled={binSaveState === 'saving'}
-                              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                              onClick={() => void setDriverOperationalStatus(column.key, 'heading_back')}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 transition hover:bg-blue-100"
+                              title="Heading Back"
                             >
-                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
+                              HB
                             </button>
-                          </div>
-                        ) : (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                            <span className="font-semibold">{visibleBinNumber || 'Not set'}</span>
-                          </div>
-                        )}
-
-                        {order.order_type === 'EXCHANGE' && oldBin?.bin_number ? (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                            Old bin at site: <span className="font-semibold">{oldBin.bin_number}</span>
-                          </div>
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(column.key, 'parked')}
+                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 transition hover:bg-slate-100"
+                              title="Park"
+                            >
+                              Park
+                            </button>
+                          </>
                         ) : null}
-                      </div>
 
-                      {order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN' ? (
-                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Dump Site
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(order.dump_site_address)}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Notes
-                        </div>
-                        <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
-                          {displayValue(order.notes)}
-                        </div>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                          {columnOrders.length}
+                        </span>
                       </div>
                     </div>
+                  </div>
 
-                    <div className="w-full shrink-0 lg:w-[220px]">
-                      <div className="grid gap-2">
-                        {order.status !== 'in_progress' ? (
-                          <button
-                            type="button"
-                            onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                            disabled={isSaving}
-                            className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  <div
+                    className={`space-y-2 rounded-2xl p-1 transition ${
+                      dropTarget?.columnKey === column.key && dropTarget.beforeId === null ? 'bg-sky-50' : ''
+                    }`}
+                    onDragOver={(e) => allowDrop(e, column.key, null)}
+                    onDrop={(e) => handleDrop(e, column.key, null)}
+                  >
+                    {columnOrders.map((order) => {
+                      const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
+                      const showTopDrop = dropTarget?.columnKey === column.key && dropTarget.beforeId === order.id
+
+                      return (
+                        <div key={order.id}>
+                          <div
+                            onDragOver={(e) => allowDrop(e, column.key, order.id)}
+                            onDrop={(e) => handleDrop(e, column.key, order.id)}
+                            className={`mb-2 rounded-xl border-2 border-dashed px-2 py-1 text-center text-[11px] font-semibold transition ${
+                              showTopDrop ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent bg-transparent text-transparent'
+                            }`}
                           >
-                            {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
-                          </button>
-                        ) : null}
+                            Drop here
+                          </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (hasOpenPreviousOrder(order, orders)) {
-                              setPageError('Finish previous job before continuing.')
-                              return
-                            }
-                            void updateOrderStatus(order.id, 'completed')
-                          }}
-                          disabled={isSaving || hasOpenPreviousOrder(order, orders)}
-                          className={`inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                            hasOpenPreviousOrder(order, orders)
-                              ? 'bg-slate-400'
-                              : 'bg-emerald-600 hover:opacity-90'
-                          }`}
-                        >
-                          {hasOpenPreviousOrder(order, orders)
-                            ? 'Complete Blocked'
-                            : isSaving
-                              ? 'Saving...'
-                              : isOffline
-                                ? 'Complete Order (Queue)'
-                                : 'Complete Order'}
-                        </button>
+                          <div
+                            onClick={() => openOrder(order.id)}
+                            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                          >
+                            <div className="flex items-start gap-3">
+                              <button
+                                type="button"
+                                draggable={order.status !== 'completed'}
+                                onClick={(e) => e.stopPropagation()}
+                                onDragStart={(e) => handleDragStart(e, order.id, column.key)}
+                                onDragEnd={handleDragEnd}
+                                disabled={order.status === 'completed'}
+                                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                title={order.status === 'completed' ? 'Completed orders cannot be reordered' : 'Drag to reorder or move to another driver'}
+                              >
+                                <DragHandleIcon />
+                              </button>
 
-                        <button
-                          type="button"
-                          onClick={() => void updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
-                        </button>
+                              <div className="min-w-0 flex-1 space-y-2">
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Client</div>
+                                    <div className="mt-1 line-clamp-1 text-base font-semibold text-slate-900">
+                                      {order.customer_name || 'No customer'}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Driver</div>
+                                    <div className="mt-1 text-sm text-slate-700">
+                                      {assignedDriver?.name || '—'}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Destination</div>
+                                    <div className="mt-1 line-clamp-2 text-sm text-slate-700">
+                                      {order.workflow_step === 'DUMP' ? order.dump_site_address || 'No dump site address' : order.service_address || order.pickup_address || 'No service address'}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time of Delivery</div>
+                                    <div className="mt-1 text-sm text-slate-700">
+                                      {displayValue(formatServiceTime(order.service_time || order.service_window))}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Order Type</div>
+                                    <div className="mt-1 text-sm text-slate-700">
+                                      {displayValue(order.order_type)}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 pt-1">
+                                  {column.key !== 'unassigned' ? (
+                                    <span
+                                      className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                                        statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
+                                      }`}
+                                    >
+                                      {formatStatus(order.status || 'unassigned')}
+                                    </span>
+                                  ) : <span />}
+
+                                  <span className="text-[11px] text-slate-400">
+                                    {order.ticket_number || `#${order.id.slice(0, 8)}`}
+                                  </span>
+                                </div>
+
+                                {!order.driver_id ? (
+                                  <div onClick={(e) => e.stopPropagation()}>
+                                    <select
+                                      value={assignSelections[order.id] || ''}
+                                      onChange={(e) => {
+                                        const driverId = e.target.value
+                                        setAssignSelections((current) => ({ ...current, [order.id]: driverId }))
+                                        if (driverId) {
+                                          void handleAssign(order.id, driverId)
+                                        }
+                                      }}
+                                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                                    >
+                                      <option value="">Set Driver</option>
+{assignableDrivers.map((driver) => (
+                                        <option key={driver.id} value={driver.id}>
+                                          {driver.name || 'Unnamed Driver'}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {columnOrders.length === 0 && (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
+                        No orders here
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )
             })}
           </div>
         )}
+
+        {modalOpen && selectedOrder ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
+            onClick={closeOrderModal}
+          >
+            <div
+              className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl ring-1 ring-slate-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Ticket Number</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-900">
+                    {displayValue(selectedOrder.ticket_number || `#${selectedOrder.id.slice(0, 8)}`)}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeOrderModal}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <DetailItem label="Customer" value={selectedOrder.customer_name} />
+                  <DetailItem
+                    label="Driver"
+                    value={selectedOrder.driver_id ? driverMap[selectedOrder.driver_id]?.name || 'Assigned' : 'Unassigned'}
+                  />
+                  <DetailItem label="Service Address" value={selectedOrder.service_address || selectedOrder.pickup_address} />
+                  <DetailItem label="Scheduled Date" value={formatDate(selectedOrder.scheduled_date)} />
+                  <DetailItem label="Service Time" value={formatServiceTime(selectedOrder.service_time)} />
+                  <DetailItem label="Order Type" value={selectedOrder.order_type} />
+                  <DetailItem label="Bin Size" value={selectedOrder.bin_size} />
+                  <DetailItem label="Bin Type" value={selectedOrder.bin_type} />
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</div>
+                  <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{displayValue(selectedOrder.notes)}</div>
+                </div>
+
+                <div className="mt-6 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Assign Driver
+                    </label>
+                    <select
+                      value={selectedOrder.driver_id || ''}
+                      onChange={(e) => handleAssign(selectedOrder.id, e.target.value)}
+                      disabled={selectedOrder.status === 'completed'}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
+                    >
+                      <option value="">Unassigned</option>
+                      {assignableDrivers.map((driver) => (
+                        <option key={driver.id} value={driver.id}>
+                          {driver.name || 'Unnamed Driver'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Update Status
+                    </label>
+                    <select
+                      value={selectedOrder.status || 'unassigned'}
+                      onChange={(e) => updateOrder(selectedOrder.id, { status: e.target.value })}
+                      disabled={selectedOrder.status === 'completed'}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
+                    >
+                      <option value="unassigned">Unassigned</option>
+                      <option value="assigned">Assigned</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="completed">Completed</option>
+                      <option value="issue">Issue</option>
+                    </select>
+
+                    {selectedOrder.status === 'completed' ? (
+                      <p className="mt-2 text-xs font-medium text-emerald-700">Completed orders are read-only for dispatch.</p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 bg-slate-50 px-6 py-4">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={closeOrderModal}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
