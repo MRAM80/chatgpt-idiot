@@ -768,8 +768,15 @@ export default function BinsPage() {
   }, [editingBin, orders])
 
   const selectedBinOrders = useMemo(() => {
-    if (!editingBin) return []
-    return [...getOrdersForBin(editingBin.id)].sort(sortOrdersNewest).slice(0, 20)
+  if (!editingBin) return []
+
+  return [...getOrdersForBin(editingBin.id)]
+    .sort((a, b) => {
+      const aTime = new Date(a.updated_at || a.created_at || 0).getTime()
+      const bTime = new Date(b.updated_at || b.created_at || 0).getTime()
+      return bTime - aTime // 👈 newest first
+    })
+    .slice(0, 5)
   }, [editingBin, orders])
 
   return (

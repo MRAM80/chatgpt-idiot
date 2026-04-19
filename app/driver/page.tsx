@@ -781,6 +781,27 @@ export default function DriverPage() {
       return
     }
 
+    const currentOldBinId = order.old_bin_id ? String(order.old_bin_id) : null
+    const currentBinId = order.bin_id ? String(order.bin_id) : null
+    const matchedBinId = String(matchedBin.id)
+    const binLocation = String(matchedBin.location || '').trim().toLowerCase()
+
+    const sameOrderUsingThisBin =
+      matchedBinId === currentBinId || matchedBinId === currentOldBinId
+
+    const binLooksOccupied =
+      matchedBin.status === 'in_use' &&
+      binLocation !== '' &&
+      binLocation !== 'yard'
+
+    if (binLooksOccupied && !sameOrderUsingThisBin) {
+      setPageError(
+        `Bin ${matchedBin.bin_number || normalizedInput} is still in use at ${matchedBin.location || 'another job site'}.`
+      )
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
     const { data: conflictingOrders, error: conflictError } = await supabase
       .from('order')
       .select('id, customer_name, status, order_type')
@@ -810,7 +831,6 @@ export default function DriverPage() {
       return
     }
 
-    const currentOldBinId = order.old_bin_id ? String(order.old_bin_id) : null
     if (
       currentOldBinId &&
       String(matchedBin.id) === currentOldBinId &&
