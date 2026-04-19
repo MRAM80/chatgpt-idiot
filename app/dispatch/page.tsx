@@ -66,6 +66,21 @@ const driverStatusStyles: Record<string, string> = {
   parked: 'border-slate-300 bg-slate-100 text-slate-700',
 }
 
+function getDriverColumnStyle(status?: string | null) {
+  switch (status) {
+    case 'available':
+      return 'bg-emerald-50 ring-emerald-200'
+    case 'heading_back':
+      return 'bg-blue-50 ring-blue-200'
+    case 'parked':
+      return 'bg-slate-100 ring-slate-300'
+    case 'busy':
+      return 'bg-amber-50 ring-amber-200'
+    default:
+      return 'bg-white ring-slate-200'
+  }
+}
+
 function getWorkflowLabel(step?: string | null) {
   if (step === 'DUMP') return { label: 'Dump Site', color: 'bg-orange-100 text-orange-700' }
   if (step === 'RETURN') return { label: 'Return', color: 'bg-blue-100 text-blue-700' }
@@ -787,20 +802,32 @@ export default function DispatchBoardPage() {
               const columnOrders = groupedOrders[column.key] || []
 
               return (
-                <div key={column.key} className="min-h-[420px] rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+                <div
+                  key={column.key}
+                  className={`min-h-[420px] rounded-3xl p-4 shadow-sm ring-1 ${
+                    column.type === 'driver'
+                      ? getDriverColumnStyle(driverMap[column.key]?.status)
+                      : 'bg-white ring-slate-200'
+                  }`}
+                >
                   <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">{column.label}</h2>
+                          {column.type === 'driver' ? (
+                            <span
+                              className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                driverStatusStyles[driverMap[column.key]?.status || 'available'] || driverStatusStyles.available
+                              }`}
+                            >
+                              {formatDriverStatus(driverMap[column.key]?.status)}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                          {columnOrders.length}
-                        </span>
-
                         {column.type === 'driver' ? (
                           <>
                             <button
@@ -821,6 +848,10 @@ export default function DispatchBoardPage() {
                             </button>
                           </>
                         ) : null}
+
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                          {columnOrders.length}
+                        </span>
                       </div>
                     </div>
                   </div>
