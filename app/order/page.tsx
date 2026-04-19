@@ -608,12 +608,6 @@ function OrdersPageContent() {
 
       if (aUnassigned !== bUnassigned) return bUnassigned - aUnassigned
 
-      if (aUnassigned === 1 && bUnassigned === 1) {
-        const aCreated = new Date(a.created_at || 0).getTime()
-        const bCreated = new Date(b.created_at || 0).getTime()
-        return bCreated - aCreated
-      }
-
       const aDate = a.scheduled_date || '9999-12-31'
       const bDate = b.scheduled_date || '9999-12-31'
       if (aDate !== bDate) return aDate.localeCompare(bDate)
@@ -733,7 +727,7 @@ function OrdersPageContent() {
       customer_name: customerRelation?.name || order.customer_name || '',
       job_site_id: order.job_site_id || '',
       pickup_address: order.service_address || order.pickup_address || '',
-      scheduled_date: order.scheduled_date ? new Date(order.scheduled_date).toISOString().slice(0, 10) : '',
+      scheduled_date: order.scheduled_date ? String(order.scheduled_date).slice(0, 10) : '',
       service_time: order.service_time || '',
       bin_size: order.bin_size || binRelation?.bin_size || oldBinRelation?.bin_size || '20',
       bin_type: order.bin_type || 'Garbage',
@@ -1583,11 +1577,6 @@ function OrdersPageContent() {
             </select>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-            <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 font-semibold text-rose-700">
-              Overdue = delivery date before today
-            </span>
-          </div>
         </div>
 
         <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
@@ -1631,34 +1620,16 @@ function OrdersPageContent() {
                       orderTypeClasses[order.order_type || 'DELIVERY'] ||
                       'bg-slate-100 text-slate-700 border-slate-200'
 
-                    const isOverdue = isOverdueOrder(order)
-                    const isUnassigned = (order.status || 'unassigned') === 'unassigned'
 
                     return (
                       <tr
                         key={order.id}
-                        className={`cursor-pointer border-b border-slate-100 hover:bg-slate-50/80 ${
-                          isOverdue ? 'bg-rose-50/70' : ''
-                        } ${
-                          isUnassigned ? 'bg-amber-50/40' : ''
-                        }`}
+                        className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/80"
                         onClick={() => openEditModal(order)}
                       >
                         <td className="px-4 py-4 align-top">
                           <div className="font-semibold text-slate-900">{order.ticket_number || 'Pending'}</div>
                           <div className="mt-1 text-xs text-slate-500">#{order.id.slice(0, 8)}</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {isUnassigned ? (
-                              <span className="inline-flex rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-                                Recent Unassigned Priority
-                              </span>
-                            ) : null}
-                            {isOverdue ? (
-                              <span className="inline-flex rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
-                                Overdue
-                              </span>
-                            ) : null}
-                          </div>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-700">
