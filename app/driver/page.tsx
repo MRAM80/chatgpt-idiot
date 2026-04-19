@@ -520,6 +520,65 @@ export default function DriverPage() {
     setBinsMap(nextMap)
   }
 
+  async function refreshDriverData() {
+    if (!driver?.id) return
+
+    setPageError('')
+
+    const { data: freshDriver, error: freshDriverError } = await supabase
+      .from('drivers')
+      .select('id,name,email,phone,status,auth_user_id')
+      .eq('id', driver.id)
+      .maybeSingle()
+
+    if (!freshDriverError && freshDriver) {
+      setDriver(freshDriver as Driver)
+    }
+
+    const { data: orderData, error: ordersError } = await supabase
+      .from(TABLE_NAME)
+      .select(
+        `
+        id,
+        ticket_number,
+        customer_name,
+        pickup_address,
+        service_address,
+        service_time,
+        service_window,
+        bin_id,
+        old_bin_id,
+        dump_site_id,
+        dump_site_address,
+        bin_size,
+        bin_type,
+        order_type,
+        scheduled_date,
+        driver_id,
+        route_position,
+        status,
+        notes,
+        created_at,
+        updated_at,
+        completed_by,
+        completed_at,
+        bins:bin_id ( id, bin_number, bin_size, status, location ),
+        old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
+      `
+      )
+      .eq('driver_id', driver.id)
+      .neq('status', 'completed')
+      .order('route_position', { ascending: true })
+      .order('created_at', { ascending: true })
+
+    if (!ordersError) {
+      const nextOrders = (orderData as Order[]) || []
+      persistOrders(nextOrders)
+      setUsingCachedOrders(false)
+      await loadBinsForOrders(nextOrders)
+    }
+  }
+
   async function loadPage() {
     setPageError('')
     setLoading(true)
@@ -800,29 +859,55 @@ export default function DriverPage() {
     void loadPage()
 
     const handleWindowFocus = () => {
-      void loadPage()
+      void refreshDriverData()
     }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void loadPage()
+        void refreshDriverData()
       }
     }
 
-    const channel = supabase
-      .channel('driver-page-realtime')
+    const channel = supabase.channel('driver-page-realtime')
+
+    channel
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: TABLE_NAME },
-        async () => {
-          await loadPage()
+        { event: '*', schema: 'public', table: 'drivers' },
+        async (payload) => {
+          const nextDriver = (payload as any)?.new
+          if (driver?.id && nextDriver?.id === driver.id) {
+            if (nextDriver.status === 'heading_back') {
+              notifyInApp('SimpliiTrash', 'HEAD BACK')
+            } else if (nextDriver.status === 'parked') {
+              notifyInApp('SimpliiTrash', 'Park and finish today')
+            } else if (nextDriver.status === 'available') {
+              notifyInApp('SimpliiTrash', 'Available')
+            }
+            await refreshDriverData()
+          }
         }
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'drivers' },
-        async () => {
-          await loadPage()
+        { event: '*', schema: 'public', table: TABLE_NAME },
+        async (payload) => {
+          const nextOrder = (payload as any)?.new
+          const oldOrder = (payload as any)?.old
+
+          const affectsThisDriver =
+            (driver?.id && nextOrder?.driver_id === driver.id) ||
+            (driver?.id && oldOrder?.driver_id === driver.id)
+
+          if (!affectsThisDriver) return
+
+          if ((payload as any).eventType === 'INSERT') {
+            notifyInApp('SimpliiTrash', 'You received a new order')
+          } else if ((payload as any).eventType === 'UPDATE') {
+            notifyInApp('SimpliiTrash', 'Order updated')
+          }
+
+          await refreshDriverData()
         }
       )
       .subscribe()
@@ -835,13 +920,13 @@ export default function DriverPage() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       supabase.removeChannel(channel)
     }
-  }, [supabase])
+  }, [supabase, driver?.id])
 
   useEffect(() => {
     const interval = window.setInterval(() => {
       void loadPage()
       void flushQueuedActions()
-    }, 600000)
+    }, 60000)
 
     return () => {
       window.clearInterval(interval)
@@ -1103,7 +1188,7 @@ export default function DriverPage() {
                   onClick={async () => {
                     if (!driver?.id) return
                     const ok = await markDriverAvailable(driver.id)
-                    if (ok) await loadPage()
+                    if (ok) await refreshDriverData()
                   }}
                   className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
                 >

@@ -162,7 +162,7 @@ const emptyForm: FormState = {
   customer_name: '',
   job_site_id: '',
   pickup_address: '',
-  scheduled_date: '',
+  scheduled_date: generateQuickDate(0),
   service_time: '',
   bin_size: '20',
   bin_type: 'Garbage',
@@ -245,7 +245,24 @@ function generateQuickDate(offsetDays = 0) {
   const date = new Date()
   date.setHours(0, 0, 0, 0)
   date.setDate(date.getDate() + offsetDays)
-  return date.toISOString().slice(0, 10)
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+function getTodayKey() {
+  return generateQuickDate(0)
+}
+
+function isOverdueOrder(order: Order) {
+  const status = order.status || 'unassigned'
+  if (status === 'completed' || status === 'cancelled') return false
+  if (!order.scheduled_date) return false
+
+  return order.scheduled_date < getTodayKey()
 }
 
 function buildTimeOptions() {
@@ -584,6 +601,35 @@ function OrdersPageContent() {
     }
   }, [orders])
 
+  const groupedFilteredOrders = useMemo(() => {
+    const sortedOrders = [...filteredOrders].sort((a, b) => {
+      const aDate = a.scheduled_date || '9999-12-31'
+      const bDate = b.scheduled_date || '9999-12-31'
+      if (aDate !== bDate) return aDate.localeCompare(bDate)
+
+      const aTime = a.service_time || '99:99'
+      const bTime = b.service_time || '99:99'
+      if (aTime !== bTime) return aTime.localeCompare(bTime)
+
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+    })
+
+    const groups: Array<{ dateKey: string; orders: Order[] }> = []
+
+    for (const order of sortedOrders) {
+      const dateKey = order.scheduled_date || 'No Delivery Date'
+      const lastGroup = groups[groups.length - 1]
+
+      if (!lastGroup || lastGroup.dateKey !== dateKey) {
+        groups.push({ dateKey, orders: [order] })
+      } else {
+        lastGroup.orders.push(order)
+      }
+    }
+
+    return groups
+  }, [filteredOrders])
+
   const binsAtSelectedJobSite = useMemo(() => {
     const jobSite = normalizeAddress(form.pickup_address)
     if (!jobSite) return []
@@ -668,7 +714,10 @@ function OrdersPageContent() {
 
   function openCreateModal() {
     setEditingOrder(null)
-    setForm(emptyForm)
+    setForm({
+      ...emptyForm,
+      scheduled_date: generateQuickDate(0),
+    })
     setShowCreateModal(true)
     setPageError('')
   }
@@ -1022,6 +1071,10 @@ function OrdersPageContent() {
 
       if (!form.pickup_address.trim()) {
         throw new Error('Job Site Address is required.')
+      }
+
+      if (!form.scheduled_date) {
+        throw new Error('Delivery date is required.')
       }
 
       const previousDriverId = editingOrder?.driver_id || null
@@ -1531,6 +1584,15 @@ function OrdersPageContent() {
               ))}
             </select>
           </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+            <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 font-semibold text-rose-700">
+              Overdue = delivery date before today
+            </span>
+            <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold text-slate-700">
+              Orders are grouped by delivery date
+            </span>
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
@@ -1556,73 +1618,95 @@ function OrdersPageContent() {
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {filteredOrders.map((order) => {
-                    const driverRelation = firstRelation(order.drivers)
-                    const customerRelation = firstRelation(order.customers)
-
-                    const driver =
-                      driverRelation?.name ||
-                      (order.driver_id ? driverMap[order.driver_id]?.name : null) ||
-                      'Unassigned'
-                    const customer = customerRelation?.name || order.customer_name || 'No customer'
-
-                    const badgeClass =
-                      statusClasses[order.status || 'unassigned'] || statusClasses.unassigned
-
-                    const orderTypeClass =
-                      orderTypeClasses[order.order_type || 'DELIVERY'] ||
-                      'bg-slate-100 text-slate-700 border-slate-200'
-
-                    return (
-                      <tr
-                        key={order.id}
-                        className="cursor-pointer hover:bg-slate-50/80"
-                        onClick={() => openEditModal(order)}
-                      >
-                        <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">{order.ticket_number || 'Pending'}</div>
-                          <div className="mt-1 text-xs text-slate-500">#{order.id.slice(0, 8)}</div>
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}>
-                            {formatOrderType(order.order_type)}
-                          </span>
-                        </td>
-
-                        <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">{customer}</div>
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          {order.service_address || order.pickup_address || '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {formatServiceTime(order.service_time)}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {formatDate(order.scheduled_date)}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
-                          {order.bin_size ? `${order.bin_size}Y` : '—'}
-                        </td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">{order.bin_type || '—'}</td>
-
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
-
-                        <td className="px-4 py-4 align-top">
-                          <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>
-                            {formatStatus(order.status || 'unassigned')}
-                          </span>
+                <tbody className="bg-white">
+                  {groupedFilteredOrders.map((group) => (
+                    <>
+                      <tr key={`group-${group.dateKey}`} className="bg-slate-50/80">
+                        <td
+                          colSpan={10}
+                          className="border-y border-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
+                        >
+                          Delivery Date: {group.dateKey === 'No Delivery Date' ? 'No Delivery Date' : formatDate(group.dateKey)}
                         </td>
                       </tr>
-                    )
-                  })}
+
+                      {group.orders.map((order) => {
+                        const driverRelation = firstRelation(order.drivers)
+                        const customerRelation = firstRelation(order.customers)
+
+                        const driver =
+                          driverRelation?.name ||
+                          (order.driver_id ? driverMap[order.driver_id]?.name : null) ||
+                          'Unassigned'
+                        const customer = customerRelation?.name || order.customer_name || 'No customer'
+
+                        const badgeClass =
+                          statusClasses[order.status || 'unassigned'] || statusClasses.unassigned
+
+                        const orderTypeClass =
+                          orderTypeClasses[order.order_type || 'DELIVERY'] ||
+                          'bg-slate-100 text-slate-700 border-slate-200'
+
+                        const isOverdue = isOverdueOrder(order)
+
+                        return (
+                          <tr
+                            key={order.id}
+                            className={`cursor-pointer border-b border-slate-100 hover:bg-slate-50/80 ${
+                              isOverdue ? 'bg-rose-50/70' : ''
+                            }`}
+                            onClick={() => openEditModal(order)}
+                          >
+                            <td className="px-4 py-4 align-top">
+                              <div className="font-semibold text-slate-900">{order.ticket_number || 'Pending'}</div>
+                              <div className="mt-1 text-xs text-slate-500">#{order.id.slice(0, 8)}</div>
+                              {isOverdue ? (
+                                <div className="mt-2 inline-flex rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                                  Overdue
+                                </div>
+                              ) : null}
+                            </td>
+
+                            <td className="px-4 py-4 align-top text-sm text-slate-700">
+                              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}>
+                                {formatOrderType(order.order_type)}
+                              </span>
+                            </td>
+
+                            <td className="px-4 py-4 align-top">
+                              <div className="font-semibold text-slate-900">{customer}</div>
+                            </td>
+
+                            <td className="px-4 py-4 align-top text-sm text-slate-700">
+                              {order.service_address || order.pickup_address || '—'}
+                            </td>
+
+                            <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                              {formatServiceTime(order.service_time)}
+                            </td>
+
+                            <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                              {formatDate(order.scheduled_date)}
+                            </td>
+
+                            <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                              {order.bin_size ? `${order.bin_size}Y` : '—'}
+                            </td>
+
+                            <td className="px-4 py-4 align-top text-sm text-slate-700">{order.bin_type || '—'}</td>
+
+                            <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
+
+                            <td className="px-4 py-4 align-top">
+                              <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>
+                                {formatStatus(order.status || 'unassigned')}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </>
+                  ))}
                 </tbody>
               </table>
             </div>
