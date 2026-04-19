@@ -557,18 +557,22 @@ export default function DispatchBoardPage() {
       .filter((order) => order.driver_id === driverId && order.status !== 'completed')
       .reduce((max, order) => Math.max(max, order.route_position || 0), 0)
 
-    const ok = await updateOrder(orderId, { driver_id: driverId, route_position: maxRoute + 1, status: 'assigned' })
+    const ok = await updateOrder(orderId, {
+      driver_id: driverId,
+      route_position: maxRoute + 1,
+      status: 'assigned',
+    })
     if (!ok) return
 
-    await sendAssignedOrderNotification({
-      driverId,
-      orderId,
-      customerName: currentOrder.customer_name,
-      address: currentOrder.service_address || currentOrder.pickup_address,
-    })
+    const orderDayKey = String(currentOrder.scheduled_date || '').slice(0, 10)
 
-    if (currentOrder.driver_id && currentOrder.driver_id !== driverId) {
-      await normalizeRoutePositionsForDriver(currentOrder.driver_id)
+    if (orderDayKey === todayKey) {
+      await sendAssignedOrderNotification({
+        driverId,
+        orderId,
+        customerName: currentOrder.customer_name,
+        address: currentOrder.service_address || currentOrder.pickup_address,
+      })
     }
 
     setAssignSelections((current) => ({ ...current, [orderId]: '' }))
