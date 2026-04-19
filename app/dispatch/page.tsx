@@ -342,8 +342,13 @@ export default function DispatchBoardPage() {
     return drivers.filter((driver) => driver.status !== 'offline')
   }, [drivers])
 
-  const availableDrivers = useMemo(() => {
-    return drivers.filter((driver) => driver.status === 'available')
+  const assignableDrivers = useMemo(() => {
+    return drivers.filter(
+      (driver) =>
+        driver.status === 'available' ||
+        driver.status === 'busy' ||
+        driver.status === 'heading_back'
+    )
   }, [drivers])
 
   const selectedOrder = useMemo(() => {
@@ -926,6 +931,13 @@ export default function DispatchBoardPage() {
                                       {displayValue(formatServiceTime(order.service_time || order.service_window))}
                                     </div>
                                   </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Order Type</div>
+                                    <div className="mt-1 text-sm text-slate-700">
+                                      {displayValue(order.order_type)}
+                                    </div>
+                                  </div>
                                 </div>
 
                                 <div className="flex items-center justify-between gap-2 pt-1">
@@ -958,7 +970,7 @@ export default function DispatchBoardPage() {
                                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
                                     >
                                       <option value="">Set Driver</option>
-{availableDrivers.map((driver) => (
+{assignableDrivers.map((driver) => (
                                         <option key={driver.id} value={driver.id}>
                                           {driver.name || 'Unnamed Driver'}
                                         </option>
@@ -1043,7 +1055,7 @@ export default function DispatchBoardPage() {
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
                     >
                       <option value="">Unassigned</option>
-                      {availableDrivers.map((driver) => (
+                      {assignableDrivers.map((driver) => (
                         <option key={driver.id} value={driver.id}>
                           {driver.name || 'Unnamed Driver'}
                         </option>
