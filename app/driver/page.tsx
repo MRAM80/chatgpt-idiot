@@ -943,17 +943,6 @@ export default function DriverPage() {
   }, [supabase, driver?.id])
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      void loadPage()
-      void flushQueuedActions()
-    }, 15000)
-
-    return () => {
-      window.clearInterval(interval)
-    }
-  }, [syncingQueue])
-
-  useEffect(() => {
     if (!loading) {
       const timer = window.setTimeout(() => {
         setShowSplash(false)
