@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -116,7 +116,20 @@ function formatDriverOperationalStatus(status: string | null | undefined) {
   if (!status) return ''
   if (status === 'heading_back') return 'Heading Back'
   if (status === 'parked') return 'Parked'
+  if (status === 'available') return 'Available'
   return ''
+}
+
+function notifyInApp(title: string, body: string) {
+  if (typeof window === 'undefined') return
+  if (!('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+
+  try {
+    new Notification(title, { body })
+  } catch {
+    // keep page usable
+  }
 }
 
 function getOrderAddress(order: Order) {
@@ -253,6 +266,9 @@ export default function DriverPage() {
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
   const [binInputs, setBinInputs] = useState<Record<string, string>>({})
   const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
+  const hasInitializedPresenceRef = useRef(false)
+  const previousDriverStatusRef = useRef<string | null>(null)
+  const previousOrderIdsRef = useRef<string[]>([])
 
   function persistOrders(nextOrders: Order[]) {
     setOrders(nextOrders)
@@ -322,6 +338,21 @@ export default function DriverPage() {
     writeQueuedActions(next)
     setQueuedActions(next)
     markOrderSyncState(orderId, 'pending')
+  }
+
+  async function markDriverAvailable(driverId: string) {
+    const { error } = await supabase
+      .from('drivers')
+      .update({ status: 'available' })
+      .eq('id', driverId)
+
+    if (error) {
+      setPageError(error.message)
+      return false
+    }
+
+    setDriver((current) => (current ? { ...current, status: 'available' } : current))
+    return true
   }
 
   async function resolveDriver() {
@@ -394,6 +425,13 @@ export default function DriverPage() {
 
   async function ensureNotificationsSubscribed(driverId: string) {
     if (typeof window === 'undefined') return
+    if ('Notification' in window && Notification.permission === 'default') {
+      try {
+        await Notification.requestPermission()
+      } catch {
+        // keep page usable
+      }
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
 
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
@@ -473,11 +511,19 @@ export default function DriverPage() {
     setPageError('')
     setLoading(true)
 
-    const resolvedDriver = await resolveDriver()
+    let resolvedDriver = await resolveDriver()
 
     if (!resolvedDriver) {
       setLoading(false)
       return
+    }
+
+    if (!hasInitializedPresenceRef.current) {
+      const becameAvailable = await markDriverAvailable(resolvedDriver.id)
+      if (becameAvailable) {
+        resolvedDriver = { ...resolvedDriver, status: 'available' }
+      }
+      hasInitializedPresenceRef.current = true
     }
 
     setDriver(resolvedDriver)
@@ -767,7 +813,7 @@ export default function DriverPage() {
     const interval = window.setInterval(() => {
       void loadPage()
       void flushQueuedActions()
-    }, 300000)
+    }, 15000)
 
     return () => {
       window.clearInterval(interval)
@@ -937,6 +983,40 @@ export default function DriverPage() {
     return null
   }
 
+  useEffect(() => {
+    if (!driver) return
+
+    const currentStatus = driver.status || null
+    const previousStatus = previousDriverStatusRef.current
+
+    if (previousStatus !== null && previousStatus !== currentStatus) {
+      if (currentStatus === 'heading_back') {
+        notifyInApp('SimpliiTrash', 'HEAD BACK')
+      } else if (currentStatus === 'parked') {
+        notifyInApp('SimpliiTrash', 'Park and finish today')
+      } else if (currentStatus === 'available') {
+        notifyInApp('SimpliiTrash', 'You are available')
+      }
+    }
+
+    previousDriverStatusRef.current = currentStatus
+  }, [driver?.status])
+
+  useEffect(() => {
+    const currentIds = orders.map((order) => order.id).sort()
+    const previousIds = previousOrderIdsRef.current
+
+    const newOrderIds = currentIds.filter((id) => !previousIds.includes(id))
+    if (previousIds.length > 0 && newOrderIds.length > 0) {
+      notifyInApp(
+        'SimpliiTrash',
+        newOrderIds.length === 1 ? 'You received a new order' : `You received ${newOrderIds.length} new orders`
+      )
+    }
+
+    previousOrderIdsRef.current = currentIds
+  }, [orders])
+
   if (showSplash) {
     return (
       <div style={{ colorScheme: 'light' }} className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
@@ -988,13 +1068,23 @@ export default function DriverPage() {
               ) : null}
             </div>
 
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-            >
-              Log Out
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => driver?.id && void markDriverAvailable(driver.id)}
+                className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                Available
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                Log Out
+              </button>
+            </div>
           </div>
 
           {pageError ? (
@@ -1005,13 +1095,13 @@ export default function DriverPage() {
 
           {driver?.status === 'heading_back' ? (
             <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-              Dispatcher message: Head back.
+              HEAD BACK
             </div>
           ) : null}
 
           {driver?.status === 'parked' ? (
             <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
-              Dispatcher message: Park and finish for today.
+              Park and finish today
             </div>
           ) : null}
         </div>
