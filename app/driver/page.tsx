@@ -983,6 +983,17 @@ export default function DriverPage() {
   }, [supabase, driver?.id])
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      void refreshDriverData()
+      void flushQueuedActions()
+    }, 7000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [driver?.id, syncingQueue])
+
+  useEffect(() => {
     if (!loading) {
       const timer = window.setTimeout(() => {
         setShowSplash(false)
