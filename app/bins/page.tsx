@@ -36,7 +36,7 @@ type UserRole = 'admin' | 'dispatcher' | 'unknown'
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const BIN_STATUSES = ['available', 'in_use', 'maintenance'] as const
 
-const ACTIVE_ORDER_STATUSES = ['assigned', 'scheduled', 'in_progress', 'on_route', 'unassigned'] as const
+const ACTIVE_ORDER_STATUSES = ['assigned', 'scheduled', 'in_progress', 'on_route'] as const
 const CLOSED_ORDER_STATUSES = ['completed', 'issue'] as const
 
 const statusClasses: Record<string, string> = {

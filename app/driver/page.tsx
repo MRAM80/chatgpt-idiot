@@ -242,7 +242,7 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray
 }
 
-const ACTIVE_ORDER_STATUSES = ['unassigned', 'assigned', 'in_progress'] as const
+const ACTIVE_ORDER_STATUSES = ['assigned', 'scheduled', 'in_progress', 'on_route'] as const
 
 function getOrderTimeValue(order: Order) {
   return new Date(order.updated_at || order.created_at || order.scheduled_date || 0).getTime()
@@ -781,6 +781,26 @@ export default function DriverPage() {
       return
     }
 
+    const { data: conflictingOrders, error: conflictError } = await supabase
+      .from('order')
+      .select('id, customer_name, status, order_type')
+      .or(`bin_id.eq.${matchedBin.id},old_bin_id.eq.${matchedBin.id}`)
+      .in('status', ['assigned', 'scheduled', 'in_progress', 'on_route'])
+      .neq('id', order.id)
+
+    if (conflictError) {
+      setPageError(conflictError.message)
+      setBinSaveState(order.id, 'error')
+      return
+    }
+
+    if (conflictingOrders && conflictingOrders.length > 0) {
+      setPageError(
+        `This bin is already in use by ${conflictingOrders[0].customer_name || 'another customer'}.`
+      )
+      setBinSaveState(order.id, 'error')
+      return
+    }
     const expectedSize = String(order.bin_size ?? '').trim()
     const actualSize = String(matchedBin.bin_size ?? '').trim()
 
