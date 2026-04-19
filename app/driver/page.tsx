@@ -291,7 +291,6 @@ export default function DriverPage() {
   const [binInputs, setBinInputs] = useState<Record<string, string>>({})
   const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
   const hasInitializedPresenceRef = useRef(false)
-  const previousDriverStatusRef = useRef<string | null>(null)
   const previousOrderIdsRef = useRef<string[]>([])
 
   function persistOrders(nextOrders: Order[]) {
@@ -911,8 +910,8 @@ export default function DriverPage() {
   useEffect(() => {
     void loadPage()
 
-    const handleWindowFocus = () => {
-      void refreshDriverData()
+    const handleWindowFocus = async () => {
+      await refreshDriverData()
     }
 
     const handleVisibilityChange = () => {
@@ -930,17 +929,33 @@ export default function DriverPage() {
         async (payload) => {
           const nextDriver = (payload as any)?.new
           if (driver?.id && nextDriver?.id === driver.id) {
-            if (nextDriver.status === 'heading_back') {
-              notifyInApp('SimpliiTrash', 'HEAD BACK')
-            } else if (nextDriver.status === 'parked') {
-              notifyInApp('SimpliiTrash', 'Park and finish today')
-            } else if (nextDriver.status === 'available') {
-              notifyInApp('SimpliiTrash', 'Available')
+            const previousStatus = String((payload as any)?.old?.status || '')
+            const nextStatus = String(nextDriver.status || '')
+
+            setDriver((current) =>
+              current
+                ? {
+                    ...current,
+                    ...nextDriver,
+                  }
+                : (nextDriver as Driver)
+            )
+
+            if (previousStatus !== nextStatus) {
+              if (nextStatus === 'heading_back') {
+                notifyInApp('SimpliiTrash', 'HEAD BACK')
+              } else if (nextStatus === 'parked') {
+                notifyInApp('SimpliiTrash', 'Park and finish today')
+              } else if (nextStatus === 'available') {
+                notifyInApp('SimpliiTrash', 'Available')
+              }
             }
-            await refreshDriverData()
+
+            void refreshDriverData()
           }
         }
       )
+
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: TABLE_NAME },
@@ -1155,25 +1170,6 @@ export default function DriverPage() {
 
     return null
   }
-
-  useEffect(() => {
-    if (!driver) return
-
-    const currentStatus = driver.status || null
-    const previousStatus = previousDriverStatusRef.current
-
-    if (previousStatus !== null && previousStatus !== currentStatus) {
-      if (currentStatus === 'heading_back') {
-        notifyInApp('SimpliiTrash', 'HEAD BACK')
-      } else if (currentStatus === 'parked') {
-        notifyInApp('SimpliiTrash', 'Park and finish today')
-      } else if (currentStatus === 'available') {
-        notifyInApp('SimpliiTrash', 'You are available')
-      }
-    }
-
-    previousDriverStatusRef.current = currentStatus
-  }, [driver?.status])
 
   useEffect(() => {
     const currentIds = orders.map((order) => order.id).sort()

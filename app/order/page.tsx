@@ -308,6 +308,14 @@ function OrdersPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
+  useEffect(() => {
+  const newOrder = searchParams.get('newOrder')
+
+  if (newOrder === '1') {
+    openCreateModal()
+  }
+}, [searchParams])
+
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
