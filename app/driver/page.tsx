@@ -567,6 +567,7 @@ export default function DriverPage() {
       `
       )
       .eq('driver_id', driver.id)
+      .eq('scheduled_date', new Date().toISOString().slice(0, 10))
       .neq('status', 'completed')
       .order('route_position', { ascending: true })
       .order('created_at', { ascending: true })
@@ -633,6 +634,7 @@ export default function DriverPage() {
       `
       )
       .eq('driver_id', resolvedDriver.id)
+      .eq('scheduled_date', new Date().toISOString().slice(0, 10))
       .neq('status', 'completed')
       .order('route_position', { ascending: true })
       .order('created_at', { ascending: true })

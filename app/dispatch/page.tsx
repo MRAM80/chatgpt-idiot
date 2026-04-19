@@ -221,6 +221,29 @@ function getTodayKey() {
   return toLocalDayKey(new Date())
 }
 
+function getTomorrowKey() {
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return toLocalDayKey(tomorrow)
+}
+
+function formatBoardDayLabel(dayKey: string) {
+  const [year, month, day] = String(dayKey).split('-').map(Number)
+  const parsed = new Date(year, (month || 1) - 1, day || 1)
+  if (Number.isNaN(parsed.getTime())) return dayKey
+  return parsed.toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function getOrderSortableAddress(order: Order) {
+  return String(order.service_address || order.pickup_address || order.dump_site_address || '')
+    .trim()
+    .toLowerCase()
+}
+
 function getOrderDayKey(order: Order) {
   if (order.scheduled_date) return String(order.scheduled_date).slice(0, 10)
 
@@ -245,8 +268,10 @@ export default function DispatchBoardPage() {
   const [dragState, setDragState] = useState<DragState>(null)
   const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({})
+  const [selectedDayKey, setSelectedDayKey] = useState(getTodayKey())
 
   const todayKey = useMemo(() => getTodayKey(), [])
+  const tomorrowKey = useMemo(() => getTomorrowKey(), [])
 
   async function loadDrivers() {
     const { data, error } = await supabase
@@ -356,9 +381,9 @@ export default function DispatchBoardPage() {
     return orders.find((order) => order.id === selectedOrderId) || null
   }, [orders, selectedOrderId])
 
-  const todayOrders = useMemo(() => {
-    return orders.filter((order) => getOrderDayKey(order) === todayKey)
-  }, [orders, todayKey])
+  const boardOrders = useMemo(() => {
+    return orders.filter((order) => getOrderDayKey(order) === selectedDayKey)
+  }, [orders, selectedDayKey])
 
   const boardColumns = useMemo<BoardColumn[]>(() => {
     return [
@@ -427,7 +452,7 @@ export default function DispatchBoardPage() {
     }
 
     if (nextStatus === 'parked') {
-      const todaysDriverOrders = todayOrders.filter((order) => order.driver_id === driverId)
+      const todaysDriverOrders = boardOrders.filter((order) => order.driver_id === driverId)
       for (const order of todaysDriverOrders) {
         await supabase.from(TABLE_NAME).update({ route_position: null }).eq('id', order.id)
       }
@@ -441,7 +466,7 @@ export default function DispatchBoardPage() {
   }
 
   async function normalizeRoutePositionsForDriver(driverId: string) {
-    const driverOrders = todayOrders
+    const driverOrders = boardOrders
       .filter((order) => order.driver_id === driverId && order.status !== 'completed')
       .sort((a, b) => {
         const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
@@ -527,7 +552,7 @@ export default function DispatchBoardPage() {
       return
     }
 
-    const maxRoute = todayOrders
+    const maxRoute = boardOrders
       .filter((order) => order.driver_id === driverId && order.status !== 'completed')
       .reduce((max, order) => Math.max(max, order.route_position || 0), 0)
 
@@ -550,17 +575,19 @@ export default function DispatchBoardPage() {
   }
 
   const filteredOrders = useMemo(() => {
-    return todayOrders.filter((order) => {
+    return boardOrders.filter((order) => {
       const q = search.trim().toLowerCase()
       const driverName = driverMap[order.driver_id || '']?.name || ''
+      const address = getOrderSortableAddress(order)
       return (
         !q ||
         (order.ticket_number || '').toLowerCase().includes(q) ||
         (order.customer_name || '').toLowerCase().includes(q) ||
-        driverName.toLowerCase().includes(q)
+        driverName.toLowerCase().includes(q) ||
+        address.includes(q)
       )
     })
-  }, [todayOrders, search, driverMap])
+  }, [boardOrders, search, driverMap])
 
   const visibleBoardOrders = useMemo(() => {
     return filteredOrders.filter((order) => order.status !== 'completed')
@@ -582,10 +609,16 @@ export default function DispatchBoardPage() {
 
       acc[column.key] = [...matchingOrders].sort((a, b) => {
         if (column.key === 'unassigned') {
-          const aDate = a.scheduled_date || ''
-          const bDate = b.scheduled_date || ''
-          if (aDate !== bDate) return aDate.localeCompare(bDate)
-          return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+          const addressCompare = getOrderSortableAddress(a).localeCompare(getOrderSortableAddress(b))
+          if (addressCompare !== 0) return addressCompare
+
+          const aTime = a.service_time || '99:99'
+          const bTime = b.service_time || '99:99'
+          if (aTime !== bTime) return aTime.localeCompare(bTime)
+
+          const aCreated = String(a.created_at || '')
+          const bCreated = String(b.created_at || '')
+          return aCreated.localeCompare(bCreated)
         }
 
         const aIndex = routeIndexMap[a.id] ?? Number.MAX_SAFE_INTEGER
@@ -598,15 +631,15 @@ export default function DispatchBoardPage() {
   }, [visibleBoardOrders, boardColumns, routeIndexMap])
 
   const stats = useMemo(() => {
-    const total = todayOrders.length
-    const unassigned = todayOrders.filter((order) => !order.driver_id && order.status !== 'completed').length
+    const total = boardOrders.length
+    const unassigned = boardOrders.filter((order) => !order.driver_id && order.status !== 'completed').length
     const activeDriverIds = new Set(
-      todayOrders.filter((order) => order.driver_id && order.status !== 'completed').map((order) => order.driver_id as string)
+      boardOrders.filter((order) => order.driver_id && order.status !== 'completed').map((order) => order.driver_id as string)
     )
-    const inProgress = todayOrders.filter((order) => order.status === 'in_progress').length
-    const completed = todayOrders.filter((order) => order.status === 'completed').length
+    const inProgress = boardOrders.filter((order) => order.status === 'in_progress').length
+    const completed = boardOrders.filter((order) => order.status === 'completed').length
     return { total, unassigned, activeDrivers: activeDriverIds.size, inProgress, completed }
-  }, [todayOrders])
+  }, [boardOrders])
 
   function openOrder(orderId: string) {
     setSelectedOrderId(orderId)
@@ -670,7 +703,7 @@ export default function DispatchBoardPage() {
       return
     }
 
-    const targetOrders = todayOrders
+    const targetOrders = boardOrders
       .filter((order) => order.driver_id === nextDriverId && order.id !== movingOrderId && order.status !== 'completed')
       .sort((a, b) => {
         const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
@@ -725,6 +758,7 @@ export default function DispatchBoardPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dispatch Board</h1>
               <p className="text-sm text-slate-500">Driver-based route planning and daily workflow monitoring</p>
+              <p className="mt-1 text-xs font-medium text-slate-400">Planning day: {formatBoardDayLabel(selectedDayKey)}</p>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -784,13 +818,38 @@ export default function DispatchBoardPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-1">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, or driver"
+              placeholder="Search ticket, customer, address, or driver"
               className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-400"
             />
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedDayKey(todayKey)}
+                className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                  selectedDayKey === todayKey
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                Today · {formatBoardDayLabel(todayKey)}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDayKey(tomorrowKey)}
+                className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                  selectedDayKey === tomorrowKey
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                Tomorrow · {formatBoardDayLabel(tomorrowKey)}
+              </button>
+            </div>
           </div>
         </div>
 
