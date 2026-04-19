@@ -195,9 +195,25 @@ function mergeDriverRouteOrder(currentOrders: Order[]) {
   return assigned.map((order) => order.id)
 }
 
+function toLocalDayKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getTodayKey() {
+  return toLocalDayKey(new Date())
+}
+
 function getOrderDayKey(order: Order) {
-  if (order.scheduled_date) return order.scheduled_date.slice(0, 10)
-  if (order.created_at) return new Date(order.created_at).toISOString().slice(0, 10)
+  if (order.scheduled_date) return String(order.scheduled_date).slice(0, 10)
+
+  if (order.created_at) {
+    const parsed = new Date(order.created_at)
+    if (!Number.isNaN(parsed.getTime())) return toLocalDayKey(parsed)
+  }
+
   return ''
 }
 
@@ -215,7 +231,7 @@ export default function DispatchBoardPage() {
   const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({})
 
-  const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const todayKey = useMemo(() => getTodayKey(), [])
 
   async function loadDrivers() {
     const { data, error } = await supabase
@@ -471,6 +487,18 @@ export default function DispatchBoardPage() {
   async function handleAssign(orderId: string, driverId: string) {
     const currentOrder = orders.find((order) => order.id === orderId)
     if (!currentOrder || currentOrder.status === 'completed') return
+
+    setOrders((current) =>
+      current.map((order) =>
+        order.id === orderId
+          ? {
+              ...order,
+              driver_id: driverId || null,
+              status: driverId ? 'assigned' : 'unassigned',
+            }
+          : order
+      )
+    )
 
     if (!driverId) {
       const ok = await updateOrder(orderId, { driver_id: null, route_position: null, status: 'unassigned' })
@@ -876,7 +904,7 @@ export default function DispatchBoardPage() {
                                   <div>
                                     <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Destination</div>
                                     <div className="mt-1 line-clamp-2 text-sm text-slate-700">
-                                      {order.workflow_step === 'DUMP' ? order.dump_site_address || 'No dump site address' : order.service_address || 'No service address'}
+                                      {order.workflow_step === 'DUMP' ? order.dump_site_address || 'No dump site address' : order.service_address || order.pickup_address || 'No service address'}
                                     </div>
                                   </div>
 
@@ -976,7 +1004,7 @@ export default function DispatchBoardPage() {
                     label="Driver"
                     value={selectedOrder.driver_id ? driverMap[selectedOrder.driver_id]?.name || 'Assigned' : 'Unassigned'}
                   />
-                  <DetailItem label="Service Address" value={selectedOrder.service_address} />
+                  <DetailItem label="Service Address" value={selectedOrder.service_address || selectedOrder.pickup_address} />
                   <DetailItem label="Scheduled Date" value={formatDate(selectedOrder.scheduled_date)} />
                   <DetailItem label="Service Time" value={formatServiceTime(selectedOrder.service_time)} />
                   <DetailItem label="Order Type" value={selectedOrder.order_type} />
