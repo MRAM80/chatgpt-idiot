@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -11,14 +11,6 @@ type Driver = {
   phone: string | null
   status: string | null
   auth_user_id?: string | null
-}
-
-type Bin = {
-  id: string
-  bin_number: string | null
-  bin_size: string | number | null
-  status?: string | null
-  location?: string | null
 }
 
 type OrderBinRelation = {
@@ -39,8 +31,6 @@ type Order = {
   service_window?: string | null
   bin_id: string | number | null
   old_bin_id: string | number | null
-  dump_site_id?: string | null
-  dump_site_address?: string | null
   bin_size: string | number | null
   bin_type: string | null
   order_type: string | null
@@ -77,15 +67,11 @@ function firstRelation<T>(value?: T[] | null): T | null {
   return Array.isArray(value) && value.length > 0 ? value[0] : null
 }
 
-function displayValue(value: unknown) {
-  if (value === null || value === undefined) return '—'
-  if (typeof value === 'string') return value.trim() ? value : '—'
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return String(value)
-  }
+function formatDate(dateValue: string | null | undefined) {
+  if (!dateValue) return '—'
+  const date = new Date(dateValue)
+  if (Number.isNaN(date.getTime())) return String(dateValue)
+  return date.toLocaleDateString()
 }
 
 function formatServiceTime(value: string | null | undefined) {
@@ -108,35 +94,30 @@ function formatServiceTime(value: string | null | undefined) {
   })
 }
 
+function displayValue(value: unknown) {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') {
+    return value.trim() ? value : '—'
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
 function normalizeBinNumber(value: string) {
   return value.trim().replace(/\s+/g, ' ').toUpperCase()
-}
-
-function formatDriverOperationalStatus(status: string | null | undefined) {
-  if (!status) return ''
-  if (status === 'heading_back') return 'Heading Back'
-  if (status === 'parked') return 'Parked'
-  if (status === 'available') return 'Available'
-  return ''
-}
-
-function notifyInApp(title: string, body: string) {
-  if (typeof window === 'undefined') return
-  if (!('Notification' in window)) return
-  if (Notification.permission !== 'granted') return
-
-  try {
-    new Notification(title, { body })
-  } catch {
-    // keep page usable
-  }
 }
 
 function getOrderAddress(order: Order) {
   return order.service_address || order.pickup_address || ''
 }
 
-function buildGoogleMapsLinkForOrders(orders: Order[]) {
+function buildGoogleMapsLink(orders: Order[]) {
   const addresses = orders
     .map((order) => getOrderAddress(order))
     .filter((value): value is string => Boolean(value && value.trim()))
@@ -165,12 +146,9 @@ function buildGoogleMapsLinkForOrders(orders: Order[]) {
   return `https://www.google.com/maps/dir/?${params.toString()}`
 }
 
-function buildGoogleMapsLinkFromStop(orders: Order[], startIndex: number) {
-  return buildGoogleMapsLinkForOrders(orders.slice(startIndex))
-}
-
 function readQueuedActions(): QueuedAction[] {
   if (typeof window === 'undefined') return []
+
   const raw = window.localStorage.getItem(QUEUED_ACTIONS_KEY)
   if (!raw) return []
 
@@ -194,6 +172,7 @@ function writeCachedOrders(orders: Order[]) {
 
 function readCachedOrders(): Order[] {
   if (typeof window === 'undefined') return []
+
   const raw = window.localStorage.getItem(CACHED_ORDERS_KEY)
   if (!raw) return []
 
@@ -218,46 +197,16 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray
 }
 
-const ACTIVE_ORDER_STATUSES = ['unassigned', 'assigned', 'in_progress'] as const
-
-function getOrderTimeValue(order: Order) {
-  return new Date(order.updated_at || order.created_at || order.scheduled_date || 0).getTime()
-}
-
-function getPrimaryBinId(order: Order) {
-  return String(order.bin_id || order.old_bin_id || '')
-}
-
-function hasOpenPreviousOrder(currentOrder: Order, allOrders: Order[]) {
-  const currentBinId = getPrimaryBinId(currentOrder)
-  if (!currentBinId) return false
-
-  const currentTime = getOrderTimeValue(currentOrder)
-
-  return allOrders.some((order) => {
-    if (order.id === currentOrder.id) return false
-    if (!ACTIVE_ORDER_STATUSES.includes((order.status || '') as (typeof ACTIVE_ORDER_STATUSES)[number])) {
-      return false
-    }
-
-    const otherPrimaryBinId = getPrimaryBinId(order)
-    if (!otherPrimaryBinId) return false
-    if (otherPrimaryBinId !== currentBinId) return false
-
-    return getOrderTimeValue(order) < currentTime
-  })
-}
-
 export default function DriverPage() {
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
   const [driver, setDriver] = useState<Driver | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
-  const [binsMap, setBinsMap] = useState<Record<string, Bin>>({})
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null)
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null)
   const [showSplash, setShowSplash] = useState(true)
   const [isOffline, setIsOffline] = useState(false)
   const [usingCachedOrders, setUsingCachedOrders] = useState(false)
@@ -266,9 +215,6 @@ export default function DriverPage() {
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
   const [binInputs, setBinInputs] = useState<Record<string, string>>({})
   const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
-  const hasInitializedPresenceRef = useRef(false)
-  const previousDriverStatusRef = useRef<string | null>(null)
-  const previousOrderIdsRef = useRef<string[]>([])
 
   function persistOrders(nextOrders: Order[]) {
     setOrders(nextOrders)
@@ -338,21 +284,6 @@ export default function DriverPage() {
     writeQueuedActions(next)
     setQueuedActions(next)
     markOrderSyncState(orderId, 'pending')
-  }
-
-  async function markDriverAvailable(driverId: string) {
-    const { error } = await supabase
-      .from('drivers')
-      .update({ status: 'available' })
-      .eq('id', driverId)
-
-    if (error) {
-      setPageError(error.message)
-      return false
-    }
-
-    setDriver((current) => (current ? { ...current, status: 'available' } : current))
-    return true
   }
 
   async function resolveDriver() {
@@ -425,13 +356,6 @@ export default function DriverPage() {
 
   async function ensureNotificationsSubscribed(driverId: string) {
     if (typeof window === 'undefined') return
-    if ('Notification' in window && Notification.permission === 'default') {
-      try {
-        await Notification.requestPermission()
-      } catch {
-        // keep page usable
-      }
-    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
 
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
@@ -471,64 +395,19 @@ export default function DriverPage() {
         }),
       })
     } catch {
-      // keep page usable
+      // no visible option needed
     }
-  }
-
-  async function loadBinsForOrders(nextOrders: Order[]) {
-    const ids = Array.from(
-      new Set(
-        nextOrders
-          .flatMap((order) => [order.bin_id, order.old_bin_id])
-          .filter(Boolean)
-          .map((id) => String(id))
-      )
-    )
-
-    if (ids.length === 0) {
-      setBinsMap({})
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('bins')
-      .select('id,bin_number,bin_size,status,location')
-      .in('id', ids)
-
-    if (error) {
-      setPageError((prev) => prev || error.message)
-      return
-    }
-
-    const nextMap: Record<string, Bin> = {}
-    for (const bin of (data as Bin[]) || []) {
-      nextMap[String(bin.id)] = bin
-    }
-    setBinsMap(nextMap)
-  }
-
-  async function refreshDriverPage() {
-    await loadPage()
-    await flushQueuedActions()
   }
 
   async function loadPage() {
     setPageError('')
     setLoading(true)
 
-    let resolvedDriver = await resolveDriver()
+    const resolvedDriver = await resolveDriver()
 
     if (!resolvedDriver) {
       setLoading(false)
       return
-    }
-
-    if (!hasInitializedPresenceRef.current) {
-      const becameAvailable = await markDriverAvailable(resolvedDriver.id)
-      if (becameAvailable) {
-        resolvedDriver = { ...resolvedDriver, status: 'available' }
-      }
-      hasInitializedPresenceRef.current = true
     }
 
     setDriver(resolvedDriver)
@@ -547,8 +426,6 @@ export default function DriverPage() {
         service_window,
         bin_id,
         old_bin_id,
-        dump_site_id,
-        dump_site_address,
         bin_size,
         bin_type,
         order_type,
@@ -568,6 +445,7 @@ export default function DriverPage() {
       .eq('driver_id', resolvedDriver.id)
       .neq('status', 'completed')
       .order('route_position', { ascending: true })
+      .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
 
     if (ordersError) {
@@ -588,31 +466,12 @@ export default function DriverPage() {
     const nextOrders = (orderData as Order[]) || []
     persistOrders(nextOrders)
     setUsingCachedOrders(false)
-    await loadBinsForOrders(nextOrders)
 
     setBinInputs((current) => {
       const next = { ...current }
       for (const order of nextOrders) {
         const assignedBin = firstRelation(order.bins)
-        const oldBin = firstRelation(order.old_bin)
-        const mappedAssigned = order.bin_id ? binsMap[String(order.bin_id)] : null
-        const mappedOld = order.old_bin_id ? binsMap[String(order.old_bin_id)] : null
-
-        if (order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN') {
-          next[order.id] =
-            oldBin?.bin_number ||
-            mappedOld?.bin_number ||
-            assignedBin?.bin_number ||
-            mappedAssigned?.bin_number ||
-            current[order.id] ||
-            ''
-        } else {
-          next[order.id] =
-            assignedBin?.bin_number ||
-            mappedAssigned?.bin_number ||
-            current[order.id] ||
-            ''
-        }
+        next[order.id] = current[order.id] ?? assignedBin?.bin_number ?? ''
       }
       return next
     })
@@ -705,17 +564,13 @@ export default function DriverPage() {
     const actualSize = String(matchedBin.bin_size ?? '').trim()
 
     if (expectedSize && actualSize && expectedSize !== actualSize) {
-      setPageError(`Bin ${normalizedInput} is ${actualSize}Yd, but this order needs ${expectedSize}Yd.`)
+      setPageError(`Bin ${normalizedInput} is ${actualSize}Y, but this order needs ${expectedSize}Y.`)
       setBinSaveState(order.id, 'error')
       return
     }
 
     const currentOldBinId = order.old_bin_id ? String(order.old_bin_id) : null
-    if (
-      currentOldBinId &&
-      String(matchedBin.id) === currentOldBinId &&
-      order.order_type === 'EXCHANGE'
-    ) {
+    if (currentOldBinId && String(matchedBin.id) === currentOldBinId && order.order_type === 'EXCHANGE') {
       setPageError('The new bin cannot be the same as the old bin.')
       setBinSaveState(order.id, 'error')
       return
@@ -724,6 +579,10 @@ export default function DriverPage() {
     const stopAddress = getOrderAddress(order) || null
     const nextOrderPayload: Record<string, unknown> = {
       bin_id: matchedBin.id,
+    }
+
+    if (order.order_type === 'DUMP RETURN' && !order.old_bin_id) {
+      nextOrderPayload.old_bin_id = matchedBin.id
     }
 
     const { error: orderError } = await supabase
@@ -751,37 +610,13 @@ export default function DriverPage() {
       return
     }
 
-    setBinsMap((current) => ({
-      ...current,
-      [String(matchedBin.id)]: matchedBin as Bin,
-    }))
-
-    setOrders((current) =>
-      current.map((item) =>
-        item.id === order.id
-          ? {
-              ...item,
-              bin_id: matchedBin.id,
-              bins: [
-                {
-                  id: matchedBin.id,
-                  bin_number: matchedBin.bin_number,
-                  bin_size: matchedBin.bin_size,
-                  status: matchedBin.status,
-                  location: matchedBin.location,
-                },
-              ],
-            }
-          : item
-      )
-    )
-
     setBinInputs((current) => ({
       ...current,
       [order.id]: matchedBin.bin_number || normalizedInput,
     }))
 
     setBinSaveState(order.id, 'saved')
+    await loadPage()
   }
 
   useEffect(() => {
@@ -789,51 +624,47 @@ export default function DriverPage() {
   }, [])
 
   useEffect(() => {
-    void refreshDriverPage()
-
-    const handleWindowFocus = () => {
-      void refreshDriverPage()
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void refreshDriverPage()
-      }
-    }
+    void loadPage()
 
     const channel = supabase
       .channel('driver-page-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: TABLE_NAME },
-        () => {
-          void refreshDriverPage()
+        async () => {
+          await loadPage()
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'drivers' },
-        () => {
-          void refreshDriverPage()
+        async () => {
+          await loadPage()
         }
       )
       .subscribe()
 
-    window.addEventListener('focus', handleWindowFocus)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
     return () => {
-      window.removeEventListener('focus', handleWindowFocus)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
       supabase.removeChannel(channel)
     }
   }, [supabase])
 
   useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadPage()
+      void flushQueuedActions()
+    }, 60000)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [syncingQueue])
+
+  useEffect(() => {
     if (!loading) {
       const timer = window.setTimeout(() => {
         setShowSplash(false)
-      }, 700)
+      }, 900)
 
       return () => window.clearTimeout(timer)
     }
@@ -847,7 +678,7 @@ export default function DriverPage() {
       setIsOffline(offline)
 
       if (!offline) {
-        await refreshDriverPage()
+        await flushQueuedActions()
       }
     }
 
@@ -862,6 +693,8 @@ export default function DriverPage() {
     }
   }, [syncingQueue])
 
+  const routeLink = useMemo(() => buildGoogleMapsLink(orders), [orders])
+
   async function updateOrderStatus(orderId: string, nextStatus: string) {
     setSavingOrderId(orderId)
     setPageError('')
@@ -872,18 +705,13 @@ export default function DriverPage() {
       return
     }
 
-    const requiresDriverBin = order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
-    const currentBinRelation =
-      firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
+    const orderType = order.order_type || ''
+    const currentBinRelation = firstRelation(order.bins)
+    const requiresDriverBin =
+      orderType === 'DELIVERY' || orderType === 'EXCHANGE' || orderType === 'DUMP RETURN'
 
     if (nextStatus === 'completed' && requiresDriverBin && !currentBinRelation?.id) {
       setPageError('Please save the bin number before completing this order.')
-      setSavingOrderId(null)
-      return
-    }
-
-    if (nextStatus === 'completed' && hasOpenPreviousOrder(order, orders)) {
-      setPageError('Finish previous job before continuing.')
       setSavingOrderId(null)
       return
     }
@@ -907,7 +735,7 @@ export default function DriverPage() {
     if (!error && nextStatus === 'completed') {
       const stopAddress = getOrderAddress(order)
 
-      if (order.order_type === 'DELIVERY' && order.bin_id) {
+      if (orderType === 'DELIVERY' && order.bin_id) {
         await supabase
           .from('bins')
           .update({
@@ -917,7 +745,7 @@ export default function DriverPage() {
           .eq('id', order.bin_id)
       }
 
-      if (order.order_type === 'EXCHANGE') {
+      if (orderType === 'EXCHANGE') {
         if (order.bin_id) {
           await supabase
             .from('bins')
@@ -939,7 +767,7 @@ export default function DriverPage() {
         }
       }
 
-      if (order.order_type === 'REMOVAL' && order.old_bin_id) {
+      if (orderType === 'REMOVAL' && order.old_bin_id) {
         await supabase
           .from('bins')
           .update({
@@ -949,14 +777,14 @@ export default function DriverPage() {
           .eq('id', order.old_bin_id)
       }
 
-      if (order.order_type === 'DUMP RETURN' && order.old_bin_id) {
+      if (orderType === 'DUMP RETURN' && order.bin_id) {
         await supabase
           .from('bins')
           .update({
             status: 'in_use',
             location: stopAddress,
           })
-          .eq('id', order.old_bin_id)
+          .eq('id', order.bin_id)
       }
     }
 
@@ -969,6 +797,10 @@ export default function DriverPage() {
 
     clearOrderSyncState(orderId)
     setSavingOrderId(null)
+  }
+
+  function toggleExpanded(orderId: string) {
+    setExpandedOrderId((current) => (current === orderId ? null : orderId))
   }
 
   function getOrderSyncBadge(orderId: string) {
@@ -992,40 +824,6 @@ export default function DriverPage() {
     return null
   }
 
-  useEffect(() => {
-    if (!driver) return
-
-    const currentStatus = driver.status || null
-    const previousStatus = previousDriverStatusRef.current
-
-    if (previousStatus !== null && previousStatus !== currentStatus) {
-      if (currentStatus === 'heading_back') {
-        notifyInApp('SimpliiTrash', 'HEAD BACK')
-      } else if (currentStatus === 'parked') {
-        notifyInApp('SimpliiTrash', 'Park and finish today')
-      } else if (currentStatus === 'available') {
-        notifyInApp('SimpliiTrash', 'You are available')
-      }
-    }
-
-    previousDriverStatusRef.current = currentStatus
-  }, [driver?.status])
-
-  useEffect(() => {
-    const currentIds = orders.map((order) => order.id).sort()
-    const previousIds = previousOrderIdsRef.current
-
-    const newOrderIds = currentIds.filter((id) => !previousIds.includes(id))
-    if (previousIds.length > 0 && newOrderIds.length > 0) {
-      notifyInApp(
-        'SimpliiTrash',
-        newOrderIds.length === 1 ? 'You received a new order' : `You received ${newOrderIds.length} new orders`
-      )
-    }
-
-    previousOrderIdsRef.current = currentIds
-  }, [orders])
-
   if (showSplash) {
     return (
       <div style={{ colorScheme: 'light' }} className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
@@ -1033,17 +831,17 @@ export default function DriverPage() {
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
             <img
               src="/icons/icon-512.png"
-              alt="SimpliiTrash"
+              alt="SimpliiTrash Driver"
               className="h-16 w-16 rounded-2xl object-contain"
             />
           </div>
 
           <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
-            SimpliiTrash
+            SimpliiTrash Driver
           </h1>
 
           <p className="mt-2 text-sm text-white/90">
-            Loading route...
+            Loading your route...
           </p>
 
           <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/20">
@@ -1058,40 +856,23 @@ export default function DriverPage() {
     <div style={{ colorScheme: 'light' }} className="min-h-screen bg-slate-100 text-slate-900">
       <div className="mx-auto max-w-6xl p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
                 {driver?.name || 'Driver'}
               </h1>
-
-              {driver?.status === 'heading_back' ? (
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                  HB
-                </span>
-              ) : null}
-
-              {driver?.status === 'parked' ? (
-                <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                  Parked
-                </span>
-              ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {driver?.status !== 'available' ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!driver?.id) return
-                    const ok = await markDriverAvailable(driver.id)
-                    if (ok) {
-                      await refreshDriverPage()
-                    }
-                  }}
-                  className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            <div className="flex flex-wrap gap-2">
+              {routeLink ? (
+                <a
+                  href={routeLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
                 >
-                  Available
-                </button>
+                  Open Full Route
+                </a>
               ) : null}
 
               <button
@@ -1107,18 +888,6 @@ export default function DriverPage() {
           {pageError ? (
             <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {pageError}
-            </div>
-          ) : null}
-
-          {driver?.status === 'heading_back' ? (
-            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-              HEAD BACK
-            </div>
-          ) : null}
-
-          {driver?.status === 'parked' ? (
-            <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
-              Park and finish today
             </div>
           ) : null}
         </div>
@@ -1146,58 +915,38 @@ export default function DriverPage() {
         ) : (
           <div className="space-y-4">
             {orders.map((order, index) => {
+              const isExpanded = expandedOrderId === order.id
               const isSaving = savingOrderId === order.id
-              const syncBadge = getOrderSyncBadge(order.id)
               const stopAddress = getOrderAddress(order)
-              const assignedBin = firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
-              const oldBin = firstRelation(order.old_bin) || (order.old_bin_id ? binsMap[String(order.old_bin_id)] : null)
+              const syncBadge = getOrderSyncBadge(order.id)
+              const assignedBin = firstRelation(order.bins)
+              const oldBin = firstRelation(order.old_bin)
+              const needsDriverBin =
+                order.order_type === 'DELIVERY' ||
+                order.order_type === 'EXCHANGE' ||
+                order.order_type === 'DUMP RETURN'
               const binSaveState = binSaveStates[order.id] || 'idle'
-              const stopRouteLink = buildGoogleMapsLinkFromStop(orders, index)
-              const usesExistingBin =
-                order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
-              const needsNewBin =
-                order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
-              const visibleBinNumber = usesExistingBin
-                ? oldBin?.bin_number || assignedBin?.bin_number || binInputs[order.id] || ''
-                : assignedBin?.bin_number || binInputs[order.id] || ''
 
               return (
                 <div
                   key={order.id}
                   className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
                           Stop {order.route_position || index + 1}
                         </span>
-
-                        <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
-                          {displayValue(order.bin_size)}Yd
-                        </span>
-
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          {displayValue(order.order_type)}
-                        </span>
-
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          {order.service_window
-                            ? displayValue(order.service_window)
-                            : formatServiceTime(order.service_time)}
-                        </span>
-
                         {syncBadge}
                       </div>
 
-                      <div className="mt-3">
-                        <h2 className="text-lg font-bold text-slate-900">
-                          {order.customer_name || 'No customer'}
-                        </h2>
-                      </div>
+                      <h2 className="mt-3 text-lg font-bold text-slate-900">
+                        {order.customer_name || 'No customer'}
+                      </h2>
 
-                      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mt-3 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                             Address
                           </div>
@@ -1206,25 +955,25 @@ export default function DriverPage() {
                           </div>
                         </div>
 
-                        {stopRouteLink ? (
-                          <a
-                            href={stopRouteLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-fit items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-                          >
-                            Open Full Route
-                          </a>
-                        ) : null}
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Time
+                          </div>
+                          <div className="mt-2 text-sm text-slate-900">
+                            {order.service_window
+                              ? displayValue(order.service_window)
+                              : formatServiceTime(order.service_time)}
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Number
-                        </div>
+                      {needsDriverBin ? (
+                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            {order.order_type === 'DUMP RETURN' ? 'Bin Number' : 'Yard Bin Number'}
+                          </div>
 
-                        {needsNewBin && !assignedBin?.bin_number ? (
-                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                             <input
                               value={binInputs[order.id] || ''}
                               onChange={(e) =>
@@ -1243,34 +992,101 @@ export default function DriverPage() {
                               disabled={binSaveState === 'saving'}
                               className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
+                              {binSaveState === 'saving' ? 'Saving Bin...' : 'Save Bin'}
                             </button>
                           </div>
-                        ) : (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                            <span className="font-semibold">{visibleBinNumber || 'Not set'}</span>
-                          </div>
-                        )}
 
-                        {order.order_type === 'EXCHANGE' && oldBin?.bin_number ? (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                            Old bin at site: <span className="font-semibold">{oldBin.bin_number}</span>
-                          </div>
-                        ) : null}
-                      </div>
+                          <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                              Current bin: <span className="font-semibold">{assignedBin?.bin_number || 'Not set'}</span>
+                            </div>
 
-                      {order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN' ? (
-                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Dump Site
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(order.dump_site_address)}
+                            {order.order_type === 'EXCHANGE' ? (
+                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
+                                Old bin at site: <span className="font-semibold">{oldBin?.bin_number || 'Not set'}</span>
+                              </div>
+                            ) : null}
+
+                            {binSaveState === 'saved' ? (
+                              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700">
+                                Bin saved.
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       ) : null}
+                    </div>
 
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="w-full shrink-0 md:w-[240px]">
+                      <div className="grid gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateOrderStatus(order.id, 'in_progress')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => updateOrderStatus(order.id, 'completed')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Complete Order (Queue)' : 'Complete Order'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => updateOrderStatus(order.id, 'issue')}
+                          disabled={isSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(order.id)}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          {isExpanded ? 'Hide Details' : 'Show Details'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Order Type
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {displayValue(order.order_type)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Bin Size
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {displayValue(order.bin_size)}Y
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Material / Bin
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {displayValue(order.bin_type)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2 xl:col-span-3">
                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Notes
                         </div>
@@ -1278,57 +1094,17 @@ export default function DriverPage() {
                           {displayValue(order.notes)}
                         </div>
                       </div>
-                    </div>
 
-                    <div className="w-full shrink-0 lg:w-[220px]">
-                      <div className="grid gap-2">
-                        {order.status !== 'in_progress' ? (
-                          <button
-                            type="button"
-                            onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                            disabled={isSaving}
-                            className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
-                          </button>
-                        ) : null}
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (hasOpenPreviousOrder(order, orders)) {
-                              setPageError('Finish previous job before continuing.')
-                              return
-                            }
-                            void updateOrderStatus(order.id, 'completed')
-                          }}
-                          disabled={isSaving || hasOpenPreviousOrder(order, orders)}
-                          className={`inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                            hasOpenPreviousOrder(order, orders)
-                              ? 'bg-slate-400'
-                              : 'bg-emerald-600 hover:opacity-90'
-                          }`}
-                        >
-                          {hasOpenPreviousOrder(order, orders)
-                            ? 'Complete Blocked'
-                            : isSaving
-                              ? 'Saving...'
-                              : isOffline
-                                ? 'Complete Order (Queue)'
-                                : 'Complete Order'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => void updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
-                        </button>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Date
+                        </div>
+                        <div className="mt-2 text-sm text-slate-900">
+                          {formatDate(order.scheduled_date)}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
               )
             })}
