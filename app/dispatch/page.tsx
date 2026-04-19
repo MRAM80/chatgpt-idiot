@@ -1020,10 +1020,23 @@ export default function DispatchBoardPage() {
                                     </div>
                                   </div>
 
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Order Type</div>
-                                    <div className="mt-1 text-sm text-slate-700">
-                                      {displayValue(order.order_type)}
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                        Order Type
+                                      </div>
+                                      <div className="mt-1 text-sm text-slate-700">
+                                        {displayValue(order.order_type)}
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                        Bin Size
+                                      </div>
+                                      <div className="mt-1 text-sm text-slate-700">
+                                        {order.bin_size ? `${order.bin_size} Yard` : '—'}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -1058,7 +1071,7 @@ export default function DispatchBoardPage() {
                                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
                                     >
                                       <option value="">Set Driver</option>
-{assignableDrivers.map((driver) => (
+                                        {assignableDrivers.map((driver) => (
                                         <option key={driver.id} value={driver.id}>
                                           {driver.name || 'Unnamed Driver'}
                                         </option>
