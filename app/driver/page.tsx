@@ -507,6 +507,11 @@ export default function DriverPage() {
     setBinsMap(nextMap)
   }
 
+  async function refreshDriverPage() {
+    await loadPage()
+    await flushQueuedActions()
+  }
+
   async function loadPage() {
     setPageError('')
     setLoading(true)
@@ -784,27 +789,42 @@ export default function DriverPage() {
   }, [])
 
   useEffect(() => {
-    void loadPage()
+    void refreshDriverPage()
+
+    const handleWindowFocus = () => {
+      void refreshDriverPage()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshDriverPage()
+      }
+    }
 
     const channel = supabase
       .channel('driver-page-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: TABLE_NAME },
-        async () => {
-          await loadPage()
+        () => {
+          void refreshDriverPage()
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'drivers' },
-        async () => {
-          await loadPage()
+        () => {
+          void refreshDriverPage()
         }
       )
       .subscribe()
 
+    window.addEventListener('focus', handleWindowFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       supabase.removeChannel(channel)
     }
   }, [supabase])
@@ -827,7 +847,7 @@ export default function DriverPage() {
       setIsOffline(offline)
 
       if (!offline) {
-        await flushQueuedActions()
+        await refreshDriverPage()
       }
     }
 
@@ -1065,7 +1085,7 @@ export default function DriverPage() {
                     if (!driver?.id) return
                     const ok = await markDriverAvailable(driver.id)
                     if (ok) {
-                      await loadPage()
+                      await refreshDriverPage()
                     }
                   }}
                   className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
