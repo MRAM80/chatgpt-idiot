@@ -372,7 +372,10 @@ export default function DispatchBoardPage() {
       if (!driver) return false
 
       if (selectedDayKey === todayKey) {
-      return driver.status === 'available'
+        return (
+          driver.status === 'available' ||
+          driver.status === 'busy'
+        )
       }
 
       return (
@@ -563,7 +566,10 @@ export default function DispatchBoardPage() {
     const selectedDriver = drivers.find((driver) => driver.id === driverId) || null
 
     if (driverId) {
-      const canAssignToday = selectedDayKey !== todayKey || selectedDriver?.status === 'available'
+      const canAssignToday =
+        selectedDayKey !== todayKey ||
+        selectedDriver?.status === 'available' ||
+        selectedDriver?.status === 'busy'
 
       if (!canAssignToday) {
         setPageError('Today orders can only be assigned to available drivers.')
