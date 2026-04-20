@@ -292,6 +292,8 @@ export default function DriverPage() {
   const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
   const hasInitializedPresenceRef = useRef(false)
   const previousOrderIdsRef = useRef<string[]>([])
+  const hasActiveOrders = orders.length > 0
+  const showAvailableButton = !hasActiveOrders && driver?.status !== 'available'
 
   function persistOrders(nextOrders: Order[]) {
     setOrders(nextOrders)
@@ -1238,7 +1240,7 @@ export default function DriverPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {driver?.status !== 'available' ? (
+              {showAvailableButton ? (
                 <button
                   type="button"
                   onClick={async () => {
