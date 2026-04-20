@@ -369,8 +369,12 @@ export default function DispatchBoardPage() {
   }, [drivers])
 
   const activeDrivers = useMemo(() => {
+    if (selectedDayKey === todayKey) {
+      return drivers.filter((driver) => driver.status !== 'offline')
+    }
+
     return drivers.filter((driver) => driver.status !== 'offline')
-  }, [drivers])
+  }, [drivers, selectedDayKey, todayKey])
 
   const assignableDrivers = useMemo(() => {
     return drivers.filter((driver) => {
@@ -704,6 +708,27 @@ export default function DispatchBoardPage() {
     return map
   }, [activeDrivers, boardOrders])
 
+  const orderedDrivers = useMemo(() => {
+    const rank = (driver: Driver) => {
+      const hasOrders = (driverOrdersMap[driver.id] || []).length > 0
+      const isInProgress = (driverOrdersMap[driver.id] || []).some((order) => order.status === 'in_progress')
+
+      if (driver.status === 'available') return 0
+      if (driver.status === 'heading_back') return 1
+      if (driver.status === 'parked') return 2
+      if (driver.status === 'busy' && !isInProgress) return 3
+      if (driver.status === 'busy' && isInProgress) return 4
+      if (hasOrders) return 5
+      return 6
+    }
+
+    return [...activeDrivers].sort((a, b) => {
+      const rankCompare = rank(a) - rank(b)
+      if (rankCompare !== 0) return rankCompare
+      return String(a.name || '').localeCompare(String(b.name || ''))
+    })
+  }, [activeDrivers, driverOrdersMap])
+
   const unassignedOrders = useMemo(() => groupedOrders.unassigned || [], [groupedOrders])
 
   function openOrder(orderId: string) {
@@ -918,16 +943,13 @@ export default function DispatchBoardPage() {
             Loading dispatch board...
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
             <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
               <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                 <div>
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
                     Unassigned Orders
                   </h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Sorted by address and time
-                  </p>
                 </div>
 
                 <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
@@ -993,14 +1015,14 @@ export default function DispatchBoardPage() {
                                 </div>
 
                                 <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Destination</div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Address</div>
                                   <div className="mt-1 line-clamp-2 text-sm text-slate-700">
                                     {getOrderDestination(order)}
                                   </div>
                                 </div>
 
                                 <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time of Delivery</div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time</div>
                                   <div className="mt-1 text-sm text-slate-700">
                                     {displayValue(formatServiceTime(order.service_time || order.service_window))}
                                   </div>
@@ -1071,29 +1093,26 @@ export default function DispatchBoardPage() {
             </div>
 
             <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-              <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
-                      Drivers
-                    </h2>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Status, last order, and quick actions
-                    </p>
-                  </div>
-
-                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                    {activeDrivers.length}
-                  </span>
+              <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
+                    Drivers
+                  </h2>
                 </div>
+
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                  {orderedDrivers.length}
+                </span>
               </div>
 
               <div className="h-[calc(100vh-260px)] overflow-y-auto pr-1">
-                <div className="grid gap-3 md:grid-cols-2">
-                  {activeDrivers.map((driver) => {
+                <div className="grid gap-3 md:grid-cols-3">
+                  {orderedDrivers.map((driver) => {
                     const driverOrders = driverOrdersMap[driver.id] || []
                     const lastOrder = driverLastOrderMap[driver.id]
                     const canDropOnDriver = dropTarget?.columnKey === driver.id && dropTarget.beforeId === null
+                    const showLastOrder = driverOrders.length === 0 || driver.status === 'heading_back'
+                    const hasInProgress = driverOrders.some((order) => order.status === 'in_progress')
 
                     return (
                       <div key={driver.id}>
@@ -1148,14 +1167,16 @@ export default function DispatchBoardPage() {
                             </div>
                           </div>
 
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                              Last Order
+                          {showLastOrder ? (
+                            <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                Last Order
+                              </div>
+                              <div className="mt-1 text-sm text-slate-700">
+                                {getLastOrderSummary(lastOrder)}
+                              </div>
                             </div>
-                            <div className="mt-1 text-sm text-slate-700">
-                              {getLastOrderSummary(lastOrder)}
-                            </div>
-                          </div>
+                          ) : null}
 
                           {driverOrders.length > 0 ? (
                             <div className="mt-3 space-y-2">
@@ -1188,23 +1209,32 @@ export default function DispatchBoardPage() {
                                       className="min-w-0 flex-1 cursor-pointer"
                                       onClick={() => openOrder(order.id)}
                                     >
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                          <div className="line-clamp-1 text-sm font-semibold text-slate-900">
-                                            {index + 1}. {order.customer_name || 'No customer'}
+                                      <div className="grid gap-2">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <div className="line-clamp-1 text-sm font-semibold text-slate-900">
+                                              {index + 1}. {order.customer_name || 'No customer'}
+                                            </div>
                                           </div>
-                                          <div className="mt-1 line-clamp-1 text-xs text-slate-500">
-                                            {getOrderDestination(order)}
-                                          </div>
+
+                                          <span
+                                            className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                              statusStyles[order.status || 'assigned'] || statusStyles.assigned
+                                            }`}
+                                          >
+                                            {formatStatus(order.status)}
+                                          </span>
                                         </div>
 
-                                        <span
-                                          className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                            statusStyles[order.status || 'assigned'] || statusStyles.assigned
-                                          }`}
-                                        >
-                                          {formatStatus(order.status)}
-                                        </span>
+                                        <div className="text-xs text-slate-500">
+                                          <span className="font-semibold uppercase tracking-wide text-slate-400">Address: </span>
+                                          {getOrderDestination(order)}
+                                        </div>
+
+                                        <div className="text-xs text-slate-500">
+                                          <span className="font-semibold uppercase tracking-wide text-slate-400">Order Type: </span>
+                                          {displayValue(order.order_type)}
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
@@ -1222,13 +1252,19 @@ export default function DispatchBoardPage() {
                               No orders assigned
                             </div>
                           )}
+
+                          {hasInProgress ? (
+                            <div className="mt-3 text-center text-[11px] font-medium text-slate-400">
+                              In-progress drivers stay lower
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     )
                   })}
 
-                  {activeDrivers.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 md:col-span-2">
+                  {orderedDrivers.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 md:col-span-3">
                       No drivers found
                     </div>
                   )}
