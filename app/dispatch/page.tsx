@@ -268,7 +268,6 @@ export default function DispatchBoardPage() {
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [search, setSearch] = useState('')
-  const [driverSearch, setDriverSearch] = useState('')
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [dragState, setDragState] = useState<DragState>(null)
@@ -378,10 +377,7 @@ export default function DispatchBoardPage() {
       if (!driver) return false
 
       if (selectedDayKey === todayKey) {
-        return (
-          driver.status === 'available' ||
-          driver.status === 'busy'
-        )
+        return driver.status === 'available' || driver.status === 'busy'
       }
 
       return (
@@ -571,16 +567,14 @@ export default function DispatchBoardPage() {
 
     const selectedDriver = drivers.find((driver) => driver.id === driverId) || null
 
-    if (driverId) {
-      const canAssignToday =
-        selectedDayKey !== todayKey ||
-        selectedDriver?.status === 'available' ||
-        selectedDriver?.status === 'busy'
+    const canAssignToday =
+      selectedDayKey !== todayKey ||
+      selectedDriver?.status === 'available' ||
+      selectedDriver?.status === 'busy'
 
-      if (!canAssignToday) {
-        setPageError('Today orders can only be assigned to available drivers.')
-        return
-      }
+    if (!canAssignToday) {
+      setPageError('Today orders can only be assigned to available drivers.')
+      return
     }
 
     const maxRoute = boardOrders
@@ -666,28 +660,14 @@ export default function DispatchBoardPage() {
   }, [visibleBoardOrders, boardColumns, routeIndexMap])
 
   const stats = useMemo(() => {
-    const total = boardOrders.length
     const unassigned = boardOrders.filter((order) => !order.driver_id && order.status !== 'completed').length
     const activeDriverIds = new Set(
       boardOrders.filter((order) => order.driver_id && order.status !== 'completed').map((order) => order.driver_id as string)
     )
     const inProgress = boardOrders.filter((order) => order.status === 'in_progress').length
-    const completed = boardOrders.filter((order) => order.status === 'completed').length
-    return { total, unassigned, activeDrivers: activeDriverIds.size, inProgress, completed }
-  }, [boardOrders])
-
-  const filteredDrivers = useMemo(() => {
-    const q = driverSearch.trim().toLowerCase()
-
-    return activeDrivers.filter((driver) => {
-      if (!q) return true
-      return (
-        (driver.name || '').toLowerCase().includes(q) ||
-        (driver.phone || '').toLowerCase().includes(q) ||
-        (driver.status || '').toLowerCase().includes(q)
-      )
-    })
-  }, [activeDrivers, driverSearch])
+    const available = activeDrivers.filter((driver) => driver.status === 'available').length
+    return { unassigned, activeDrivers: activeDriverIds.size, inProgress, available }
+  }, [boardOrders, activeDrivers])
 
   const driverOrdersMap = useMemo(() => {
     const map: Record<string, Order[]> = {}
@@ -724,9 +704,7 @@ export default function DispatchBoardPage() {
     return map
   }, [activeDrivers, boardOrders])
 
-  const unassignedOrders = useMemo(() => {
-    return groupedOrders.unassigned || []
-  }, [groupedOrders])
+  const unassignedOrders = useMemo(() => groupedOrders.unassigned || [], [groupedOrders])
 
   function openOrder(orderId: string) {
     setSelectedOrderId(orderId)
@@ -878,15 +856,15 @@ export default function DispatchBoardPage() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 md:grid-cols-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total Orders</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{stats.total}</div>
-            </div>
-
+          <div className="grid gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Unassigned</div>
               <div className="mt-2 text-2xl font-bold text-slate-900">{stats.unassigned}</div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Available</div>
+              <div className="mt-2 text-2xl font-bold text-emerald-900">{stats.available}</div>
             </div>
 
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
@@ -897,11 +875,6 @@ export default function DispatchBoardPage() {
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <div className="text-xs font-medium uppercase tracking-wide text-amber-700">In Progress</div>
               <div className="mt-2 text-2xl font-bold text-amber-900">{stats.inProgress}</div>
-            </div>
-
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Completed</div>
-              <div className="mt-2 text-2xl font-bold text-emerald-900">{stats.completed}</div>
             </div>
           </div>
 
@@ -945,7 +918,7 @@ export default function DispatchBoardPage() {
             Loading dispatch board...
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_420px]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
               <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                 <div>
@@ -1110,23 +1083,14 @@ export default function DispatchBoardPage() {
                   </div>
 
                   <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                    {filteredDrivers.length}
+                    {activeDrivers.length}
                   </span>
-                </div>
-
-                <div className="mt-3">
-                  <input
-                    value={driverSearch}
-                    onChange={(e) => setDriverSearch(e.target.value)}
-                    placeholder="Search driver"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                  />
                 </div>
               </div>
 
               <div className="h-[calc(100vh-260px)] overflow-y-auto pr-1">
-                <div className="space-y-3">
-                  {filteredDrivers.map((driver) => {
+                <div className="grid gap-3 md:grid-cols-2">
+                  {activeDrivers.map((driver) => {
                     const driverOrders = driverOrdersMap[driver.id] || []
                     const lastOrder = driverLastOrderMap[driver.id]
                     const canDropOnDriver = dropTarget?.columnKey === driver.id && dropTarget.beforeId === null
@@ -1206,23 +1170,43 @@ export default function DispatchBoardPage() {
                                       : 'border-slate-200 bg-white'
                                   }`}
                                 >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="min-w-0">
-                                      <div className="line-clamp-1 text-sm font-semibold text-slate-900">
-                                        {index + 1}. {order.customer_name || 'No customer'}
-                                      </div>
-                                      <div className="mt-1 line-clamp-1 text-xs text-slate-500">
-                                        {getOrderDestination(order)}
+                                  <div className="flex items-start gap-2">
+                                    <button
+                                      type="button"
+                                      draggable={order.status !== 'completed'}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onDragStart={(e) => handleDragStart(e, order.id, driver.id)}
+                                      onDragEnd={handleDragEnd}
+                                      disabled={order.status === 'completed'}
+                                      className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                      title={order.status === 'completed' ? 'Completed orders cannot be reordered' : 'Drag to reorder or move'}
+                                    >
+                                      <DragHandleIcon />
+                                    </button>
+
+                                    <div
+                                      className="min-w-0 flex-1 cursor-pointer"
+                                      onClick={() => openOrder(order.id)}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <div className="line-clamp-1 text-sm font-semibold text-slate-900">
+                                            {index + 1}. {order.customer_name || 'No customer'}
+                                          </div>
+                                          <div className="mt-1 line-clamp-1 text-xs text-slate-500">
+                                            {getOrderDestination(order)}
+                                          </div>
+                                        </div>
+
+                                        <span
+                                          className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                            statusStyles[order.status || 'assigned'] || statusStyles.assigned
+                                          }`}
+                                        >
+                                          {formatStatus(order.status)}
+                                        </span>
                                       </div>
                                     </div>
-
-                                    <span
-                                      className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                        statusStyles[order.status || 'assigned'] || statusStyles.assigned
-                                      }`}
-                                    >
-                                      {formatStatus(order.status)}
-                                    </span>
                                   </div>
                                 </div>
                               ))}
@@ -1243,8 +1227,8 @@ export default function DispatchBoardPage() {
                     )
                   })}
 
-                  {filteredDrivers.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
+                  {activeDrivers.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 md:col-span-2">
                       No drivers found
                     </div>
                   )}
