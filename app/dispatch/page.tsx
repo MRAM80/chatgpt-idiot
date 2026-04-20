@@ -81,12 +81,6 @@ function getDriverColumnStyle(status?: string | null) {
   }
 }
 
-function getWorkflowLabel(step?: string | null) {
-  if (step === 'DUMP') return { label: 'Dump Site', color: 'bg-orange-100 text-orange-700' }
-  if (step === 'RETURN') return { label: 'Return', color: 'bg-blue-100 text-blue-700' }
-  return { label: 'Job Site', color: 'bg-emerald-100 text-emerald-700' }
-}
-
 function formatStatus(status: string | null | undefined) {
   if (!status) return 'Unassigned'
   if (status === 'in_progress') return 'In Progress'
@@ -255,6 +249,17 @@ function getOrderDayKey(order: Order) {
   return ''
 }
 
+function getOrderDestination(order: Order) {
+  return order.workflow_step === 'DUMP'
+    ? order.dump_site_address || 'No dump site address'
+    : order.service_address || order.pickup_address || 'No service address'
+}
+
+function getLastOrderSummary(order: Order | null) {
+  if (!order) return 'No orders'
+  return `${displayValue(order.order_type)} • ${getOrderDestination(order)}`
+}
+
 export default function DispatchBoardPage() {
   const supabase = useMemo(() => createClient(), [])
 
@@ -263,6 +268,7 @@ export default function DispatchBoardPage() {
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [search, setSearch] = useState('')
+  const [driverSearch, setDriverSearch] = useState('')
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [dragState, setDragState] = useState<DragState>(null)
@@ -576,7 +582,7 @@ export default function DispatchBoardPage() {
         return
       }
     }
-    
+
     const maxRoute = boardOrders
       .filter((order) => order.driver_id === driverId && order.status !== 'completed')
       .reduce((max, order) => Math.max(max, order.route_position || 0), 0)
@@ -669,6 +675,58 @@ export default function DispatchBoardPage() {
     const completed = boardOrders.filter((order) => order.status === 'completed').length
     return { total, unassigned, activeDrivers: activeDriverIds.size, inProgress, completed }
   }, [boardOrders])
+
+  const filteredDrivers = useMemo(() => {
+    const q = driverSearch.trim().toLowerCase()
+
+    return activeDrivers.filter((driver) => {
+      if (!q) return true
+      return (
+        (driver.name || '').toLowerCase().includes(q) ||
+        (driver.phone || '').toLowerCase().includes(q) ||
+        (driver.status || '').toLowerCase().includes(q)
+      )
+    })
+  }, [activeDrivers, driverSearch])
+
+  const driverOrdersMap = useMemo(() => {
+    const map: Record<string, Order[]> = {}
+
+    for (const driver of activeDrivers) {
+      map[driver.id] = boardOrders
+        .filter((order) => order.driver_id === driver.id && order.status !== 'completed')
+        .sort((a, b) => {
+          const aPos = a.route_position ?? Number.MAX_SAFE_INTEGER
+          const bPos = b.route_position ?? Number.MAX_SAFE_INTEGER
+          if (aPos !== bPos) return aPos - bPos
+          return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+        })
+    }
+
+    return map
+  }, [activeDrivers, boardOrders])
+
+  const driverLastOrderMap = useMemo(() => {
+    const map: Record<string, Order | null> = {}
+
+    for (const driver of activeDrivers) {
+      const driverOrders = boardOrders
+        .filter((order) => order.driver_id === driver.id)
+        .sort((a, b) => {
+          const aTime = new Date(a.updated_at || a.created_at || 0).getTime()
+          const bTime = new Date(b.updated_at || b.created_at || 0).getTime()
+          return bTime - aTime
+        })
+
+      map[driver.id] = driverOrders[0] || null
+    }
+
+    return map
+  }, [activeDrivers, boardOrders])
+
+  const unassignedOrders = useMemo(() => {
+    return groupedOrders.unassigned || []
+  }, [groupedOrders])
 
   function openOrder(orderId: string) {
     setSelectedOrderId(orderId)
@@ -887,214 +945,312 @@ export default function DispatchBoardPage() {
             Loading dispatch board...
           </div>
         ) : (
-          <div
-            className="grid gap-4"
-            style={{ gridTemplateColumns: `repeat(${Math.max(boardColumns.length, 1)}, minmax(300px, 1fr))` }}
-          >
-            {boardColumns.map((column) => {
-              const columnOrders = groupedOrders[column.key] || []
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_420px]">
+            <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+              <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
+                    Unassigned Orders
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Sorted by address and time
+                  </p>
+                </div>
 
-              return (
-                <div
-                  key={column.key}
-                  className={`min-h-[420px] rounded-3xl p-4 shadow-sm ring-1 ${
-                    column.type === 'driver'
-                      ? getDriverColumnStyle(driverMap[column.key]?.status)
-                      : 'bg-white ring-slate-200'
-                  }`}
-                >
-                  <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">{column.label}</h2>
-                          {column.type === 'driver' ? (
-                            <span
-                              className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                driverStatusStyles[driverMap[column.key]?.status || 'available'] || driverStatusStyles.available
-                              }`}
-                            >
-                              {formatDriverStatus(driverMap[column.key]?.status)}
-                            </span>
-                          ) : null}
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                  {unassignedOrders.length}
+                </span>
+              </div>
+
+              <div
+                className={`h-[calc(100vh-260px)] overflow-y-auto rounded-2xl p-1 transition ${
+                  dropTarget?.columnKey === 'unassigned' && dropTarget.beforeId === null ? 'bg-sky-50' : ''
+                }`}
+                onDragOver={(e) => allowDrop(e, 'unassigned', null)}
+                onDrop={(e) => handleDrop(e, 'unassigned', null)}
+              >
+                <div className="space-y-2">
+                  {unassignedOrders.map((order) => {
+                    const showTopDrop = dropTarget?.columnKey === 'unassigned' && dropTarget.beforeId === order.id
+
+                    return (
+                      <div key={order.id}>
+                        <div
+                          onDragOver={(e) => allowDrop(e, 'unassigned', order.id)}
+                          onDrop={(e) => handleDrop(e, 'unassigned', order.id)}
+                          className={`mb-2 rounded-xl border-2 border-dashed px-2 py-1 text-center text-[11px] font-semibold transition ${
+                            showTopDrop ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent bg-transparent text-transparent'
+                          }`}
+                        >
+                          Drop here
                         </div>
-                      </div>
 
-                      <div className="flex items-center gap-2">
-                        {column.type === 'driver' ? (
-                          <>
+                        <div
+                          onClick={() => openOrder(order.id)}
+                          className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                        >
+                          <div className="flex items-start gap-3">
                             <button
                               type="button"
-                              onClick={() => void setDriverOperationalStatus(column.key, 'heading_back')}
-                              className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 transition hover:bg-blue-100"
-                              title="Heading Back"
+                              draggable={order.status !== 'completed'}
+                              onClick={(e) => e.stopPropagation()}
+                              onDragStart={(e) => handleDragStart(e, order.id, 'unassigned')}
+                              onDragEnd={handleDragEnd}
+                              disabled={order.status === 'completed'}
+                              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                              title={order.status === 'completed' ? 'Completed orders cannot be reordered' : 'Drag to assign'}
                             >
-                              HB
+                              <DragHandleIcon />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => void setDriverOperationalStatus(column.key, 'parked')}
-                              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 transition hover:bg-slate-100"
-                              title="Park"
-                            >
-                              Park
-                            </button>
-                          </>
-                        ) : null}
 
-                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                          {columnOrders.length}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`space-y-2 rounded-2xl p-1 transition ${
-                      dropTarget?.columnKey === column.key && dropTarget.beforeId === null ? 'bg-sky-50' : ''
-                    }`}
-                    onDragOver={(e) => allowDrop(e, column.key, null)}
-                    onDrop={(e) => handleDrop(e, column.key, null)}
-                  >
-                    {columnOrders.map((order) => {
-                      const assignedDriver = order.driver_id ? driverMap[order.driver_id] : null
-                      const showTopDrop = dropTarget?.columnKey === column.key && dropTarget.beforeId === order.id
-
-                      return (
-                        <div key={order.id}>
-                          <div
-                            onDragOver={(e) => allowDrop(e, column.key, order.id)}
-                            onDrop={(e) => handleDrop(e, column.key, order.id)}
-                            className={`mb-2 rounded-xl border-2 border-dashed px-2 py-1 text-center text-[11px] font-semibold transition ${
-                              showTopDrop ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent bg-transparent text-transparent'
-                            }`}
-                          >
-                            Drop here
-                          </div>
-
-                          <div
-                            onClick={() => openOrder(order.id)}
-                            className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                          >
-                            <div className="flex items-start gap-3">
-                              <button
-                                type="button"
-                                draggable={order.status !== 'completed'}
-                                onClick={(e) => e.stopPropagation()}
-                                onDragStart={(e) => handleDragStart(e, order.id, column.key)}
-                                onDragEnd={handleDragEnd}
-                                disabled={order.status === 'completed'}
-                                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-                                title={order.status === 'completed' ? 'Completed orders cannot be reordered' : 'Drag to reorder or move to another driver'}
-                              >
-                                <DragHandleIcon />
-                              </button>
-
-                              <div className="min-w-0 flex-1 space-y-2">
-                                <div className="grid gap-2 sm:grid-cols-2">
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Client</div>
-                                    <div className="mt-1 line-clamp-1 text-base font-semibold text-slate-900">
-                                      {order.customer_name || 'No customer'}
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Driver</div>
-                                    <div className="mt-1 text-sm text-slate-700">
-                                      {assignedDriver?.name || '—'}
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Destination</div>
-                                    <div className="mt-1 line-clamp-2 text-sm text-slate-700">
-                                      {order.workflow_step === 'DUMP' ? order.dump_site_address || 'No dump site address' : order.service_address || order.pickup_address || 'No service address'}
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time of Delivery</div>
-                                    <div className="mt-1 text-sm text-slate-700">
-                                      {displayValue(formatServiceTime(order.service_time || order.service_window))}
-                                    </div>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                        Order Type
-                                      </div>
-                                      <div className="mt-1 text-sm text-slate-700">
-                                        {displayValue(order.order_type)}
-                                      </div>
-                                    </div>
-
-                                    <div>
-                                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                        Bin Size
-                                      </div>
-                                      <div className="mt-1 text-sm text-slate-700">
-                                        {order.bin_size ? `${order.bin_size} Yard` : '—'}
-                                      </div>
-                                    </div>
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Client</div>
+                                  <div className="mt-1 line-clamp-1 text-base font-semibold text-slate-900">
+                                    {order.customer_name || 'No customer'}
                                   </div>
                                 </div>
 
-                                <div className="flex items-center justify-between gap-2 pt-1">
-                                  {column.key !== 'unassigned' ? (
-                                    <span
-                                      className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                                        statusStyles[order.status || 'unassigned'] || statusStyles.unassigned
-                                      }`}
-                                    >
-                                      {formatStatus(order.status || 'unassigned')}
-                                    </span>
-                                  ) : <span />}
-
-                                  <span className="text-[11px] text-slate-400">
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Ticket</div>
+                                  <div className="mt-1 text-sm text-slate-700">
                                     {order.ticket_number || `#${order.id.slice(0, 8)}`}
-                                  </span>
+                                  </div>
                                 </div>
 
-                                {!order.driver_id ? (
-                                  <div onClick={(e) => e.stopPropagation()}>
-                                    <select
-                                      value={assignSelections[order.id] || ''}
-                                      onChange={(e) => {
-                                        const driverId = e.target.value
-                                        setAssignSelections((current) => ({ ...current, [order.id]: driverId }))
-                                        if (driverId) {
-                                          void handleAssign(order.id, driverId)
-                                        }
-                                      }}
-                                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                                    >
-                                      <option value="">Set Driver</option>
-                                        {assignableDrivers.map((driver) => (
-                                        <option key={driver.id} value={driver.id}>
-                                          {driver.name || 'Unnamed Driver'}
-                                        </option>
-                                      ))}
-                                    </select>
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Destination</div>
+                                  <div className="mt-1 line-clamp-2 text-sm text-slate-700">
+                                    {getOrderDestination(order)}
                                   </div>
-                                ) : null}
+                                </div>
+
+                                <div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time of Delivery</div>
+                                  <div className="mt-1 text-sm text-slate-700">
+                                    {displayValue(formatServiceTime(order.service_time || order.service_window))}
+                                  </div>
+                                </div>
+
+                                <div className="sm:col-span-2 grid grid-cols-2 gap-4">
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                      Order Type
+                                    </div>
+                                    <div className="mt-1 text-sm text-slate-700">
+                                      {displayValue(order.order_type)}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                      Bin Size
+                                    </div>
+                                    <div className="mt-1 text-sm text-slate-700">
+                                      {order.bin_size ? `${order.bin_size} Yard` : '—'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                <span />
+                                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusStyles[order.status || 'unassigned'] || statusStyles.unassigned}`}>
+                                  {formatStatus(order.status || 'unassigned')}
+                                </span>
+                              </div>
+
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <select
+                                  value={assignSelections[order.id] || ''}
+                                  onChange={(e) => {
+                                    const driverId = e.target.value
+                                    setAssignSelections((current) => ({ ...current, [order.id]: driverId }))
+                                    if (driverId) {
+                                      void handleAssign(order.id, driverId)
+                                    }
+                                  }}
+                                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                                >
+                                  <option value="">Set Driver</option>
+                                  {assignableDrivers.map((driver) => (
+                                    <option key={driver.id} value={driver.id}>
+                                      {driver.name || 'Unnamed Driver'}
+                                    </option>
+                                  ))}
+                                </select>
                               </div>
                             </div>
                           </div>
                         </div>
-                      )
-                    })}
-
-                    {columnOrders.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
-                        No orders here
                       </div>
-                    )}
-                  </div>
+                    )
+                  })}
+
+                  {unassignedOrders.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
+                      No unassigned orders
+                    </div>
+                  )}
                 </div>
-              )
-            })}
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+              <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
+                      Drivers
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Status, last order, and quick actions
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                    {filteredDrivers.length}
+                  </span>
+                </div>
+
+                <div className="mt-3">
+                  <input
+                    value={driverSearch}
+                    onChange={(e) => setDriverSearch(e.target.value)}
+                    placeholder="Search driver"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                  />
+                </div>
+              </div>
+
+              <div className="h-[calc(100vh-260px)] overflow-y-auto pr-1">
+                <div className="space-y-3">
+                  {filteredDrivers.map((driver) => {
+                    const driverOrders = driverOrdersMap[driver.id] || []
+                    const lastOrder = driverLastOrderMap[driver.id]
+                    const canDropOnDriver = dropTarget?.columnKey === driver.id && dropTarget.beforeId === null
+
+                    return (
+                      <div key={driver.id}>
+                        <div
+                          onDragOver={(e) => allowDrop(e, driver.id, null)}
+                          onDrop={(e) => handleDrop(e, driver.id, null)}
+                          className={`mb-2 rounded-xl border-2 border-dashed px-2 py-1 text-center text-[11px] font-semibold transition ${
+                            canDropOnDriver ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent bg-transparent text-transparent'
+                          }`}
+                        >
+                          Drop here
+                        </div>
+
+                        <div className={`rounded-2xl p-4 shadow-sm ring-1 ${getDriverColumnStyle(driver.status)}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="line-clamp-1 text-sm font-bold text-slate-900">
+                                {driver.name || 'Unnamed Driver'}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                    driverStatusStyles[driver.status || 'available'] || driverStatusStyles.available
+                                  }`}
+                                >
+                                  {formatDriverStatus(driver.status)}
+                                </span>
+
+                                <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
+                                  {driverOrders.length} order{driverOrders.length === 1 ? '' : 's'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void setDriverOperationalStatus(driver.id, 'heading_back')}
+                                className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 transition hover:bg-blue-100"
+                                title="Heading Back"
+                              >
+                                HB
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void setDriverOperationalStatus(driver.id, 'parked')}
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 transition hover:bg-slate-100"
+                                title="Park"
+                              >
+                                Park
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                              Last Order
+                            </div>
+                            <div className="mt-1 text-sm text-slate-700">
+                              {getLastOrderSummary(lastOrder)}
+                            </div>
+                          </div>
+
+                          {driverOrders.length > 0 ? (
+                            <div className="mt-3 space-y-2">
+                              {driverOrders.slice(0, 3).map((order, index) => (
+                                <div
+                                  key={order.id}
+                                  onDragOver={(e) => allowDrop(e, driver.id, order.id)}
+                                  onDrop={(e) => handleDrop(e, driver.id, order.id)}
+                                  className={`rounded-xl border px-3 py-2 ${
+                                    dropTarget?.columnKey === driver.id && dropTarget.beforeId === order.id
+                                      ? 'border-sky-300 bg-sky-50'
+                                      : 'border-slate-200 bg-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="line-clamp-1 text-sm font-semibold text-slate-900">
+                                        {index + 1}. {order.customer_name || 'No customer'}
+                                      </div>
+                                      <div className="mt-1 line-clamp-1 text-xs text-slate-500">
+                                        {getOrderDestination(order)}
+                                      </div>
+                                    </div>
+
+                                    <span
+                                      className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                        statusStyles[order.status || 'assigned'] || statusStyles.assigned
+                                      }`}
+                                    >
+                                      {formatStatus(order.status)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+
+                              {driverOrders.length > 3 ? (
+                                <div className="text-center text-xs font-medium text-slate-500">
+                                  +{driverOrders.length - 3} more order{driverOrders.length - 3 === 1 ? '' : 's'}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-center text-xs text-slate-400">
+                              No orders assigned
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {filteredDrivers.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
+                      No drivers found
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
