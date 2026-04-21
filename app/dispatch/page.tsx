@@ -160,14 +160,6 @@ function DetailItem({
   )
 }
 
-function DragHandleIcon() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
-      <path d="M7 4.5A1.5 1.5 0 1 1 4 4.5a1.5 1.5 0 0 1 3 0Zm0 5.5A1.5 1.5 0 1 1 4 10a1.5 1.5 0 0 1 3 0Zm-1.5 7A1.5 1.5 0 1 0 5.5 14a1.5 1.5 0 0 0 0 3Zm10-12.5a1.5 1.5 0 1 1-3 0a1.5 1.5 0 0 1 3 0Zm-1.5 7a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3Zm1.5 4a1.5 1.5 0 1 1-3 0a1.5 1.5 0 0 1 3 0Z" />
-    </svg>
-  )
-}
-
 function reorderIds(orderIds: string[], movingId: string, beforeId?: string | null) {
   const withoutMoving = orderIds.filter((id) => id !== movingId)
 
@@ -369,12 +361,8 @@ export default function DispatchBoardPage() {
   }, [drivers])
 
   const activeDrivers = useMemo(() => {
-    if (selectedDayKey === todayKey) {
-      return drivers.filter((driver) => driver.status !== 'offline')
-    }
-
     return drivers.filter((driver) => driver.status !== 'offline')
-  }, [drivers, selectedDayKey, todayKey])
+  }, [drivers])
 
   const assignableDrivers = useMemo(() => {
     return drivers.filter((driver) => {
@@ -710,16 +698,15 @@ export default function DispatchBoardPage() {
 
   const orderedDrivers = useMemo(() => {
     const rank = (driver: Driver) => {
-      const hasOrders = (driverOrdersMap[driver.id] || []).length > 0
-      const isInProgress = (driverOrdersMap[driver.id] || []).some((order) => order.status === 'in_progress')
+      const driverOrders = driverOrdersMap[driver.id] || []
+      const isInProgress = driverOrders.some((order) => order.status === 'in_progress')
 
       if (driver.status === 'available') return 0
       if (driver.status === 'heading_back') return 1
       if (driver.status === 'parked') return 2
       if (driver.status === 'busy' && !isInProgress) return 3
       if (driver.status === 'busy' && isInProgress) return 4
-      if (hasOrders) return 5
-      return 6
+      return 5
     }
 
     return [...activeDrivers].sort((a, b) => {
@@ -741,11 +728,8 @@ export default function DispatchBoardPage() {
     setSelectedOrderId(null)
   }
 
-  function handleDragStart(event: React.DragEvent<HTMLButtonElement>, orderId: string, fromColumnKey: string) {
-    event.stopPropagation()
+  function handleDragStart(orderId: string, fromColumnKey: string) {
     setDragState({ orderId, fromColumnKey })
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', orderId)
   }
 
   function handleDragEnd() {
@@ -943,7 +927,7 @@ export default function DispatchBoardPage() {
             Loading dispatch board...
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.52fr)_minmax(0,1.48fr)]">
             <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
               <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                 <div>
@@ -981,101 +965,89 @@ export default function DispatchBoardPage() {
                         </div>
 
                         <div
+                          draggable={order.status !== 'completed'}
+                          onDragStart={() => handleDragStart(order.id, 'unassigned')}
+                          onDragEnd={handleDragEnd}
                           onClick={() => openOrder(order.id)}
                           className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                         >
-                          <div className="flex items-start gap-3">
-                            <button
-                              type="button"
-                              draggable={order.status !== 'completed'}
-                              onClick={(e) => e.stopPropagation()}
-                              onDragStart={(e) => handleDragStart(e, order.id, 'unassigned')}
-                              onDragEnd={handleDragEnd}
-                              disabled={order.status === 'completed'}
-                              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-                              title={order.status === 'completed' ? 'Completed orders cannot be reordered' : 'Drag to assign'}
-                            >
-                              <DragHandleIcon />
-                            </button>
-
-                            <div className="min-w-0 flex-1 space-y-2">
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Client</div>
-                                  <div className="mt-1 line-clamp-1 text-base font-semibold text-slate-900">
-                                    {order.customer_name || 'No customer'}
-                                  </div>
+                          <div className="min-w-0 space-y-2">
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Client</div>
+                                <div className="mt-1 line-clamp-1 text-base font-semibold text-slate-900">
+                                  {order.customer_name || 'No customer'}
                                 </div>
+                              </div>
 
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Ticket</div>
+                                <div className="mt-1 text-sm text-slate-700">
+                                  {order.ticket_number || `#${order.id.slice(0, 8)}`}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Address</div>
+                                <div className="mt-1 line-clamp-2 text-sm text-slate-700">
+                                  {getOrderDestination(order)}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time</div>
+                                <div className="mt-1 text-sm text-slate-700">
+                                  {displayValue(formatServiceTime(order.service_time || order.service_window))}
+                                </div>
+                              </div>
+
+                              <div className="sm:col-span-2 grid grid-cols-2 gap-4">
                                 <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Ticket</div>
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                    Order Type
+                                  </div>
                                   <div className="mt-1 text-sm text-slate-700">
-                                    {order.ticket_number || `#${order.id.slice(0, 8)}`}
+                                    {displayValue(order.order_type)}
                                   </div>
                                 </div>
 
                                 <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Address</div>
-                                  <div className="mt-1 line-clamp-2 text-sm text-slate-700">
-                                    {getOrderDestination(order)}
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                    Bin Size
                                   </div>
-                                </div>
-
-                                <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time</div>
                                   <div className="mt-1 text-sm text-slate-700">
-                                    {displayValue(formatServiceTime(order.service_time || order.service_window))}
-                                  </div>
-                                </div>
-
-                                <div className="sm:col-span-2 grid grid-cols-2 gap-4">
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                      Order Type
-                                    </div>
-                                    <div className="mt-1 text-sm text-slate-700">
-                                      {displayValue(order.order_type)}
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                      Bin Size
-                                    </div>
-                                    <div className="mt-1 text-sm text-slate-700">
-                                      {order.bin_size ? `${order.bin_size} Yard` : '—'}
-                                    </div>
+                                    {order.bin_size ? `${order.bin_size} Yard` : '—'}
                                   </div>
                                 </div>
                               </div>
+                            </div>
 
-                              <div className="flex items-center justify-between gap-2 pt-1">
-                                <span />
-                                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusStyles[order.status || 'unassigned'] || statusStyles.unassigned}`}>
-                                  {formatStatus(order.status || 'unassigned')}
-                                </span>
-                              </div>
+                            <div className="flex items-center justify-between gap-2 pt-1">
+                              <span />
+                              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusStyles[order.status || 'unassigned'] || statusStyles.unassigned}`}>
+                                {formatStatus(order.status || 'unassigned')}
+                              </span>
+                            </div>
 
-                              <div onClick={(e) => e.stopPropagation()}>
-                                <select
-                                  value={assignSelections[order.id] || ''}
-                                  onChange={(e) => {
-                                    const driverId = e.target.value
-                                    setAssignSelections((current) => ({ ...current, [order.id]: driverId }))
-                                    if (driverId) {
-                                      void handleAssign(order.id, driverId)
-                                    }
-                                  }}
-                                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                                >
-                                  <option value="">Set Driver</option>
-                                  {assignableDrivers.map((driver) => (
-                                    <option key={driver.id} value={driver.id}>
-                                      {driver.name || 'Unnamed Driver'}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <select
+                                value={assignSelections[order.id] || ''}
+                                onChange={(e) => {
+                                  const driverId = e.target.value
+                                  setAssignSelections((current) => ({ ...current, [order.id]: driverId }))
+                                  if (driverId) {
+                                    void handleAssign(order.id, driverId)
+                                  }
+                                }}
+                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                              >
+                                <option value="">Set Driver</option>
+                                {assignableDrivers.map((driver) => (
+                                  <option key={driver.id} value={driver.id}>
+                                    {driver.name || 'Unnamed Driver'}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </div>
                         </div>
@@ -1106,13 +1078,12 @@ export default function DispatchBoardPage() {
               </div>
 
               <div className="h-[calc(100vh-260px)] overflow-y-auto pr-1">
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   {orderedDrivers.map((driver) => {
                     const driverOrders = driverOrdersMap[driver.id] || []
                     const lastOrder = driverLastOrderMap[driver.id]
                     const canDropOnDriver = dropTarget?.columnKey === driver.id && dropTarget.beforeId === null
                     const showLastOrder = driverOrders.length === 0 || driver.status === 'heading_back'
-                    const hasInProgress = driverOrders.some((order) => order.status === 'in_progress')
 
                     return (
                       <div key={driver.id}>
@@ -1164,6 +1135,14 @@ export default function DispatchBoardPage() {
                               >
                                 Park
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => void setDriverOperationalStatus(driver.id, 'available')}
+                                className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 transition hover:bg-emerald-100"
+                                title="Stop / make available"
+                              >
+                                STOP
+                              </button>
                             </div>
                           </div>
 
@@ -1191,50 +1170,36 @@ export default function DispatchBoardPage() {
                                       : 'border-slate-200 bg-white'
                                   }`}
                                 >
-                                  <div className="flex items-start gap-2">
-                                    <button
-                                      type="button"
-                                      draggable={order.status !== 'completed'}
-                                      onClick={(e) => e.stopPropagation()}
-                                      onDragStart={(e) => handleDragStart(e, order.id, driver.id)}
-                                      onDragEnd={handleDragEnd}
-                                      disabled={order.status === 'completed'}
-                                      className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-                                      title={order.status === 'completed' ? 'Completed orders cannot be reordered' : 'Drag to reorder or move'}
-                                    >
-                                      <DragHandleIcon />
-                                    </button>
-
-                                    <div
-                                      className="min-w-0 flex-1 cursor-pointer"
-                                      onClick={() => openOrder(order.id)}
-                                    >
-                                      <div className="grid gap-2">
-                                        <div className="flex items-start justify-between gap-2">
-                                          <div className="min-w-0">
-                                            <div className="line-clamp-1 text-sm font-semibold text-slate-900">
-                                              {index + 1}. {order.customer_name || 'No customer'}
-                                            </div>
+                                  <div
+                                    draggable={order.status !== 'completed'}
+                                    onDragStart={() => handleDragStart(order.id, driver.id)}
+                                    onDragEnd={handleDragEnd}
+                                    className="cursor-pointer"
+                                    onClick={() => openOrder(order.id)}
+                                  >
+                                    <div className="grid gap-2">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex items-center gap-2">
+                                          <div className="line-clamp-1 text-sm font-semibold text-slate-900">
+                                            {index + 1}. {order.customer_name || 'No customer'}
                                           </div>
-
-                                          <span
-                                            className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                              statusStyles[order.status || 'assigned'] || statusStyles.assigned
-                                            }`}
-                                          >
-                                            {formatStatus(order.status)}
+                                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                                            {displayValue(order.order_type)}
                                           </span>
                                         </div>
 
-                                        <div className="text-xs text-slate-500">
-                                          <span className="font-semibold uppercase tracking-wide text-slate-400">Address: </span>
-                                          {getOrderDestination(order)}
-                                        </div>
+                                        <span
+                                          className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                                            statusStyles[order.status || 'assigned'] || statusStyles.assigned
+                                          }`}
+                                        >
+                                          {formatStatus(order.status)}
+                                        </span>
+                                      </div>
 
-                                        <div className="text-xs text-slate-500">
-                                          <span className="font-semibold uppercase tracking-wide text-slate-400">Order Type: </span>
-                                          {displayValue(order.order_type)}
-                                        </div>
+                                      <div className="text-xs text-slate-500">
+                                        <span className="font-semibold uppercase tracking-wide text-slate-400">Address: </span>
+                                        {getOrderDestination(order)}
                                       </div>
                                     </div>
                                   </div>
@@ -1252,19 +1217,13 @@ export default function DispatchBoardPage() {
                               No orders assigned
                             </div>
                           )}
-
-                          {hasInProgress ? (
-                            <div className="mt-3 text-center text-[11px] font-medium text-slate-400">
-                              In-progress drivers stay lower
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     )
                   })}
 
                   {orderedDrivers.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 md:col-span-3">
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 md:col-span-2 xl:col-span-4">
                       No drivers found
                     </div>
                   )}
