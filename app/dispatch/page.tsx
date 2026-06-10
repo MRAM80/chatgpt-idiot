@@ -51,6 +51,41 @@ type DragState = {
   fromColumnKey: string
 } | null
 
+type QuickOrderForm = {
+  customer_name: string
+  pickup_address: string
+  order_type: string
+  bin_size: string
+  bin_type: string
+  scheduled_date: string
+  service_time: string
+  driver_id: string
+  notes: string
+}
+
+function generateTicketNumber() {
+  return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
+}
+
+function toLocalDayKeyLocal(date: Date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const emptyQuickForm = (): QuickOrderForm => ({
+  customer_name: '',
+  pickup_address: '',
+  order_type: 'DELIVERY',
+  bin_size: '20',
+  bin_type: 'Garbage',
+  scheduled_date: toLocalDayKeyLocal(new Date()),
+  service_time: '',
+  driver_id: '',
+  notes: '',
+})
+
 const TABLE_NAME = 'order'
 
 const statusStyles: Record<string, string> = {
@@ -268,6 +303,10 @@ export default function DispatchBoardPage() {
   const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({})
   const [selectedDayKey, setSelectedDayKey] = useState(getTodayKey())
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false)
+  const [quickForm, setQuickForm] = useState<QuickOrderForm>(emptyQuickForm)
+  const [quickSaving, setQuickSaving] = useState(false)
+  const [quickError, setQuickError] = useState('')
 
   const todayKey = useMemo(() => getTodayKey(), [])
   const tomorrowKey = useMemo(() => getTomorrowKey(), [])
@@ -826,6 +865,68 @@ export default function DispatchBoardPage() {
     await moveOrderToColumn(movingOrderId, targetColumnKey, beforeId)
   }
 
+  function setQuickField(field: keyof QuickOrderForm, value: string) {
+    setQuickForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  async function handleQuickCreate() {
+    setQuickError('')
+
+    if (!quickForm.customer_name.trim()) {
+      setQuickError('Customer name is required.')
+      return
+    }
+    if (!quickForm.pickup_address.trim()) {
+      setQuickError('Job site address is required.')
+      return
+    }
+
+    setQuickSaving(true)
+
+    const driverForAssign = quickForm.driver_id ? drivers.find((d) => d.id === quickForm.driver_id) : null
+    const status = driverForAssign ? 'assigned' : 'unassigned'
+
+    const maxRoute = quickForm.driver_id
+      ? boardOrders
+          .filter((o) => o.driver_id === quickForm.driver_id && o.status !== 'completed')
+          .reduce((max, o) => Math.max(max, o.route_position || 0), 0)
+      : 0
+
+    const payload = {
+      ticket_number: generateTicketNumber(),
+      customer_name: quickForm.customer_name.trim(),
+      pickup_address: quickForm.pickup_address.trim(),
+      service_address: quickForm.pickup_address.trim(),
+      order_type: quickForm.order_type,
+      bin_size: quickForm.bin_size,
+      bin_type: quickForm.bin_type,
+      scheduled_date: quickForm.scheduled_date,
+      service_time: quickForm.service_time || null,
+      driver_id: quickForm.driver_id || null,
+      route_position: quickForm.driver_id ? maxRoute + 1 : null,
+      status,
+      notes: quickForm.notes || null,
+      workflow_step: 'MAIN',
+    }
+
+    const { error } = await supabase.from('order').insert(payload)
+
+    if (error) {
+      setQuickError(error.message)
+      setQuickSaving(false)
+      return
+    }
+
+    if (quickForm.driver_id) {
+      await syncDriverStatuses(quickForm.driver_id)
+    }
+
+    setQuickSaving(false)
+    setQuickCreateOpen(false)
+    setQuickForm(emptyQuickForm())
+    await refreshAll()
+  }
+
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-[1920px] p-3 md:p-4">
@@ -890,12 +991,13 @@ export default function DispatchBoardPage() {
                 Tomorrow
               </button>
 
-              <Link
-                href="/order?newOrder=1"
+              <button
+                type="button"
+                onClick={() => { setQuickForm(emptyQuickForm()); setQuickError(''); setQuickCreateOpen(true) }}
                 className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
               >
                 + New Order
-              </Link>
+              </button>
 
               <button
                 onClick={refreshAll}
@@ -1297,6 +1399,179 @@ export default function DispatchBoardPage() {
             </div>
           </div>
         ) : null}
+
+        {/* Quick-create order modal */}
+        {quickCreateOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+            onClick={() => setQuickCreateOpen(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Dispatch</div>
+                  <h2 className="text-lg font-bold text-slate-900">New Order</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQuickCreateOpen(false)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="px-5 py-4 space-y-3 max-h-[75vh] overflow-y-auto">
+                {quickError && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {quickError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Customer Name *</label>
+                    <input
+                      value={quickForm.customer_name}
+                      onChange={(e) => setQuickField('customer_name', e.target.value)}
+                      placeholder="e.g. Bentworth"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Job Site Address *</label>
+                    <input
+                      value={quickForm.pickup_address}
+                      onChange={(e) => setQuickField('pickup_address', e.target.value)}
+                      placeholder="e.g. 350 Keele St, Toronto"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Order Type</label>
+                    <select
+                      value={quickForm.order_type}
+                      onChange={(e) => setQuickField('order_type', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                    >
+                      <option>DELIVERY</option>
+                      <option>EXCHANGE</option>
+                      <option>REMOVAL</option>
+                      <option>DUMP RETURN</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Bin Size</label>
+                    <select
+                      value={quickForm.bin_size}
+                      onChange={(e) => setQuickField('bin_size', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                    >
+                      {['6','8','10','12','14','15','20','30','40'].map((s) => (
+                        <option key={s} value={s}>{s} Yard</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Material</label>
+                    <select
+                      value={quickForm.bin_type}
+                      onChange={(e) => setQuickField('bin_type', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                    >
+                      <option>Garbage</option>
+                      <option>Recycling</option>
+                      <option>Mixed</option>
+                      <option>Clean Fill</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Time</label>
+                    <input
+                      type="time"
+                      value={quickForm.service_time}
+                      onChange={(e) => setQuickField('service_time', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Date</label>
+                    <div className="flex gap-1.5 mb-1.5">
+                      <button type="button" onClick={() => setQuickField('scheduled_date', toLocalDayKeyLocal(new Date()))}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-bold transition ${quickForm.scheduled_date === toLocalDayKeyLocal(new Date()) ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>
+                        Today
+                      </button>
+                      <button type="button" onClick={() => { const t = new Date(); t.setDate(t.getDate()+1); setQuickField('scheduled_date', toLocalDayKeyLocal(t)) }}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-bold transition ${quickForm.scheduled_date !== toLocalDayKeyLocal(new Date()) ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>
+                        Tomorrow
+                      </button>
+                    </div>
+                    <input
+                      type="date"
+                      value={quickForm.scheduled_date}
+                      onChange={(e) => setQuickField('scheduled_date', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Assign Driver (optional)</label>
+                    <select
+                      value={quickForm.driver_id}
+                      onChange={(e) => setQuickField('driver_id', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                    >
+                      <option value="">Unassigned</option>
+                      {assignableDrivers.map((driver) => (
+                        <option key={driver.id} value={driver.id}>
+                          {driver.name || 'Unnamed Driver'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Notes</label>
+                    <textarea
+                      rows={2}
+                      value={quickForm.notes}
+                      onChange={(e) => setQuickField('notes', e.target.value)}
+                      placeholder="Special instructions…"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400 resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+                <button
+                  type="button"
+                  onClick={() => setQuickCreateOpen(false)}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleQuickCreate}
+                  disabled={quickSaving}
+                  className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+                >
+                  {quickSaving ? 'Creating…' : 'Create Order'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
