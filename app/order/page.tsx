@@ -97,6 +97,8 @@ type Order = {
   notes: string | null
   completed_by?: string | null
   completed_at?: string | null
+  driver_notes?: string | null
+  delivery_photo_url?: string | null
   created_at: string | null
   updated_at: string | null
   customers?: OrderCustomerRelation[] | null
@@ -371,6 +373,8 @@ function OrdersPageContent() {
         notes,
         completed_by,
         completed_at,
+        driver_notes,
+        delivery_photo_url,
         created_at,
         updated_at,
         parent_order_id,
@@ -618,19 +622,6 @@ function OrdersPageContent() {
 
   const prioritizedFilteredOrders = useMemo(() => {
     return [...filteredOrders].sort((a, b) => {
-      const aUnassigned = (a.status || 'unassigned') === 'unassigned' ? 1 : 0
-      const bUnassigned = (b.status || 'unassigned') === 'unassigned' ? 1 : 0
-
-      if (aUnassigned !== bUnassigned) return bUnassigned - aUnassigned
-
-      const aDate = a.scheduled_date || '9999-12-31'
-      const bDate = b.scheduled_date || '9999-12-31'
-      if (aDate !== bDate) return aDate.localeCompare(bDate)
-
-      const aTime = a.service_time || '99:99'
-      const bTime = b.service_time || '99:99'
-      if (aTime !== bTime) return aTime.localeCompare(bTime)
-
       const aCreated = new Date(a.created_at || 0).getTime()
       const bCreated = new Date(b.created_at || 0).getTime()
       return bCreated - aCreated
@@ -2082,6 +2073,28 @@ function OrdersPageContent() {
                       className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       placeholder="Special observation or instruction"
                     />
+                  </div>
+                )}
+
+                {/* Driver field report — read-only, always shown when present */}
+                {editingOrder?.driver_notes && (
+                  <div className="md:col-span-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="text-xs font-bold uppercase tracking-wide text-amber-700 mb-1">Driver Comment</div>
+                    <div className="text-sm text-slate-900 whitespace-pre-wrap">{editingOrder.driver_notes}</div>
+                  </div>
+                )}
+
+                {editingOrder?.delivery_photo_url && (
+                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Delivery Photo</div>
+                    <a href={editingOrder.delivery_photo_url} target="_blank" rel="noreferrer">
+                      <img
+                        src={editingOrder.delivery_photo_url}
+                        alt="Delivery photo"
+                        className="w-full max-h-64 rounded-xl object-cover border border-slate-200 hover:opacity-90 transition cursor-pointer"
+                      />
+                    </a>
+                    <p className="mt-1 text-xs text-slate-400">Tap photo to open full size</p>
                   </div>
                 )}
               </div>

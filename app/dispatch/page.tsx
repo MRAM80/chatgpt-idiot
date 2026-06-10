@@ -33,6 +33,8 @@ type Order = {
   updated_at: string | null
   completed_by?: string | null
   completed_at?: string | null
+  driver_notes?: string | null
+  delivery_photo_url?: string | null
   workflow_step?: string | null
   parent_order_id?: string | null
   dump_site_address?: string | null
@@ -290,7 +292,7 @@ export default function DispatchBoardPage() {
 
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,created_at,updated_at,completed_by,completed_at')
+      .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,driver_notes,delivery_photo_url,created_at,updated_at,completed_by,completed_at')
       .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
 
@@ -1215,6 +1217,27 @@ export default function DispatchBoardPage() {
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</div>
                   <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{displayValue(selectedOrder.notes)}</div>
                 </div>
+
+                {selectedOrder.driver_notes && (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Driver Comment</div>
+                    <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{selectedOrder.driver_notes}</div>
+                  </div>
+                )}
+
+                {selectedOrder.delivery_photo_url && (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Delivery Photo</div>
+                    <a href={selectedOrder.delivery_photo_url} target="_blank" rel="noreferrer">
+                      <img
+                        src={selectedOrder.delivery_photo_url}
+                        alt="Delivery"
+                        className="w-full max-h-56 rounded-xl object-cover border border-slate-200 hover:opacity-90 transition cursor-pointer"
+                      />
+                    </a>
+                    <p className="mt-1 text-xs text-slate-400">Click to open full size</p>
+                  </div>
+                )}
 
                 <div className="mt-6 grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
