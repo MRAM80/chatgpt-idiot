@@ -333,20 +333,23 @@ export default function DriverPage() {
     setPhotoUploadStates((current) => ({ ...current, [order.id]: 'uploading' }))
     setPageError('')
 
-    const ext = file.name.split('.').pop() || 'jpg'
-    const path = `orders/${order.id}/${Date.now()}.${ext}`
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+    const path = `${order.id}-${Date.now()}.${ext}`
 
-    const { error: storageError } = await supabase.storage
+    const { data: uploadData, error: storageError } = await supabase.storage
       .from('delivery-photos')
-      .upload(path, file, { upsert: true })
+      .upload(path, file, { upsert: true, contentType: file.type })
 
     if (storageError) {
-      setPageError(storageError.message)
+      setPageError(`Photo upload failed: ${storageError.message}`)
       setPhotoUploadStates((current) => ({ ...current, [order.id]: 'error' }))
       return
     }
 
-    const { data: urlData } = supabase.storage.from('delivery-photos').getPublicUrl(path)
+    const { data: urlData } = supabase.storage
+      .from('delivery-photos')
+      .getPublicUrl(uploadData.path)
+
     const publicUrl = urlData.publicUrl
 
     const { error: updateError } = await supabase
@@ -355,7 +358,7 @@ export default function DriverPage() {
       .eq('id', order.id)
 
     if (updateError) {
-      setPageError(updateError.message)
+      setPageError(`Could not save photo: ${updateError.message}`)
       setPhotoUploadStates((current) => ({ ...current, [order.id]: 'error' }))
       return
     }
@@ -1298,93 +1301,83 @@ export default function DriverPage() {
 
   return (
     <div style={{ colorScheme: 'light' }} className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto max-w-6xl p-4 md:p-6">
-        <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-                {driver?.name || 'Driver'}
-              </h1>
-
-              {driver?.status === 'heading_back' ? (
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                  HB
-                </span>
-              ) : null}
-
-              {driver?.status === 'parked' ? (
-                <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                  Parked
-                </span>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {showAvailableButton ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!driver?.id) return
-                    const ok = await markDriverAvailable(driver.id)
-                    if (ok) await refreshDriverData()
-                  }}
-                  className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-                >
-                  Available
-                </button>
-              ) : null}
-
+      {/* Compact sticky header */}
+      <div className="sticky top-0 z-10 bg-white shadow-sm ring-1 ring-slate-200">
+        <div className="mx-auto max-w-lg px-4 py-2 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-base font-bold text-slate-900 truncate">
+              {driver?.name || 'Driver'}
+            </span>
+            {driver?.status === 'heading_back' && (
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">HB</span>
+            )}
+            {driver?.status === 'parked' && (
+              <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">Parked</span>
+            )}
+            {(isOffline || usingCachedOrders) && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Offline</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {showAvailableButton && (
               <button
                 type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                onClick={async () => {
+                  if (!driver?.id) return
+                  const ok = await markDriverAvailable(driver.id)
+                  if (ok) await refreshDriverData()
+                }}
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
               >
-                Log Out
+                Available
               </button>
-            </div>
+            )}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white"
+            >
+              Log Out
+            </button>
           </div>
-
-          {pageError ? (
-            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {pageError}
-            </div>
-          ) : null}
-
-          {driver?.status === 'heading_back' ? (
-            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-              HEAD BACK
-            </div>
-          ) : null}
-
-          {driver?.status === 'parked' ? (
-            <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
-              Park and finish today
-            </div>
-          ) : null}
         </div>
 
-        {isOffline || usingCachedOrders || queuedActions.length > 0 || syncingQueue ? (
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {syncingQueue
-              ? 'Syncing offline updates...'
-              : queuedActions.length > 0
-              ? `Offline queue active: ${queuedActions.length} update${queuedActions.length === 1 ? '' : 's'} waiting to sync.`
-              : usingCachedOrders
-              ? 'Offline mode: showing last synced route.'
-              : 'Connection looks weak. Some actions may sync later.'}
+        {pageError && (
+          <div className="mx-auto max-w-lg px-4 pb-2">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              {pageError}
+            </div>
           </div>
-        ) : null}
+        )}
 
+        {driver?.status === 'heading_back' && (
+          <div className="mx-auto max-w-lg px-4 pb-2">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">HEAD BACK</div>
+          </div>
+        )}
+        {driver?.status === 'parked' && (
+          <div className="mx-auto max-w-lg px-4 pb-2">
+            <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">Park and finish today</div>
+          </div>
+        )}
+        {syncingQueue && (
+          <div className="mx-auto max-w-lg px-4 pb-2">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Syncing offline updates…</div>
+          </div>
+        )}
+      </div>
+
+      <div className="mx-auto max-w-lg px-3 py-3">
         {loading ? (
-          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            Loading driver page...
+          <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
+            Loading route…
           </div>
         ) : orders.length === 0 ? (
-          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            No active orders for this driver.
+          <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
+            No active orders for today.
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {orders.map((order, index) => {
               const isSaving = savingOrderId === order.id
               const syncBadge = getOrderSyncBadge(order.id)
@@ -1393,277 +1386,196 @@ export default function DriverPage() {
               const oldBin = firstRelation(order.old_bin) || (order.old_bin_id ? binsMap[String(order.old_bin_id)] : null)
               const binSaveState = binSaveStates[order.id] || 'idle'
               const stopRouteLink = buildGoogleMapsLinkFromStop(orders, index)
-              const usesExistingBin =
-                order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
-              const needsNewBin =
-                order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
+              const usesExistingBin = order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
+              const needsNewBin = order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
               const visibleBinNumber = usesExistingBin
                 ? oldBin?.bin_number || assignedBin?.bin_number || binInputs[order.id] || ''
                 : assignedBin?.bin_number || binInputs[order.id] || ''
+              const photoState = photoUploadStates[order.id]
+              const commentState = commentSaveStates[order.id]
 
               return (
-                <div
-                  key={order.id}
-                  className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"
-                >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          Stop {order.route_position || index + 1}
-                        </span>
+                <div key={order.id} className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 overflow-hidden">
+                  {/* Card header bar */}
+                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50">
+                    <span className="text-xs font-bold text-slate-500">Stop {order.route_position || index + 1}</span>
+                    <span className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5">{displayValue(order.bin_size)}Yd</span>
+                    <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">{displayValue(order.order_type)}</span>
+                    {(order.service_window || order.service_time) && (
+                      <span className="text-xs font-semibold text-slate-500 ml-auto">
+                        {order.service_window ? displayValue(order.service_window) : formatServiceTime(order.service_time)}
+                      </span>
+                    )}
+                    {syncBadge}
+                  </div>
 
-                        <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
-                          {displayValue(order.bin_size)}Yd
-                        </span>
-
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          {displayValue(order.order_type)}
-                        </span>
-
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700">
-                          {order.service_window
-                            ? displayValue(order.service_window)
-                            : formatServiceTime(order.service_time)}
-                        </span>
-
-                        {syncBadge}
-                      </div>
-
-                      <div className="mt-3">
-                        <h2 className="text-lg font-bold text-slate-900">
-                          {order.customer_name || 'No customer'}
-                        </h2>
-                      </div>
-
-                      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Address
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(stopAddress)}
-                          </div>
-                        </div>
-
-                        {stopRouteLink ? (
-                          <a
-                            href={stopRouteLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-fit items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
-                          >
-                            Open Full Route
-                          </a>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bin Number
-                        </div>
-
-                        {needsNewBin && !assignedBin?.bin_number ? (
-                          <div className="mt-3 flex flex-col gap-3 md:flex-row">
-                            <input
-                              value={binInputs[order.id] || ''}
-                              onChange={(e) =>
-                                setBinInputs((current) => ({
-                                  ...current,
-                                  [order.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Enter bin number"
-                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                            />
-
-                            <button
-                              type="button"
-                              onClick={() => void saveBinNumber(order)}
-                              disabled={binSaveState === 'saving'}
-                              className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {binSaveState === 'saving' ? 'Saving...' : 'Save Bin'}
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                            <span className="font-semibold">{visibleBinNumber || 'Not set'}</span>
-                          </div>
-                        )}
-
-                        {order.order_type === 'EXCHANGE' && oldBin?.bin_number ? (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-700">
-                            Old bin at site: <span className="font-semibold">{oldBin.bin_number}</span>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN' ? (
-                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Dump Site
-                          </div>
-                          <div className="mt-2 text-sm text-slate-900">
-                            {displayValue(order.dump_site_address)}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Notes
-                        </div>
-                        <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
-                          {displayValue(order.notes)}
-                        </div>
-                      </div>
-
-                      {/* Delivery photo */}
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
-                          Delivery Photo
-                        </div>
-
-                        {order.delivery_photo_url ? (
-                          <div className="space-y-3">
-                            <img
-                              src={order.delivery_photo_url}
-                              alt="Delivery"
-                              className="w-full max-h-48 rounded-xl object-cover border border-slate-200"
-                            />
-                            <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold cursor-pointer transition ${
-                              photoUploadStates[order.id] === 'uploading'
-                                ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
-                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                            }`}>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                capture="environment"
-                                className="hidden"
-                                disabled={photoUploadStates[order.id] === 'uploading'}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0]
-                                  if (file) void uploadDeliveryPhoto(order, file)
-                                }}
-                              />
-                              {photoUploadStates[order.id] === 'uploading' ? 'Uploading...' : 'Replace Photo'}
-                            </label>
-                          </div>
-                        ) : (
-                          <label className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-sm font-semibold cursor-pointer transition ${
-                            photoUploadStates[order.id] === 'uploading'
-                              ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
-                              : photoUploadStates[order.id] === 'error'
-                              ? 'border-rose-300 bg-rose-50 text-rose-700'
-                              : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-50'
-                          }`}>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              className="hidden"
-                              disabled={photoUploadStates[order.id] === 'uploading'}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0]
-                                if (file) void uploadDeliveryPhoto(order, file)
-                              }}
-                            />
-                            <span className="text-2xl">📷</span>
-                            {photoUploadStates[order.id] === 'uploading'
-                              ? 'Uploading...'
-                              : photoUploadStates[order.id] === 'error'
-                              ? 'Upload failed — tap to retry'
-                              : 'Take or upload photo'}
-                          </label>
-                        )}
-                      </div>
-
-                      {/* Driver comment */}
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
-                          Driver Comment
-                        </div>
-                        <textarea
-                          rows={3}
-                          placeholder="Special attention, access notes, bin placement…"
-                          value={driverComments[order.id] ?? order.driver_notes ?? ''}
-                          onChange={(e) =>
-                            setDriverComments((current) => ({ ...current, [order.id]: e.target.value }))
-                          }
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void saveDriverComment(order)}
-                          disabled={commentSaveStates[order.id] === 'saving'}
-                          className={`mt-2 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                            commentSaveStates[order.id] === 'saved'
-                              ? 'bg-emerald-600 text-white'
-                              : commentSaveStates[order.id] === 'error'
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-slate-900 text-white hover:opacity-90'
-                          }`}
+                  <div className="px-4 py-3 space-y-3">
+                    {/* Customer + address */}
+                    <div>
+                      <div className="text-base font-bold text-slate-900">{order.customer_name || 'No customer'}</div>
+                      <div className="text-sm text-slate-600 mt-0.5">{displayValue(stopAddress)}</div>
+                      {stopRouteLink && (
+                        <a
+                          href={stopRouteLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
                         >
-                          {commentSaveStates[order.id] === 'saving'
-                            ? 'Saving...'
-                            : commentSaveStates[order.id] === 'saved'
-                            ? 'Saved ✓'
-                            : commentSaveStates[order.id] === 'error'
-                            ? 'Failed — tap to retry'
-                            : 'Save Comment'}
-                        </button>
-                      </div>
+                          Open in Maps
+                        </a>
+                      )}
                     </div>
 
-                    <div className="w-full shrink-0 lg:w-[220px]">
-                      <div className="grid gap-2">
-                        {order.status !== 'in_progress' ? (
+                    {/* Bin number */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Bin Number</div>
+                      {needsNewBin && !assignedBin?.bin_number ? (
+                        <div className="flex gap-2">
+                          <input
+                            value={binInputs[order.id] || ''}
+                            onChange={(e) => setBinInputs((c) => ({ ...c, [order.id]: e.target.value }))}
+                            placeholder="Enter bin number"
+                            className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                          />
                           <button
                             type="button"
-                            onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                            disabled={isSaving}
-                            className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => void saveBinNumber(order)}
+                            disabled={binSaveState === 'saving'}
+                            className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
                           >
-                            {isSaving ? 'Saving...' : isOffline ? 'Start Order (Queue)' : 'Start Order'}
+                            {binSaveState === 'saving' ? '…' : 'Save'}
                           </button>
-                        ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-sm font-bold text-slate-900">{visibleBinNumber || 'Not set'}</span>
+                      )}
+                      {order.order_type === 'EXCHANGE' && oldBin?.bin_number && (
+                        <div className="mt-1.5 text-xs text-slate-500">Old bin at site: <span className="font-bold">{oldBin.bin_number}</span></div>
+                      )}
+                    </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (hasOpenPreviousOrder(order, orders)) {
-                              setPageError('Finish previous job before continuing.')
-                              return
-                            }
-                            void updateOrderStatus(order.id, 'completed')
-                          }}
-                          disabled={isSaving || hasOpenPreviousOrder(order, orders)}
-                          className={`inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                            hasOpenPreviousOrder(order, orders)
-                              ? 'bg-slate-400'
-                              : 'bg-emerald-600 hover:opacity-90'
-                          }`}
-                        >
-                          {hasOpenPreviousOrder(order, orders)
-                            ? 'Complete Blocked'
-                            : isSaving
-                              ? 'Saving...'
-                              : isOffline
-                                ? 'Complete Order (Queue)'
-                                : 'Complete Order'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => void updateOrderStatus(order.id, 'issue')}
-                          disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving...' : isOffline ? 'Report Issue (Queue)' : 'Report Issue'}
-                        </button>
+                    {/* Dump site */}
+                    {(order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN') && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">Dump Site</div>
+                        <div className="text-sm text-slate-900">{displayValue(order.dump_site_address)}</div>
                       </div>
+                    )}
+
+                    {/* Notes */}
+                    {order.notes && order.notes.trim() && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-amber-600 mb-1">Notes</div>
+                        <div className="text-sm text-slate-900 whitespace-pre-wrap">{order.notes}</div>
+                      </div>
+                    )}
+
+                    {/* Photo */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">Delivery Photo</div>
+                      {order.delivery_photo_url ? (
+                        <div className="space-y-2">
+                          <img
+                            src={order.delivery_photo_url}
+                            alt="Delivery"
+                            className="w-full max-h-40 rounded-lg object-cover border border-slate-200"
+                          />
+                          <label className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold cursor-pointer ${
+                            photoState === 'uploading' ? 'border-slate-200 bg-slate-100 text-slate-400' : 'border-slate-300 bg-white text-slate-700'
+                          }`}>
+                            <input type="file" accept="image/*" capture="environment" className="hidden"
+                              disabled={photoState === 'uploading'}
+                              onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadDeliveryPhoto(order, f) }}
+                            />
+                            {photoState === 'uploading' ? 'Uploading…' : 'Replace Photo'}
+                          </label>
+                        </div>
+                      ) : (
+                        <label className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-4 text-sm font-semibold cursor-pointer transition ${
+                          photoState === 'uploading' ? 'border-slate-200 bg-slate-100 text-slate-400'
+                          : photoState === 'error' ? 'border-rose-300 bg-rose-50 text-rose-700'
+                          : 'border-slate-300 bg-white text-slate-600'
+                        }`}>
+                          <input type="file" accept="image/*" capture="environment" className="hidden"
+                            disabled={photoState === 'uploading'}
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadDeliveryPhoto(order, f) }}
+                          />
+                          <span>📷</span>
+                          <span>
+                            {photoState === 'uploading' ? 'Uploading…'
+                              : photoState === 'error' ? 'Failed — tap to retry'
+                              : 'Take photo'}
+                          </span>
+                        </label>
+                      )}
+                    </div>
+
+                    {/* Driver comment */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">Comment</div>
+                      <textarea
+                        rows={2}
+                        placeholder="Bin placement, access issues, special attention…"
+                        value={driverComments[order.id] ?? order.driver_notes ?? ''}
+                        onChange={(e) => {
+                          setDriverComments((c) => ({ ...c, [order.id]: e.target.value }))
+                          setCommentSaveStates((c) => ({ ...c, [order.id]: 'idle' }))
+                        }}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveDriverComment(order)}
+                        disabled={commentState === 'saving'}
+                        className={`mt-2 w-full rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-60 ${
+                          commentState === 'saved' ? 'bg-emerald-600 text-white'
+                          : commentState === 'error' ? 'bg-rose-600 text-white'
+                          : 'bg-slate-900 text-white'
+                        }`}
+                      >
+                        {commentState === 'saving' ? 'Saving…'
+                          : commentState === 'saved' ? 'Saved ✓'
+                          : commentState === 'error' ? 'Failed — tap to retry'
+                          : 'Save Comment'}
+                      </button>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="grid gap-2 pt-1">
+                      {order.status !== 'in_progress' && (
+                        <button
+                          type="button"
+                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                          disabled={isSaving}
+                          className="w-full rounded-xl bg-amber-500 py-3 text-sm font-bold text-white disabled:opacity-60"
+                        >
+                          {isSaving ? 'Saving…' : 'Start Order'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (hasOpenPreviousOrder(order, orders)) {
+                            setPageError('Finish previous job before continuing.')
+                            return
+                          }
+                          void updateOrderStatus(order.id, 'completed')
+                        }}
+                        disabled={isSaving || hasOpenPreviousOrder(order, orders)}
+                        className={`w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-60 ${
+                          hasOpenPreviousOrder(order, orders) ? 'bg-slate-400' : 'bg-emerald-600'
+                        }`}
+                      >
+                        {hasOpenPreviousOrder(order, orders) ? 'Complete Blocked' : isSaving ? 'Saving…' : 'Complete Order'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void updateOrderStatus(order.id, 'issue')}
+                        disabled={isSaving}
+                        className="w-full rounded-xl bg-rose-600 py-3 text-sm font-bold text-white disabled:opacity-60"
+                      >
+                        {isSaving ? 'Saving…' : 'Report Issue'}
+                      </button>
                     </div>
                   </div>
                 </div>
