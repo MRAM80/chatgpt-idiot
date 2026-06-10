@@ -49,6 +49,8 @@ type Order = {
   route_position?: number | null
   status: string | null
   notes: string | null
+  driver_notes?: string | null
+  delivery_photo_url?: string | null
   created_at: string | null
   updated_at: string | null
   completed_by?: string | null
@@ -68,6 +70,8 @@ type QueuedAction = {
 
 type SyncState = 'idle' | 'pending' | 'error'
 type BinSaveState = 'idle' | 'saving' | 'saved' | 'error'
+type PhotoUploadState = 'idle' | 'uploading' | 'done' | 'error'
+type CommentSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const TABLE_NAME = 'order'
 const CACHED_ORDERS_KEY = 'driver_cached_orders'
@@ -290,6 +294,9 @@ export default function DriverPage() {
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
   const [binInputs, setBinInputs] = useState<Record<string, string>>({})
   const [binSaveStates, setBinSaveStates] = useState<Record<string, BinSaveState>>({})
+  const [driverComments, setDriverComments] = useState<Record<string, string>>({})
+  const [commentSaveStates, setCommentSaveStates] = useState<Record<string, CommentSaveState>>({})
+  const [photoUploadStates, setPhotoUploadStates] = useState<Record<string, PhotoUploadState>>({})
   const hasInitializedPresenceRef = useRef(false)
   const previousOrderIdsRef = useRef<string[]>([])
   const hasActiveOrders = orders.length > 0
@@ -320,6 +327,65 @@ export default function DriverPage() {
       ...current,
       [orderId]: state,
     }))
+  }
+
+  async function uploadDeliveryPhoto(order: Order, file: File) {
+    setPhotoUploadStates((current) => ({ ...current, [order.id]: 'uploading' }))
+    setPageError('')
+
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `orders/${order.id}/${Date.now()}.${ext}`
+
+    const { error: storageError } = await supabase.storage
+      .from('delivery-photos')
+      .upload(path, file, { upsert: true })
+
+    if (storageError) {
+      setPageError(storageError.message)
+      setPhotoUploadStates((current) => ({ ...current, [order.id]: 'error' }))
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('delivery-photos').getPublicUrl(path)
+    const publicUrl = urlData.publicUrl
+
+    const { error: updateError } = await supabase
+      .from(TABLE_NAME)
+      .update({ delivery_photo_url: publicUrl })
+      .eq('id', order.id)
+
+    if (updateError) {
+      setPageError(updateError.message)
+      setPhotoUploadStates((current) => ({ ...current, [order.id]: 'error' }))
+      return
+    }
+
+    setOrders((current) =>
+      current.map((o) => (o.id === order.id ? { ...o, delivery_photo_url: publicUrl } : o))
+    )
+    setPhotoUploadStates((current) => ({ ...current, [order.id]: 'done' }))
+  }
+
+  async function saveDriverComment(order: Order) {
+    const comment = (driverComments[order.id] ?? order.driver_notes ?? '').trim()
+    setCommentSaveStates((current) => ({ ...current, [order.id]: 'saving' }))
+    setPageError('')
+
+    const { error } = await supabase
+      .from(TABLE_NAME)
+      .update({ driver_notes: comment })
+      .eq('id', order.id)
+
+    if (error) {
+      setPageError(error.message)
+      setCommentSaveStates((current) => ({ ...current, [order.id]: 'error' }))
+      return
+    }
+
+    setOrders((current) =>
+      current.map((o) => (o.id === order.id ? { ...o, driver_notes: comment } : o))
+    )
+    setCommentSaveStates((current) => ({ ...current, [order.id]: 'saved' }))
   }
 
   function updateLocalOrderStatus(orderId: string, nextStatus: string) {
@@ -574,6 +640,8 @@ export default function DriverPage() {
         updated_at,
         completed_by,
         completed_at,
+        driver_notes,
+        delivery_photo_url,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
         old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
       `
@@ -641,6 +709,8 @@ export default function DriverPage() {
         updated_at,
         completed_by,
         completed_at,
+        driver_notes,
+        delivery_photo_url,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
         old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
       `
@@ -693,6 +763,16 @@ export default function DriverPage() {
             mappedAssigned?.bin_number ||
             current[order.id] ||
             ''
+        }
+      }
+      return next
+    })
+
+    setDriverComments((current) => {
+      const next = { ...current }
+      for (const order of nextOrders) {
+        if (!(order.id in next)) {
+          next[order.id] = order.driver_notes || ''
         }
       }
       return next
@@ -1437,6 +1517,103 @@ export default function DriverPage() {
                         <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">
                           {displayValue(order.notes)}
                         </div>
+                      </div>
+
+                      {/* Delivery photo */}
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
+                          Delivery Photo
+                        </div>
+
+                        {order.delivery_photo_url ? (
+                          <div className="space-y-3">
+                            <img
+                              src={order.delivery_photo_url}
+                              alt="Delivery"
+                              className="w-full max-h-48 rounded-xl object-cover border border-slate-200"
+                            />
+                            <label className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold cursor-pointer transition ${
+                              photoUploadStates[order.id] === 'uploading'
+                                ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                disabled={photoUploadStates[order.id] === 'uploading'}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) void uploadDeliveryPhoto(order, file)
+                                }}
+                              />
+                              {photoUploadStates[order.id] === 'uploading' ? 'Uploading...' : 'Replace Photo'}
+                            </label>
+                          </div>
+                        ) : (
+                          <label className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-sm font-semibold cursor-pointer transition ${
+                            photoUploadStates[order.id] === 'uploading'
+                              ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                              : photoUploadStates[order.id] === 'error'
+                              ? 'border-rose-300 bg-rose-50 text-rose-700'
+                              : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:bg-slate-50'
+                          }`}>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              className="hidden"
+                              disabled={photoUploadStates[order.id] === 'uploading'}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) void uploadDeliveryPhoto(order, file)
+                              }}
+                            />
+                            <span className="text-2xl">📷</span>
+                            {photoUploadStates[order.id] === 'uploading'
+                              ? 'Uploading...'
+                              : photoUploadStates[order.id] === 'error'
+                              ? 'Upload failed — tap to retry'
+                              : 'Take or upload photo'}
+                          </label>
+                        )}
+                      </div>
+
+                      {/* Driver comment */}
+                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
+                          Driver Comment
+                        </div>
+                        <textarea
+                          rows={3}
+                          placeholder="Special attention, access notes, bin placement…"
+                          value={driverComments[order.id] ?? order.driver_notes ?? ''}
+                          onChange={(e) =>
+                            setDriverComments((current) => ({ ...current, [order.id]: e.target.value }))
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void saveDriverComment(order)}
+                          disabled={commentSaveStates[order.id] === 'saving'}
+                          className={`mt-2 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                            commentSaveStates[order.id] === 'saved'
+                              ? 'bg-emerald-600 text-white'
+                              : commentSaveStates[order.id] === 'error'
+                              ? 'bg-rose-600 text-white'
+                              : 'bg-slate-900 text-white hover:opacity-90'
+                          }`}
+                        >
+                          {commentSaveStates[order.id] === 'saving'
+                            ? 'Saving...'
+                            : commentSaveStates[order.id] === 'saved'
+                            ? 'Saved ✓'
+                            : commentSaveStates[order.id] === 'error'
+                            ? 'Failed — tap to retry'
+                            : 'Save Comment'}
+                        </button>
                       </div>
                     </div>
 
