@@ -1300,9 +1300,9 @@ export default function DriverPage() {
   }
 
   return (
-    <div style={{ colorScheme: 'light' }} className="min-h-screen bg-slate-100 text-slate-900">
-      {/* Compact sticky header */}
-      <div className="sticky top-0 z-10 bg-white shadow-sm ring-1 ring-slate-200">
+    <div style={{ colorScheme: 'light' }} className="h-dvh flex flex-col overflow-hidden bg-slate-100 text-slate-900">
+      {/* Header — shrink-0 so remaining height goes to cards */}
+      <div className="shrink-0 z-10 bg-white shadow-sm ring-1 ring-slate-200">
         <div className="mx-auto max-w-lg px-4 py-2 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-base font-bold text-slate-900 truncate">
@@ -1367,17 +1367,22 @@ export default function DriverPage() {
         )}
       </div>
 
-      <div className="mx-auto max-w-lg px-3 py-3">
+      {/* Scroll-snap container — fills all space below header, one card per screen */}
+      <div className="flex-1 min-h-0 overflow-y-scroll snap-y snap-mandatory">
         {loading ? (
-          <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            Loading route…
+          <div className="h-full flex items-center justify-center">
+            <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200 mx-4">
+              Loading route…
+            </div>
           </div>
         ) : orders.length === 0 ? (
-          <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
-            No active orders for today.
+          <div className="h-full flex items-center justify-center">
+            <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200 mx-4">
+              No active orders for today.
+            </div>
           </div>
         ) : (
-          <div className="space-y-3">
+          <>
             {orders.map((order, index) => {
               const isSaving = savingOrderId === order.id
               const syncBadge = getOrderSyncBadge(order.id)
@@ -1397,7 +1402,9 @@ export default function DriverPage() {
               const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked
 
               return (
-                <div key={order.id} className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 overflow-hidden">
+                /* Each snap section fills exactly one screen */
+                <div key={order.id} className="h-full snap-start snap-always flex flex-col px-3 py-2 box-border">
+                <div className="flex-1 min-h-0 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 overflow-hidden flex flex-col">
                   {/* Card header bar */}
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50">
                     <span className="text-xs font-bold text-slate-500 shrink-0">Stop {order.route_position || index + 1}</span>
@@ -1411,9 +1418,10 @@ export default function DriverPage() {
                     {syncBadge}
                   </div>
 
-                  <div className="px-3 py-2 space-y-2">
+                  {/* Card body — flex-col, fills all space between header and action bar */}
+                  <div className="flex-1 min-h-0 px-3 py-2 flex flex-col gap-2 overflow-hidden">
                     {/* Customer + address + maps */}
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="shrink-0 flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-bold text-slate-900 truncate">{order.customer_name || 'No customer'}</div>
                         <div className="text-xs text-slate-500 truncate">{displayValue(stopAddress)}</div>
@@ -1431,7 +1439,7 @@ export default function DriverPage() {
                     </div>
 
                     {/* Bin + dump site in one row */}
-                    <div className="flex gap-2">
+                    <div className="shrink-0 flex gap-2">
                       {/* Bin */}
                       <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
                         <div className="text-[9px] font-bold uppercase tracking-wide text-slate-400 mb-1">Bin #</div>
@@ -1471,14 +1479,14 @@ export default function DriverPage() {
 
                     {/* Notes — compact amber strip */}
                     {order.notes && order.notes.trim() && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+                      <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5">
                         <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600 mr-1">Note:</span>
                         <span className="text-xs text-slate-800">{order.notes}</span>
                       </div>
                     )}
 
-                    {/* Photo + Comment side by side */}
-                    <div className="flex gap-2 items-stretch">
+                    {/* Photo + Comment — grows to fill remaining space */}
+                    <div className="flex-1 min-h-0 flex gap-2 items-stretch">
                       {/* Photo button */}
                       <label className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-3 py-2 cursor-pointer shrink-0 w-20 transition ${
                         photoState === 'uploading' ? 'border-slate-200 bg-slate-100 text-slate-400'
@@ -1497,7 +1505,7 @@ export default function DriverPage() {
                       </label>
 
                       {/* Comment + save */}
-                      <div className="flex-1 flex flex-col gap-1">
+                      <div className="flex-1 min-h-0 flex flex-col gap-1">
                         <textarea
                           rows={2}
                           placeholder="Comment…"
@@ -1506,7 +1514,7 @@ export default function DriverPage() {
                             setDriverComments((c) => ({ ...c, [order.id]: e.target.value }))
                             setCommentSaveStates((c) => ({ ...c, [order.id]: 'idle' }))
                           }}
-                          className="w-full flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
+                          className="w-full flex-1 min-h-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
                         />
                         <button
                           type="button"
@@ -1569,9 +1577,10 @@ export default function DriverPage() {
                     </button>
                   </div>
                 </div>
+                </div>
               )
             })}
-          </div>
+          </>
         )}
       </div>
     </div>
