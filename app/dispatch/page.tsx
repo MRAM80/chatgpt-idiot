@@ -826,129 +826,122 @@ export default function DispatchBoardPage() {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-[1800px] p-4 md:p-6">
-        <div className="mb-6 flex flex-col gap-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Dispatch Board</h1>
-              <p className="text-sm text-slate-500">Driver-based route planning and daily workflow monitoring</p>
-              <p className="mt-1 text-xs font-medium text-slate-400">Planning day: {formatBoardDayLabel(selectedDayKey)}</p>
+      <div className="mx-auto max-w-[1920px] p-3 md:p-4">
+        {/* Header */}
+        <div className="mb-4 rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4">
+              <div>
+                <h1 className="text-lg font-bold tracking-tight text-slate-900">Dispatch Board</h1>
+                <p className="text-xs text-slate-400">Planning: {formatBoardDayLabel(selectedDayKey)}</p>
+              </div>
+
+              {/* Stats inline */}
+              <div className="hidden md:flex items-center gap-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-slate-400">Unassigned</div>
+                  <div className="text-base font-bold text-slate-900">{stats.unassigned}</div>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-emerald-600">Available</div>
+                  <div className="text-base font-bold text-emerald-900">{stats.available}</div>
+                </div>
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-blue-600">Active</div>
+                  <div className="text-base font-bold text-blue-900">{stats.activeDrivers}</div>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-amber-600">In Progress</div>
+                  <div className="text-base font-bold text-amber-900">{stats.inProgress}</div>
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/dashboard"
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Back to Dashboard
-              </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search ticket, customer, address…"
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 w-56"
+              />
 
-              <Link
-                href="/order?newOrder=1"
-                className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-              >
-                New Order
-              </Link>
-
-              <button
-                onClick={refreshAll}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Refresh
-              </button>
-            </div>
-          </div>
-
-          {pageError ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {pageError}
-            </div>
-          ) : null}
-
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Unassigned</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{stats.unassigned}</div>
-            </div>
-
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Available</div>
-              <div className="mt-2 text-2xl font-bold text-emerald-900">{stats.available}</div>
-            </div>
-
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-blue-700">Active Drivers</div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">{stats.activeDrivers}</div>
-            </div>
-
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-amber-700">In Progress</div>
-              <div className="mt-2 text-2xl font-bold text-amber-900">{stats.inProgress}</div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticket, customer, address, or driver"
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-slate-400"
-            />
-
-            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setSelectedDayKey(todayKey)}
-                className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
                   selectedDayKey === todayKey
                     ? 'border-slate-900 bg-slate-900 text-white'
                     : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                Today · {formatBoardDayLabel(todayKey)}
+                Today
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedDayKey(tomorrowKey)}
-                className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
                   selectedDayKey === tomorrowKey
                     ? 'border-slate-900 bg-slate-900 text-white'
                     : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                Tomorrow · {formatBoardDayLabel(tomorrowKey)}
+                Tomorrow
               </button>
+
+              <Link
+                href="/order?newOrder=1"
+                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
+              >
+                + New Order
+              </Link>
+
+              <button
+                onClick={refreshAll}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                Refresh
+              </button>
+
+              <Link
+                href="/dashboard"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                Dashboard
+              </Link>
             </div>
           </div>
+
+          {pageError ? (
+            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {pageError}
+            </div>
+          ) : null}
         </div>
 
+        {/* Board */}
         {loading ? (
-          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
+          <div className="rounded-2xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
             Loading dispatch board...
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.52fr)_minmax(0,1.48fr)]">
-            <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-              <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                <div>
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
-                    Unassigned Orders
-                  </h2>
-                </div>
-
-                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+          <div className="flex gap-3 items-start">
+            {/* Unassigned panel — fixed width sidebar */}
+            <div className="w-72 shrink-0 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+              <div className="mb-2 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">Unassigned</h2>
+                <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
                   {unassignedOrders.length}
                 </span>
               </div>
 
               <div
-                className={`h-[calc(100vh-260px)] overflow-y-auto rounded-2xl p-1 transition ${
+                className={`h-[calc(100vh-160px)] overflow-y-auto rounded-xl p-1 transition ${
                   dropTarget?.columnKey === 'unassigned' && dropTarget.beforeId === null ? 'bg-sky-50' : ''
                 }`}
                 onDragOver={(e) => allowDrop(e, 'unassigned', null)}
                 onDrop={(e) => handleDrop(e, 'unassigned', null)}
               >
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {unassignedOrders.map((order) => {
                     const showTopDrop = dropTarget?.columnKey === 'unassigned' && dropTarget.beforeId === order.id
 
@@ -957,8 +950,8 @@ export default function DispatchBoardPage() {
                         <div
                           onDragOver={(e) => allowDrop(e, 'unassigned', order.id)}
                           onDrop={(e) => handleDrop(e, 'unassigned', order.id)}
-                          className={`mb-2 rounded-xl border-2 border-dashed px-2 py-1 text-center text-[11px] font-semibold transition ${
-                            showTopDrop ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent bg-transparent text-transparent'
+                          className={`mb-1 rounded-lg border-2 border-dashed py-0.5 text-center text-[10px] font-semibold transition ${
+                            showTopDrop ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent text-transparent'
                           }`}
                         >
                           Drop here
@@ -969,86 +962,48 @@ export default function DispatchBoardPage() {
                           onDragStart={() => handleDragStart(order.id, 'unassigned')}
                           onDragEnd={handleDragEnd}
                           onClick={() => openOrder(order.id)}
-                          className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                          className="cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 text-left shadow-sm transition hover:shadow-md hover:border-slate-300"
                         >
-                          <div className="min-w-0 space-y-2">
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Client</div>
-                                <div className="mt-1 line-clamp-1 text-base font-semibold text-slate-900">
-                                  {order.customer_name || 'No customer'}
-                                </div>
-                              </div>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-[10px] font-bold text-slate-400">
+                              {order.ticket_number || `#${order.id.slice(0, 6)}`}
+                            </span>
+                            <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${statusStyles[order.status || 'unassigned'] || statusStyles.unassigned}`}>
+                              {formatStatus(order.status || 'unassigned')}
+                            </span>
+                          </div>
 
-                              <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Ticket</div>
-                                <div className="mt-1 text-sm text-slate-700">
-                                  {order.ticket_number || `#${order.id.slice(0, 8)}`}
-                                </div>
-                              </div>
+                          <div className="line-clamp-1 text-sm font-bold text-slate-900">
+                            {order.customer_name || 'No customer'}
+                          </div>
+                          <div className="line-clamp-1 text-xs text-slate-500 mt-0.5">
+                            {getOrderDestination(order)}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                            {order.order_type && <span className="font-semibold">{order.order_type}</span>}
+                            {order.bin_size && <span>{order.bin_size}yd</span>}
+                            {(order.service_time || order.service_window) && (
+                              <span>{formatServiceTime(order.service_time || order.service_window)}</span>
+                            )}
+                          </div>
 
-                              <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Address</div>
-                                <div className="mt-1 line-clamp-2 text-sm text-slate-700">
-                                  {getOrderDestination(order)}
-                                </div>
-                              </div>
-
-                              <div>
-                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Time</div>
-                                <div className="mt-1 text-sm text-slate-700">
-                                  {displayValue(formatServiceTime(order.service_time || order.service_window))}
-                                </div>
-                              </div>
-
-                              <div className="sm:col-span-2 grid grid-cols-2 gap-4">
-                                <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                    Order Type
-                                  </div>
-                                  <div className="mt-1 text-sm text-slate-700">
-                                    {displayValue(order.order_type)}
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                    Bin Size
-                                  </div>
-                                  <div className="mt-1 text-sm text-slate-700">
-                                    {order.bin_size ? `${order.bin_size} Yard` : '—'}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2 pt-1">
-                              <span />
-                              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusStyles[order.status || 'unassigned'] || statusStyles.unassigned}`}>
-                                {formatStatus(order.status || 'unassigned')}
-                              </span>
-                            </div>
-
-                            <div onClick={(e) => e.stopPropagation()}>
-                              <select
-                                value={assignSelections[order.id] || ''}
-                                onChange={(e) => {
-                                  const driverId = e.target.value
-                                  setAssignSelections((current) => ({ ...current, [order.id]: driverId }))
-                                  if (driverId) {
-                                    void handleAssign(order.id, driverId)
-                                  }
-                                }}
-                                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
-                              >
-                                <option value="">Set Driver</option>
-                                {assignableDrivers.map((driver) => (
-                                  <option key={driver.id} value={driver.id}>
-                                    {driver.name || 'Unnamed Driver'}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                          <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={assignSelections[order.id] || ''}
+                              onChange={(e) => {
+                                const driverId = e.target.value
+                                setAssignSelections((current) => ({ ...current, [order.id]: driverId }))
+                                if (driverId) void handleAssign(order.id, driverId)
+                              }}
+                              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-slate-400"
+                            >
+                              <option value="">Assign driver…</option>
+                              {assignableDrivers.map((driver) => (
+                                <option key={driver.id} value={driver.id}>
+                                  {driver.name || 'Unnamed Driver'}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         </div>
                       </div>
@@ -1056,7 +1011,7 @@ export default function DispatchBoardPage() {
                   })}
 
                   {unassignedOrders.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400">
                       No unassigned orders
                     </div>
                   )}
@@ -1064,21 +1019,17 @@ export default function DispatchBoardPage() {
               </div>
             </div>
 
-            <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-              <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                <div>
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">
-                    Drivers
-                  </h2>
-                </div>
-
-                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+            {/* Drivers panel — fills remaining space, scrollable grid */}
+            <div className="flex-1 min-w-0 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+              <div className="mb-2 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">Drivers</h2>
+                <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
                   {orderedDrivers.length}
                 </span>
               </div>
 
-              <div className="h-[calc(100vh-260px)] overflow-y-auto pr-1">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="h-[calc(100vh-160px)] overflow-y-auto">
+                <div className="grid gap-2 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                   {orderedDrivers.map((driver) => {
                     const driverOrders = driverOrdersMap[driver.id] || []
                     const lastOrder = driverLastOrderMap[driver.id]
@@ -1090,131 +1041,116 @@ export default function DispatchBoardPage() {
                         <div
                           onDragOver={(e) => allowDrop(e, driver.id, null)}
                           onDrop={(e) => handleDrop(e, driver.id, null)}
-                          className={`mb-2 rounded-xl border-2 border-dashed px-2 py-1 text-center text-[11px] font-semibold transition ${
-                            canDropOnDriver ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent bg-transparent text-transparent'
+                          className={`mb-1 rounded-lg border-2 border-dashed py-0.5 text-center text-[10px] font-semibold transition ${
+                            canDropOnDriver ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-transparent text-transparent'
                           }`}
                         >
                           Drop here
                         </div>
 
-                        <div className={`rounded-2xl p-4 shadow-sm ring-1 ${getDriverColumnStyle(driver.status)}`}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="line-clamp-1 text-sm font-bold text-slate-900">
-                                {driver.name || 'Unnamed Driver'}
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-2">
-                                <span
-                                  className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                    driverStatusStyles[driver.status || 'available'] || driverStatusStyles.available
-                                  }`}
-                                >
-                                  {formatDriverStatus(driver.status)}
-                                </span>
-
-                                <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
-                                  {driverOrders.length} order{driverOrders.length === 1 ? '' : 's'}
-                                </span>
-                              </div>
+                        <div className={`rounded-xl p-2.5 ring-1 ${getDriverColumnStyle(driver.status)}`}>
+                          {/* Driver name + status */}
+                          <div className="mb-1.5">
+                            <div className="line-clamp-1 text-sm font-bold text-slate-900">
+                              {driver.name || 'Unnamed'}
                             </div>
-
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => void setDriverOperationalStatus(driver.id, 'heading_back')}
-                                className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 transition hover:bg-blue-100"
-                                title="Heading Back"
-                              >
-                                HB
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void setDriverOperationalStatus(driver.id, 'parked')}
-                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 transition hover:bg-slate-100"
-                                title="Park"
-                              >
-                                Park
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void setDriverOperationalStatus(driver.id, 'available')}
-                                className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 transition hover:bg-emerald-100"
-                                title="Stop / make available"
-                              >
-                                STOP
-                              </button>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${driverStatusStyles[driver.status || 'available'] || driverStatusStyles.available}`}>
+                                {formatDriverStatus(driver.status)}
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold text-slate-600">
+                                {driverOrders.length}j
+                              </span>
                             </div>
                           </div>
 
-                          {showLastOrder ? (
-                            <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
-                              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                Last Order
-                              </div>
-                              <div className="mt-1 text-sm text-slate-700">
+                          {/* HB / Park / STOP — full width, compact */}
+                          <div className="grid grid-cols-3 gap-1 mb-2">
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(driver.id, 'heading_back')}
+                              className={`rounded-lg py-1 text-[10px] font-bold transition ${
+                                driver.status === 'heading_back'
+                                  ? 'bg-blue-600 text-white'
+                                  : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                              }`}
+                            >
+                              HB
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(driver.id, 'parked')}
+                              className={`rounded-lg py-1 text-[10px] font-bold transition ${
+                                driver.status === 'parked'
+                                  ? 'bg-slate-600 text-white'
+                                  : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              Park
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void setDriverOperationalStatus(driver.id, 'available')}
+                              className={`rounded-lg py-1 text-[10px] font-bold transition ${
+                                driver.status === 'available'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              }`}
+                            >
+                              STOP
+                            </button>
+                          </div>
+
+                          {showLastOrder && (
+                            <div className="mb-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1">
+                              <div className="text-[9px] font-bold uppercase text-slate-400">Last</div>
+                              <div className="line-clamp-2 text-[10px] text-slate-600 mt-0.5">
                                 {getLastOrderSummary(lastOrder)}
                               </div>
                             </div>
-                          ) : null}
+                          )}
 
+                          {/* All orders — no cap */}
                           {driverOrders.length > 0 ? (
-                            <div className="mt-3 space-y-2">
-                              {driverOrders.slice(0, 3).map((order, index) => (
+                            <div className="space-y-1">
+                              {driverOrders.map((order, index) => (
                                 <div
                                   key={order.id}
                                   onDragOver={(e) => allowDrop(e, driver.id, order.id)}
                                   onDrop={(e) => handleDrop(e, driver.id, order.id)}
-                                  className={`rounded-xl border px-3 py-2 ${
+                                  draggable={order.status !== 'completed'}
+                                  onDragStart={() => handleDragStart(order.id, driver.id)}
+                                  onDragEnd={handleDragEnd}
+                                  onClick={() => openOrder(order.id)}
+                                  className={`cursor-pointer rounded-lg border px-2 py-1.5 transition hover:border-slate-300 ${
                                     dropTarget?.columnKey === driver.id && dropTarget.beforeId === order.id
                                       ? 'border-sky-300 bg-sky-50'
                                       : 'border-slate-200 bg-white'
                                   }`}
                                 >
-                                  <div
-                                    draggable={order.status !== 'completed'}
-                                    onDragStart={() => handleDragStart(order.id, driver.id)}
-                                    onDragEnd={handleDragEnd}
-                                    className="cursor-pointer"
-                                    onClick={() => openOrder(order.id)}
-                                  >
-                                    <div className="grid gap-2">
-                                      <div className="flex items-start justify-between gap-2">
-                                        <div className="min-w-0 flex items-center gap-2">
-                                          <div className="line-clamp-1 text-sm font-semibold text-slate-900">
-                                            {index + 1}. {order.customer_name || 'No customer'}
-                                          </div>
-                                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-                                            {displayValue(order.order_type)}
-                                          </span>
-                                        </div>
-
-                                        <span
-                                          className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
-                                            statusStyles[order.status || 'assigned'] || statusStyles.assigned
-                                          }`}
-                                        >
-                                          {formatStatus(order.status)}
-                                        </span>
+                                  <div className="flex items-start justify-between gap-1">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="line-clamp-1 text-[11px] font-semibold text-slate-900">
+                                        <span className="text-slate-400 mr-0.5">{index + 1}.</span>
+                                        {order.customer_name || 'No customer'}
                                       </div>
-
-                                      <div className="text-xs text-slate-500">
-                                        <span className="font-semibold uppercase tracking-wide text-slate-400">Address: </span>
+                                      <div className="line-clamp-1 text-[10px] text-slate-500 mt-0.5">
                                         {getOrderDestination(order)}
                                       </div>
+                                      {order.order_type && (
+                                        <div className="text-[9px] font-semibold text-slate-400 mt-0.5">{order.order_type}{order.bin_size ? ` · ${order.bin_size}yd` : ''}</div>
+                                      )}
                                     </div>
+                                    <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${statusStyles[order.status || 'assigned'] || statusStyles.assigned}`}>
+                                      {formatStatus(order.status)}
+                                    </span>
                                   </div>
                                 </div>
                               ))}
-
-                              {driverOrders.length > 3 ? (
-                                <div className="text-center text-xs font-medium text-slate-500">
-                                  +{driverOrders.length - 3} more order{driverOrders.length - 3 === 1 ? '' : 's'}
-                                </div>
-                              ) : null}
                             </div>
                           ) : (
-                            <div className="mt-3 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-3 text-center text-xs text-slate-400">
-                              No orders assigned
+                            <div className="rounded-lg border border-dashed border-slate-200 bg-white py-3 text-center text-[10px] text-slate-400">
+                              No orders
                             </div>
                           )}
                         </div>
@@ -1223,7 +1159,7 @@ export default function DispatchBoardPage() {
                   })}
 
                   {orderedDrivers.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400 md:col-span-2 xl:col-span-4">
+                    <div className="col-span-full rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
                       No drivers found
                     </div>
                   )}
@@ -1233,6 +1169,7 @@ export default function DispatchBoardPage() {
           </div>
         )}
 
+        {/* Order detail modal */}
         {modalOpen && selectedOrder ? (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4"
