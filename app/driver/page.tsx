@@ -1398,59 +1398,17 @@ export default function DriverPage() {
 
               return (
                 <div key={order.id} className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 overflow-hidden">
-                  {/* Card header bar with action icons */}
+                  {/* Card header bar */}
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50">
                     <span className="text-xs font-bold text-slate-500 shrink-0">Stop {order.route_position || index + 1}</span>
                     <span className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5 shrink-0">{displayValue(order.bin_size)}Yd</span>
                     <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 shrink-0">{displayValue(order.order_type)}</span>
                     {(order.service_window || order.service_time) && (
-                      <span className="text-[10px] font-semibold text-slate-500 shrink-0">
+                      <span className="text-[10px] font-semibold text-slate-500 ml-auto shrink-0">
                         {order.service_window ? displayValue(order.service_window) : formatServiceTime(order.service_time)}
                       </span>
                     )}
                     {syncBadge}
-                    {/* Action icon buttons */}
-                    <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                      {order.status !== 'in_progress' && (
-                        <button
-                          type="button"
-                          title={binBlocked ? 'Save bin number first' : 'Start Order'}
-                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving || binBlocked}
-                          className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white transition disabled:opacity-40 ${
-                            binBlocked ? 'bg-slate-400' : 'bg-amber-500 active:bg-amber-600'
-                          }`}
-                        >
-                          ▶
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        title={binBlocked ? 'Save bin number first' : hasOpenPreviousOrder(order, orders) ? 'Finish previous stop first' : 'Complete Order'}
-                        onClick={() => {
-                          if (hasOpenPreviousOrder(order, orders)) {
-                            setPageError('Finish previous job before continuing.')
-                            return
-                          }
-                          void updateOrderStatus(order.id, 'completed')
-                        }}
-                        disabled={completeBlocked}
-                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white transition disabled:opacity-40 ${
-                          completeBlocked ? 'bg-slate-400' : 'bg-emerald-600 active:bg-emerald-700'
-                        }`}
-                      >
-                        ✓
-                      </button>
-                      <button
-                        type="button"
-                        title="Report Issue"
-                        onClick={() => void updateOrderStatus(order.id, 'issue')}
-                        disabled={isSaving}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-600 text-sm font-bold text-white transition disabled:opacity-40 active:bg-rose-700"
-                      >
-                        ⚠
-                      </button>
-                    </div>
                   </div>
 
                   <div className="px-4 py-3 space-y-3">
@@ -1584,6 +1542,51 @@ export default function DriverPage() {
                       </button>
                     </div>
 
+                  </div>
+
+                  {/* Action icon buttons — bottom bar */}
+                  <div className="flex border-t border-slate-100">
+                    {order.status !== 'in_progress' && (
+                      <button
+                        type="button"
+                        onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                        disabled={isSaving || binBlocked}
+                        className={`flex flex-1 flex-col items-center justify-center gap-1 py-3 text-white transition disabled:opacity-40 ${
+                          binBlocked ? 'bg-slate-400' : 'bg-amber-500 active:bg-amber-600'
+                        }`}
+                      >
+                        <span className="text-xl leading-none">▶</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wide">{binBlocked ? 'Bin first' : 'Start'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (hasOpenPreviousOrder(order, orders)) {
+                          setPageError('Finish previous job before continuing.')
+                          return
+                        }
+                        void updateOrderStatus(order.id, 'completed')
+                      }}
+                      disabled={completeBlocked}
+                      className={`flex flex-1 flex-col items-center justify-center gap-1 py-3 text-white transition disabled:opacity-40 ${
+                        completeBlocked ? 'bg-slate-400' : 'bg-emerald-600 active:bg-emerald-700'
+                      }`}
+                    >
+                      <span className="text-xl leading-none">✓</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide">
+                        {binBlocked ? 'Bin first' : hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void updateOrderStatus(order.id, 'issue')}
+                      disabled={isSaving}
+                      className="flex flex-1 flex-col items-center justify-center gap-1 py-3 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
+                    >
+                      <span className="text-xl leading-none">⚠</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide">Issue</span>
+                    </button>
                   </div>
                 </div>
               )
