@@ -1140,8 +1140,8 @@ export default function DriverPage() {
     const currentBinRelation =
       firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
 
-    if (nextStatus === 'completed' && requiresDriverBin && !currentBinRelation?.id) {
-      setPageError('Please save the bin number before completing this order.')
+    if (requiresDriverBin && !currentBinRelation?.id) {
+      setPageError('Save the bin number before starting or completing this order.')
       setSavingOrderId(null)
       return
     }
@@ -1393,20 +1393,64 @@ export default function DriverPage() {
                 : assignedBin?.bin_number || binInputs[order.id] || ''
               const photoState = photoUploadStates[order.id]
               const commentState = commentSaveStates[order.id]
+              const binBlocked = needsNewBin && !assignedBin?.bin_number
+              const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked
 
               return (
                 <div key={order.id} className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 overflow-hidden">
-                  {/* Card header bar */}
-                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 bg-slate-50">
-                    <span className="text-xs font-bold text-slate-500">Stop {order.route_position || index + 1}</span>
-                    <span className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5">{displayValue(order.bin_size)}Yd</span>
-                    <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">{displayValue(order.order_type)}</span>
+                  {/* Card header bar with action icons */}
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50">
+                    <span className="text-xs font-bold text-slate-500 shrink-0">Stop {order.route_position || index + 1}</span>
+                    <span className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5 shrink-0">{displayValue(order.bin_size)}Yd</span>
+                    <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 shrink-0">{displayValue(order.order_type)}</span>
                     {(order.service_window || order.service_time) && (
-                      <span className="text-xs font-semibold text-slate-500 ml-auto">
+                      <span className="text-[10px] font-semibold text-slate-500 shrink-0">
                         {order.service_window ? displayValue(order.service_window) : formatServiceTime(order.service_time)}
                       </span>
                     )}
                     {syncBadge}
+                    {/* Action icon buttons */}
+                    <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                      {order.status !== 'in_progress' && (
+                        <button
+                          type="button"
+                          title={binBlocked ? 'Save bin number first' : 'Start Order'}
+                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                          disabled={isSaving || binBlocked}
+                          className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white transition disabled:opacity-40 ${
+                            binBlocked ? 'bg-slate-400' : 'bg-amber-500 active:bg-amber-600'
+                          }`}
+                        >
+                          ▶
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        title={binBlocked ? 'Save bin number first' : hasOpenPreviousOrder(order, orders) ? 'Finish previous stop first' : 'Complete Order'}
+                        onClick={() => {
+                          if (hasOpenPreviousOrder(order, orders)) {
+                            setPageError('Finish previous job before continuing.')
+                            return
+                          }
+                          void updateOrderStatus(order.id, 'completed')
+                        }}
+                        disabled={completeBlocked}
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white transition disabled:opacity-40 ${
+                          completeBlocked ? 'bg-slate-400' : 'bg-emerald-600 active:bg-emerald-700'
+                        }`}
+                      >
+                        ✓
+                      </button>
+                      <button
+                        type="button"
+                        title="Report Issue"
+                        onClick={() => void updateOrderStatus(order.id, 'issue')}
+                        disabled={isSaving}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-600 text-sm font-bold text-white transition disabled:opacity-40 active:bg-rose-700"
+                      >
+                        ⚠
+                      </button>
+                    </div>
                   </div>
 
                   <div className="px-4 py-3 space-y-3">
@@ -1540,43 +1584,6 @@ export default function DriverPage() {
                       </button>
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="grid gap-2 pt-1">
-                      {order.status !== 'in_progress' && (
-                        <button
-                          type="button"
-                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving}
-                          className="w-full rounded-xl bg-amber-500 py-3 text-sm font-bold text-white disabled:opacity-60"
-                        >
-                          {isSaving ? 'Saving…' : 'Start Order'}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (hasOpenPreviousOrder(order, orders)) {
-                            setPageError('Finish previous job before continuing.')
-                            return
-                          }
-                          void updateOrderStatus(order.id, 'completed')
-                        }}
-                        disabled={isSaving || hasOpenPreviousOrder(order, orders)}
-                        className={`w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-60 ${
-                          hasOpenPreviousOrder(order, orders) ? 'bg-slate-400' : 'bg-emerald-600'
-                        }`}
-                      >
-                        {hasOpenPreviousOrder(order, orders) ? 'Complete Blocked' : isSaving ? 'Saving…' : 'Complete Order'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void updateOrderStatus(order.id, 'issue')}
-                        disabled={isSaving}
-                        className="w-full rounded-xl bg-rose-600 py-3 text-sm font-bold text-white disabled:opacity-60"
-                      >
-                        {isSaving ? 'Saving…' : 'Report Issue'}
-                      </button>
-                    </div>
                   </div>
                 </div>
               )

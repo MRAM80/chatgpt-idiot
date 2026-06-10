@@ -11,6 +11,27 @@ type Driver = {
   status: string | null
 }
 
+type Customer = {
+  id: string
+  name: string | null
+  address: string | null
+}
+
+type JobSite = {
+  id: string
+  customer_id: string | null
+  site_name: string | null
+  address: string | null
+}
+
+type Bin = {
+  id: string
+  bin_number: string | null
+  bin_size: string | null
+  status: string | null
+  location: string | null
+}
+
 type Order = {
   id: string
   ticket_number: string | null
@@ -52,7 +73,9 @@ type DragState = {
 } | null
 
 type QuickOrderForm = {
+  customer_id: string
   customer_name: string
+  job_site_id: string
   pickup_address: string
   order_type: string
   bin_size: string
@@ -75,7 +98,9 @@ function toLocalDayKeyLocal(date: Date) {
 }
 
 const emptyQuickForm = (): QuickOrderForm => ({
+  customer_id: '',
   customer_name: '',
+  job_site_id: '',
   pickup_address: '',
   order_type: 'DELIVERY',
   bin_size: '20',
@@ -294,6 +319,9 @@ export default function DispatchBoardPage() {
 
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [jobSites, setJobSites] = useState<JobSite[]>([])
+  const [bins, setBins] = useState<Bin[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [search, setSearch] = useState('')
@@ -345,9 +373,35 @@ export default function DispatchBoardPage() {
     setLoading(false)
   }
 
+  async function loadCustomers() {
+    const { data } = await supabase
+      .from('customers')
+      .select('id,name,address')
+      .eq('status', 'active')
+      .order('name', { ascending: true })
+    setCustomers((data as Customer[]) || [])
+  }
+
+  async function loadJobSites() {
+    const { data } = await supabase
+      .from('job_sites')
+      .select('id,customer_id,site_name,address')
+      .eq('is_active', true)
+      .order('site_name', { ascending: true })
+    setJobSites((data as JobSite[]) || [])
+  }
+
+  async function loadBins() {
+    const { data } = await supabase
+      .from('bins')
+      .select('id,bin_number,bin_size,status,location')
+      .order('bin_number', { ascending: true })
+    setBins((data as Bin[]) || [])
+  }
+
   async function refreshAll() {
     setPageError('')
-    await Promise.all([loadDrivers(), loadOrders()])
+    await Promise.all([loadDrivers(), loadOrders(), loadCustomers(), loadJobSites(), loadBins()])
   }
 
   useEffect(() => {
@@ -364,6 +418,15 @@ export default function DispatchBoardPage() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, async () => {
         await loadDrivers()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, async () => {
+        await loadCustomers()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'job_sites' }, async () => {
+        await loadJobSites()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bins' }, async () => {
+        await loadBins()
       })
       .subscribe()
 
@@ -869,6 +932,57 @@ export default function DispatchBoardPage() {
     setQuickForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  const quickCustomerJobSites = useMemo(() => {
+    return jobSites.filter((site) => site.customer_id === quickForm.customer_id)
+  }, [jobSites, quickForm.customer_id])
+
+  const quickBinsAtJobSite = useMemo(() => {
+    const addr = (quickForm.pickup_address || '').trim().toLowerCase()
+    if (!addr) return []
+    return bins.filter((bin) => {
+      return (bin.location || '').trim().toLowerCase() === addr && bin.status === 'in_use'
+    })
+  }, [bins, quickForm.pickup_address])
+
+  const quickExistingBins = useMemo(() => {
+    if (quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL' || quickForm.order_type === 'DUMP RETURN') {
+      return quickBinsAtJobSite
+    }
+    return []
+  }, [quickBinsAtJobSite, quickForm.order_type])
+
+  useEffect(() => {
+    if (quickExistingBins.length === 1) {
+      const bin = quickExistingBins[0]
+      setQuickForm((prev) => ({
+        ...prev,
+        bin_size: bin.bin_size || prev.bin_size,
+      }))
+    }
+  }, [quickExistingBins])
+
+  function handleQuickCustomerChange(customerId: string) {
+    const customer = customers.find((c) => c.id === customerId)
+    setQuickForm((prev) => ({
+      ...prev,
+      customer_id: customerId,
+      customer_name: customer?.name || '',
+      job_site_id: '',
+      pickup_address: '',
+    }))
+  }
+
+  function handleQuickJobSiteAddressInput(address: string) {
+    const matched = quickCustomerJobSites.find(
+      (site) => (site.address || '').trim().toLowerCase() === address.trim().toLowerCase()
+    )
+    setQuickForm((prev) => ({
+      ...prev,
+      pickup_address: address,
+      job_site_id: matched?.id || '',
+    }))
+  }
+
   async function handleQuickCreate() {
     setQuickError('')
 
@@ -894,7 +1008,9 @@ export default function DispatchBoardPage() {
 
     const payload = {
       ticket_number: generateTicketNumber(),
+      customer_id: quickForm.customer_id || null,
       customer_name: quickForm.customer_name.trim(),
+      job_site_id: quickForm.job_site_id || null,
       pickup_address: quickForm.pickup_address.trim(),
       service_address: quickForm.pickup_address.trim(),
       order_type: quickForm.order_type,
@@ -1433,23 +1549,64 @@ export default function DispatchBoardPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
-                    <label className="mb-1 block text-xs font-semibold text-slate-600">Customer Name *</label>
-                    <input
-                      value={quickForm.customer_name}
-                      onChange={(e) => setQuickField('customer_name', e.target.value)}
-                      placeholder="e.g. Bentworth"
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">Customer *</label>
+                    <select
+                      value={quickForm.customer_id}
+                      onChange={(e) => handleQuickCustomerChange(e.target.value)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
-                    />
+                    >
+                      <option value="">— Select customer —</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    {!quickForm.customer_id && (
+                      <input
+                        value={quickForm.customer_name}
+                        onChange={(e) => setQuickField('customer_name', e.target.value)}
+                        placeholder="Or type name manually"
+                        className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                      />
+                    )}
                   </div>
 
                   <div className="col-span-2">
-                    <label className="mb-1 block text-xs font-semibold text-slate-600">Job Site Address *</label>
-                    <input
-                      value={quickForm.pickup_address}
-                      onChange={(e) => setQuickField('pickup_address', e.target.value)}
-                      placeholder="e.g. 350 Keele St, Toronto"
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
-                    />
+                    <label className="mb-1 block text-xs font-semibold text-slate-600">
+                      Job Site Address *
+                      {quickForm.job_site_id && (
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Saved Site</span>
+                      )}
+                    </label>
+                    {quickCustomerJobSites.length > 0 ? (
+                      <>
+                        <input
+                          list="quick-job-sites"
+                          value={quickForm.pickup_address}
+                          onChange={(e) => handleQuickJobSiteAddressInput(e.target.value)}
+                          placeholder="Type or pick a saved site"
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                        />
+                        <datalist id="quick-job-sites">
+                          {quickCustomerJobSites.map((site) => (
+                            <option key={site.id} value={site.address || ''}>{site.site_name}</option>
+                          ))}
+                        </datalist>
+                      </>
+                    ) : (
+                      <input
+                        value={quickForm.pickup_address}
+                        onChange={(e) => setQuickField('pickup_address', e.target.value)}
+                        placeholder="e.g. 350 Keele St, Toronto"
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                      />
+                    )}
+                    {quickExistingBins.length > 0 && (
+                      <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+                        {quickExistingBins.length === 1
+                          ? `Bin on site: #${quickExistingBins[0].bin_number} (${quickExistingBins[0].bin_size} yd) — auto-filled`
+                          : `${quickExistingBins.length} bins on site — select below`}
+                      </div>
+                    )}
                   </div>
 
                   <div>
