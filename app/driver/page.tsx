@@ -1485,50 +1485,58 @@ export default function DriverPage() {
                       </div>
                     )}
 
-                    {/* Photo + Comment — grows to fill remaining space */}
-                    <div className="flex-1 min-h-0 flex gap-2 items-stretch">
-                      {/* Photo button */}
-                      <label className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-3 py-2 cursor-pointer shrink-0 w-20 transition ${
-                        photoState === 'uploading' ? 'border-slate-200 bg-slate-100 text-slate-400'
-                        : photoState === 'error' ? 'border-rose-300 bg-rose-50 text-rose-600'
-                        : order.delivery_photo_url ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                        : 'border-dashed border-slate-300 bg-white text-slate-500'
+                    {/* Photo — compact horizontal strip, same height as other blocks */}
+                    <div className="shrink-0">
+                      <label className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition ${
+                        photoState === 'uploading' ? 'border-slate-200 bg-slate-100'
+                        : photoState === 'error' ? 'border-rose-300 bg-rose-50'
+                        : order.delivery_photo_url ? 'border-emerald-300 bg-emerald-50'
+                        : 'border-slate-200 bg-slate-50'
                       }`}>
                         <input type="file" accept="image/*" capture="environment" className="hidden"
                           disabled={photoState === 'uploading'}
                           onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadDeliveryPhoto(order, f) }}
                         />
-                        <span className="text-lg leading-none">{order.delivery_photo_url ? '✅' : '📷'}</span>
-                        <span className="text-[9px] font-bold text-center leading-tight">
-                          {photoState === 'uploading' ? 'Uploading' : photoState === 'error' ? 'Failed' : order.delivery_photo_url ? 'Replace' : 'Photo'}
+                        <span className="text-xl leading-none shrink-0">
+                          {photoState === 'uploading' ? '⏳' : photoState === 'error' ? '❌' : order.delivery_photo_url ? '✅' : '📷'}
                         </span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-700">
+                            {photoState === 'uploading' ? 'Uploading…' : photoState === 'error' ? 'Failed — tap to retry' : order.delivery_photo_url ? 'Photo saved' : 'Delivery Photo'}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {order.delivery_photo_url ? 'Tap to replace' : 'Tap to capture'}
+                          </div>
+                        </div>
+                        {order.delivery_photo_url && (
+                          <img src={order.delivery_photo_url} alt="" className="ml-auto h-10 w-10 shrink-0 rounded object-cover ring-1 ring-emerald-200" />
+                        )}
                       </label>
+                    </div>
 
-                      {/* Comment + save */}
-                      <div className="flex-1 min-h-0 flex flex-col gap-1">
-                        <textarea
-                          rows={2}
-                          placeholder="Comment…"
-                          value={driverComments[order.id] ?? order.driver_notes ?? ''}
-                          onChange={(e) => {
-                            setDriverComments((c) => ({ ...c, [order.id]: e.target.value }))
-                            setCommentSaveStates((c) => ({ ...c, [order.id]: 'idle' }))
-                          }}
-                          className="w-full flex-1 min-h-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void saveDriverComment(order)}
-                          disabled={commentState === 'saving'}
-                          className={`rounded-lg px-3 py-1.5 text-[10px] font-bold transition disabled:opacity-60 ${
-                            commentState === 'saved' ? 'bg-emerald-600 text-white'
-                            : commentState === 'error' ? 'bg-rose-600 text-white'
-                            : 'bg-slate-800 text-white'
-                          }`}
-                        >
-                          {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? 'Saved ✓' : commentState === 'error' ? 'Retry' : 'Save Note'}
-                        </button>
-                      </div>
+                    {/* Comment — fills all remaining space */}
+                    <div className="flex-1 min-h-0 flex flex-col gap-1.5">
+                      <textarea
+                        placeholder="Bin placement, access issues, special notes…"
+                        value={driverComments[order.id] ?? order.driver_notes ?? ''}
+                        onChange={(e) => {
+                          setDriverComments((c) => ({ ...c, [order.id]: e.target.value }))
+                          setCommentSaveStates((c) => ({ ...c, [order.id]: 'idle' }))
+                        }}
+                        className="w-full flex-1 min-h-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveDriverComment(order)}
+                        disabled={commentState === 'saving'}
+                        className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-60 ${
+                          commentState === 'saved' ? 'bg-emerald-600 text-white'
+                          : commentState === 'error' ? 'bg-rose-600 text-white'
+                          : 'bg-slate-800 text-white'
+                        }`}
+                      >
+                        {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : commentState === 'error' ? 'Failed — retry' : 'Save Note'}
+                      </button>
                     </div>
                   </div>
 
