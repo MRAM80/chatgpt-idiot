@@ -1299,26 +1299,31 @@ export default function DriverPage() {
     )
   }
 
+  // ─── design tokens (single source of truth) ──────────────────────────────
+  // label  : text-xs font-semibold uppercase tracking-wider text-slate-400
+  // value  : text-sm font-medium text-slate-800
+  // field  : rounded-xl border border-slate-200 bg-slate-50 px-3 py-3
+  // btn-sm : rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700
+
   return (
     <div style={{ colorScheme: 'light' }} className="h-dvh flex flex-col overflow-hidden bg-slate-100 text-slate-900">
-      {/* Header — shrink-0 so remaining height goes to cards */}
-      <div className="shrink-0 z-10 bg-white shadow-sm ring-1 ring-slate-200">
-        <div className="mx-auto max-w-lg px-4 py-2 flex items-center justify-between gap-3">
+
+      {/* ── App header ─────────────────────────────────────────────────────── */}
+      <div className="shrink-0 bg-white border-b border-slate-200">
+        <div className="mx-auto max-w-lg px-4 h-12 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-base font-bold text-slate-900 truncate">
-              {driver?.name || 'Driver'}
-            </span>
+            <span className="text-sm font-semibold text-slate-900 truncate">{driver?.name || 'Driver'}</span>
             {driver?.status === 'heading_back' && (
-              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">HB</span>
+              <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">HB</span>
             )}
             {driver?.status === 'parked' && (
-              <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">Parked</span>
+              <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Parked</span>
             )}
             {(isOffline || usingCachedOrders) && (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Offline</span>
+              <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Offline</span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {showAvailableButton && (
               <button
                 type="button"
@@ -1327,7 +1332,7 @@ export default function DriverPage() {
                   const ok = await markDriverAvailable(driver.id)
                   if (ok) await refreshDriverData()
                 }}
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
+                className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700"
               >
                 Available
               </button>
@@ -1335,51 +1340,45 @@ export default function DriverPage() {
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
             >
-              Log Out
+              Log out
             </button>
           </div>
         </div>
 
+        {/* Status / error banners — consistent style */}
         {pageError && (
           <div className="mx-auto max-w-lg px-4 pb-2">
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-              {pageError}
-            </div>
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{pageError}</div>
           </div>
         )}
-
         {driver?.status === 'heading_back' && (
           <div className="mx-auto max-w-lg px-4 pb-2">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">HEAD BACK</div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Head back to base</div>
           </div>
         )}
         {driver?.status === 'parked' && (
           <div className="mx-auto max-w-lg px-4 pb-2">
-            <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">Park and finish today</div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">Park and finish today</div>
           </div>
         )}
         {syncingQueue && (
           <div className="mx-auto max-w-lg px-4 pb-2">
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Syncing offline updates…</div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">Syncing offline changes…</div>
           </div>
         )}
       </div>
 
-      {/* Scroll-snap container — fills all space below header, one card per screen */}
+      {/* ── Scroll-snap — one card per screen ──────────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-y-scroll snap-y snap-mandatory">
         {loading ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200 mx-4">
-              Loading route…
-            </div>
+          <div className="h-full flex items-center justify-center px-4">
+            <p className="text-sm font-medium text-slate-500">Loading route…</p>
           </div>
         ) : orders.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200 mx-4">
-              No active orders for today.
-            </div>
+          <div className="h-full flex items-center justify-center px-4">
+            <p className="text-sm font-medium text-slate-500">No active orders for today.</p>
           </div>
         ) : (
           <>
@@ -1400,191 +1399,193 @@ export default function DriverPage() {
               const commentState = commentSaveStates[order.id]
               const binBlocked = needsNewBin && !assignedBin?.bin_number
               const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked
+              const hasDumpSite = order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN'
 
               return (
-                /* Each snap section fills exactly one screen */
-                <div key={order.id} className="h-full snap-start snap-always flex flex-col px-3 py-2 box-border">
-                <div className="flex-1 min-h-0 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 overflow-hidden flex flex-col">
-                  {/* Card header bar */}
-                  <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50">
-                    <span className="text-xs font-bold text-slate-500 shrink-0">Stop {order.route_position || index + 1}</span>
-                    <span className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5 shrink-0">{displayValue(order.bin_size)}Yd</span>
-                    <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5 shrink-0">{displayValue(order.order_type)}</span>
-                    {(order.service_window || order.service_time) && (
-                      <span className="text-[10px] font-semibold text-slate-500 ml-auto shrink-0">
-                        {order.service_window ? displayValue(order.service_window) : formatServiceTime(order.service_time)}
-                      </span>
-                    )}
-                    {syncBadge}
-                  </div>
+                <div key={order.id} className="h-full snap-start snap-always flex flex-col px-3 py-3 box-border">
+                  <div className="flex-1 min-h-0 rounded-2xl bg-white border border-slate-200 overflow-hidden flex flex-col">
 
-                  {/* Card body — flex-col, fills all space between header and action bar */}
-                  <div className="flex-1 min-h-0 px-3 py-2 flex flex-col gap-2 overflow-hidden">
-                    {/* Customer + address + maps */}
-                    <div className="shrink-0 flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-slate-900 truncate">{order.customer_name || 'No customer'}</div>
-                        <div className="text-xs text-slate-500 truncate">{displayValue(stopAddress)}</div>
-                      </div>
-                      {stopRouteLink && (
-                        <a
-                          href={stopRouteLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-bold text-white"
-                        >
-                          Maps
-                        </a>
-                      )}
-                    </div>
-
-                    {/* Bin + dump site in one row */}
-                    <div className="shrink-0 flex gap-2">
-                      {/* Bin */}
-                      <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-                        <div className="text-[9px] font-bold uppercase tracking-wide text-slate-400 mb-1">Bin #</div>
-                        {needsNewBin && !assignedBin?.bin_number ? (
-                          <div className="flex gap-1">
-                            <input
-                              value={binInputs[order.id] || ''}
-                              onChange={(e) => setBinInputs((c) => ({ ...c, [order.id]: e.target.value }))}
-                              placeholder="Enter #"
-                              className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void saveBinNumber(order)}
-                              disabled={binSaveState === 'saving'}
-                              className="rounded bg-slate-900 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-60"
-                            >
-                              {binSaveState === 'saving' ? '…' : 'Save'}
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-sm font-bold text-slate-900">{visibleBinNumber || '—'}</div>
-                        )}
-                        {order.order_type === 'EXCHANGE' && oldBin?.bin_number && (
-                          <div className="mt-0.5 text-[9px] text-slate-400">Old: <span className="font-bold">{oldBin.bin_number}</span></div>
-                        )}
-                      </div>
-
-                      {/* Dump site (only if applicable) */}
-                      {(order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN') && (
-                        <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-                          <div className="text-[9px] font-bold uppercase tracking-wide text-slate-400 mb-1">Dump Site</div>
-                          <div className="text-xs text-slate-900 leading-snug">{displayValue(order.dump_site_address)}</div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Notes — compact amber strip */}
-                    {order.notes && order.notes.trim() && (
-                      <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5">
-                        <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600 mr-1">Note:</span>
-                        <span className="text-xs text-slate-800">{order.notes}</span>
-                      </div>
-                    )}
-
-                    {/* Photo — compact horizontal strip, same height as other blocks */}
-                    <div className="shrink-0">
-                      <label className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition ${
-                        photoState === 'uploading' ? 'border-slate-200 bg-slate-100'
-                        : photoState === 'error' ? 'border-rose-300 bg-rose-50'
-                        : order.delivery_photo_url ? 'border-emerald-300 bg-emerald-50'
-                        : 'border-slate-200 bg-slate-50'
-                      }`}>
-                        <input type="file" accept="image/*" capture="environment" className="hidden"
-                          disabled={photoState === 'uploading'}
-                          onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadDeliveryPhoto(order, f) }}
-                        />
-                        <span className="text-xl leading-none shrink-0">
-                          {photoState === 'uploading' ? '⏳' : photoState === 'error' ? '❌' : order.delivery_photo_url ? '✅' : '📷'}
+                    {/* ── Stop bar ─────────────────────────────────────────── */}
+                    <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50">
+                      <span className="text-xs font-semibold text-slate-500">Stop {order.route_position || index + 1}</span>
+                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
+                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
+                      {(order.service_window || order.service_time) && (
+                        <span className="ml-auto text-xs font-medium text-slate-500">
+                          {order.service_window ? displayValue(order.service_window) : formatServiceTime(order.service_time)}
                         </span>
+                      )}
+                      {syncBadge}
+                    </div>
+
+                    {/* ── Card body ─────────────────────────────────────────── */}
+                    <div className="flex-1 min-h-0 flex flex-col gap-3 px-4 py-3 overflow-hidden">
+
+                      {/* Customer + address + Maps */}
+                      <div className="shrink-0 flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-xs font-bold text-slate-700">
-                            {photoState === 'uploading' ? 'Uploading…' : photoState === 'error' ? 'Failed — tap to retry' : order.delivery_photo_url ? 'Photo saved' : 'Delivery Photo'}
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            {order.delivery_photo_url ? 'Tap to replace' : 'Tap to capture'}
-                          </div>
+                          <div className="text-base font-semibold text-slate-900 truncate">{order.customer_name || 'No customer'}</div>
+                          <div className="text-sm text-slate-500 truncate mt-0.5">{displayValue(stopAddress)}</div>
                         </div>
-                        {order.delivery_photo_url && (
-                          <img src={order.delivery_photo_url} alt="" className="ml-auto h-10 w-10 shrink-0 rounded object-cover ring-1 ring-emerald-200" />
+                        {stopRouteLink && (
+                          <a
+                            href={stopRouteLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                          >
+                            Maps
+                          </a>
                         )}
-                      </label>
+                      </div>
+
+                      {/* Bin # and Dump Site — equal-width columns */}
+                      <div className="shrink-0 grid gap-3" style={{ gridTemplateColumns: hasDumpSite ? '1fr 1fr' : '1fr' }}>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Bin Number</p>
+                          {needsNewBin && !assignedBin?.bin_number ? (
+                            <div className="flex gap-2">
+                              <input
+                                value={binInputs[order.id] || ''}
+                                onChange={(e) => setBinInputs((c) => ({ ...c, [order.id]: e.target.value }))}
+                                placeholder="Enter number"
+                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void saveBinNumber(order)}
+                                disabled={binSaveState === 'saving'}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                              >
+                                {binSaveState === 'saving' ? '…' : 'Save'}
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-sm font-semibold text-slate-800">{visibleBinNumber || '—'}</p>
+                          )}
+                          {order.order_type === 'EXCHANGE' && oldBin?.bin_number && (
+                            <p className="mt-1 text-xs text-slate-400">Old bin: <span className="font-semibold text-slate-600">{oldBin.bin_number}</span></p>
+                          )}
+                        </div>
+
+                        {hasDumpSite && (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Dump Site</p>
+                            <p className="text-sm font-semibold text-slate-800 leading-snug">{displayValue(order.dump_site_address)}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Notes */}
+                      {order.notes && order.notes.trim() && (
+                        <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-amber-500 mb-1">Note</p>
+                          <p className="text-sm text-slate-800">{order.notes}</p>
+                        </div>
+                      )}
+
+                      {/* Photo */}
+                      <div className="shrink-0">
+                        <label className={`flex items-center gap-3 rounded-xl border px-3 py-3 cursor-pointer transition ${
+                          photoState === 'uploading' ? 'border-slate-200 bg-slate-50'
+                          : photoState === 'error'   ? 'border-rose-200 bg-rose-50'
+                          : order.delivery_photo_url ? 'border-emerald-200 bg-emerald-50'
+                          : 'border-slate-200 bg-slate-50'
+                        }`}>
+                          <input type="file" accept="image/*" capture="environment" className="hidden"
+                            disabled={photoState === 'uploading'}
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadDeliveryPhoto(order, f) }}
+                          />
+                          <span className="text-lg shrink-0 leading-none">
+                            {photoState === 'uploading' ? '⏳' : photoState === 'error' ? '❌' : order.delivery_photo_url ? '✅' : '📷'}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                              {order.delivery_photo_url ? 'Photo saved' : 'Delivery Photo'}
+                            </p>
+                            <p className="text-sm font-medium text-slate-700 mt-0.5">
+                              {photoState === 'uploading' ? 'Uploading…' : photoState === 'error' ? 'Failed — tap to retry' : order.delivery_photo_url ? 'Tap to replace' : 'Tap to capture'}
+                            </p>
+                          </div>
+                          {order.delivery_photo_url && (
+                            <img src={order.delivery_photo_url} alt="" className="shrink-0 h-10 w-10 rounded-lg object-cover border border-emerald-200" />
+                          )}
+                        </label>
+                      </div>
+
+                      {/* Comment — fills remaining space */}
+                      <div className="flex-1 min-h-0 flex flex-col gap-2">
+                        <p className="shrink-0 text-xs font-semibold uppercase tracking-wider text-slate-400">Comment</p>
+                        <textarea
+                          placeholder="Bin placement, access issues, special notes…"
+                          value={driverComments[order.id] ?? order.driver_notes ?? ''}
+                          onChange={(e) => {
+                            setDriverComments((c) => ({ ...c, [order.id]: e.target.value }))
+                            setCommentSaveStates((c) => ({ ...c, [order.id]: 'idle' }))
+                          }}
+                          className="flex-1 min-h-0 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 placeholder:font-normal focus:border-slate-400 resize-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void saveDriverComment(order)}
+                          disabled={commentState === 'saving'}
+                          className={`shrink-0 rounded-xl border px-3 py-2.5 text-xs font-semibold transition disabled:opacity-50 ${
+                            commentState === 'saved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : commentState === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700'
+                            : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        >
+                          {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? 'Saved' : commentState === 'error' ? 'Failed — retry' : 'Save Note'}
+                        </button>
+                      </div>
                     </div>
 
-                    {/* Comment — fills all remaining space */}
-                    <div className="flex-1 min-h-0 flex flex-col gap-1.5">
-                      <textarea
-                        placeholder="Bin placement, access issues, special notes…"
-                        value={driverComments[order.id] ?? order.driver_notes ?? ''}
-                        onChange={(e) => {
-                          setDriverComments((c) => ({ ...c, [order.id]: e.target.value }))
-                          setCommentSaveStates((c) => ({ ...c, [order.id]: 'idle' }))
+                    {/* ── Action bar ────────────────────────────────────────── */}
+                    <div className="shrink-0 flex border-t border-slate-100">
+                      {order.status !== 'in_progress' && (
+                        <button
+                          type="button"
+                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                          disabled={isSaving || binBlocked}
+                          className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
+                            binBlocked ? 'bg-slate-300' : 'bg-amber-500 active:bg-amber-600'
+                          }`}
+                        >
+                          <span className="text-base leading-none">▶</span>
+                          <span className="text-xs font-semibold">{binBlocked ? 'Bin first' : 'Start'}</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (hasOpenPreviousOrder(order, orders)) {
+                            setPageError('Finish the previous stop first.')
+                            return
+                          }
+                          void updateOrderStatus(order.id, 'completed')
                         }}
-                        className="w-full flex-1 min-h-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void saveDriverComment(order)}
-                        disabled={commentState === 'saving'}
-                        className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-60 ${
-                          commentState === 'saved' ? 'bg-emerald-600 text-white'
-                          : commentState === 'error' ? 'bg-rose-600 text-white'
-                          : 'bg-slate-800 text-white'
+                        disabled={completeBlocked}
+                        className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
+                          completeBlocked ? 'bg-slate-300' : 'bg-emerald-600 active:bg-emerald-700'
                         }`}
                       >
-                        {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : commentState === 'error' ? 'Failed — retry' : 'Save Note'}
+                        <span className="text-base leading-none">✓</span>
+                        <span className="text-xs font-semibold">
+                          {binBlocked ? 'Bin first' : hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void updateOrderStatus(order.id, 'issue')}
+                        disabled={isSaving}
+                        className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
+                      >
+                        <span className="text-base leading-none">⚠</span>
+                        <span className="text-xs font-semibold">Issue</span>
                       </button>
                     </div>
-                  </div>
 
-                  {/* Action icon buttons — bottom bar */}
-                  <div className="flex border-t border-slate-100">
-                    {order.status !== 'in_progress' && (
-                      <button
-                        type="button"
-                        onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                        disabled={isSaving || binBlocked}
-                        className={`flex flex-1 flex-col items-center justify-center gap-1 py-3 text-white transition disabled:opacity-40 ${
-                          binBlocked ? 'bg-slate-400' : 'bg-amber-500 active:bg-amber-600'
-                        }`}
-                      >
-                        <span className="text-xl leading-none">▶</span>
-                        <span className="text-[10px] font-bold uppercase tracking-wide">{binBlocked ? 'Bin first' : 'Start'}</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (hasOpenPreviousOrder(order, orders)) {
-                          setPageError('Finish previous job before continuing.')
-                          return
-                        }
-                        void updateOrderStatus(order.id, 'completed')
-                      }}
-                      disabled={completeBlocked}
-                      className={`flex flex-1 flex-col items-center justify-center gap-1 py-3 text-white transition disabled:opacity-40 ${
-                        completeBlocked ? 'bg-slate-400' : 'bg-emerald-600 active:bg-emerald-700'
-                      }`}
-                    >
-                      <span className="text-xl leading-none">✓</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wide">
-                        {binBlocked ? 'Bin first' : hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void updateOrderStatus(order.id, 'issue')}
-                      disabled={isSaving}
-                      className="flex flex-1 flex-col items-center justify-center gap-1 py-3 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
-                    >
-                      <span className="text-xl leading-none">⚠</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wide">Issue</span>
-                    </button>
                   </div>
-                </div>
                 </div>
               )
             })}
