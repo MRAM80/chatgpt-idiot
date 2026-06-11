@@ -336,6 +336,8 @@ export default function DispatchBoardPage() {
   const [quickForm, setQuickForm] = useState<QuickOrderForm>(emptyQuickForm)
   const [quickSaving, setQuickSaving] = useState(false)
   const [quickError, setQuickError] = useState('')
+  const [modalNoteDraft, setModalNoteDraft] = useState('')
+  const [modalNoteSaving, setModalNoteSaving] = useState(false)
 
   const todayKey = useMemo(() => getTodayKey(), [])
   const tomorrowKey = useMemo(() => getTomorrowKey(), [])
@@ -648,6 +650,26 @@ export default function DispatchBoardPage() {
     }
   }
 
+  async function sendNotifyPush(params: {
+    driverId: string | null | undefined
+    event: 'status_changed' | 'note_added'
+    customerName?: string | null
+    address?: string | null
+    status?: string | null
+    note?: string | null
+  }) {
+    if (!params.driverId) return
+    try {
+      await fetch('/api/push/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      })
+    } catch {
+      // non-critical — don't block the UI
+    }
+  }
+
   async function handleAssign(orderId: string, driverId: string) {
     const currentOrder = orders.find((order) => order.id === orderId)
     if (!currentOrder || currentOrder.status === 'completed') return
@@ -824,6 +846,8 @@ export default function DispatchBoardPage() {
   const unassignedOrders = useMemo(() => groupedOrders.unassigned || [], [groupedOrders])
 
   function openOrder(orderId: string) {
+    const order = orders.find((o) => o.id === orderId)
+    setModalNoteDraft(order?.notes || '')
     setSelectedOrderId(orderId)
     setModalOpen(true)
   }
@@ -831,6 +855,23 @@ export default function DispatchBoardPage() {
   function closeOrderModal() {
     setModalOpen(false)
     setSelectedOrderId(null)
+    setModalNoteDraft('')
+  }
+
+  async function saveModalNote() {
+    if (!selectedOrder) return
+    setModalNoteSaving(true)
+    const ok = await updateOrder(selectedOrder.id, { notes: modalNoteDraft })
+    setModalNoteSaving(false)
+    if (ok && selectedOrder.driver_id && modalNoteDraft.trim()) {
+      sendNotifyPush({
+        driverId: selectedOrder.driver_id,
+        event: 'note_added',
+        customerName: selectedOrder.customer_name,
+        address: selectedOrder.service_address || selectedOrder.pickup_address,
+        note: modalNoteDraft.trim(),
+      })
+    }
   }
 
   function handleDragStart(orderId: string, fromColumnKey: string) {
@@ -1435,8 +1476,29 @@ export default function DispatchBoardPage() {
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notes</div>
-                  <div className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{displayValue(selectedOrder.notes)}</div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Dispatcher Notes
+                  </div>
+                  <textarea
+                    value={modalNoteDraft}
+                    onChange={(e) => setModalNoteDraft(e.target.value)}
+                    rows={3}
+                    placeholder="Add a note for the driver…"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400 resize-none"
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-400">
+                      {selectedOrder.driver_id ? 'Driver will be notified.' : 'Assign a driver to notify them.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={saveModalNote}
+                      disabled={modalNoteSaving}
+                      className="rounded-xl bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                    >
+                      {modalNoteSaving ? 'Saving…' : 'Save & Notify'}
+                    </button>
+                  </div>
                 </div>
 
                 {selectedOrder.driver_notes && (
@@ -1486,7 +1548,19 @@ export default function DispatchBoardPage() {
                     </label>
                     <select
                       value={selectedOrder.status || 'unassigned'}
-                      onChange={(e) => updateOrder(selectedOrder.id, { status: e.target.value })}
+                      onChange={async (e) => {
+                        const newStatus = e.target.value
+                        const ok = await updateOrder(selectedOrder.id, { status: newStatus })
+                        if (ok && selectedOrder.driver_id) {
+                          sendNotifyPush({
+                            driverId: selectedOrder.driver_id,
+                            event: 'status_changed',
+                            status: newStatus,
+                            customerName: selectedOrder.customer_name,
+                            address: selectedOrder.service_address || selectedOrder.pickup_address,
+                          })
+                        }
+                      }}
                       disabled={selectedOrder.status === 'completed'}
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none disabled:cursor-not-allowed disabled:opacity-60 focus:border-slate-400"
                     >
