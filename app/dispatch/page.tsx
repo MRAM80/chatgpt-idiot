@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import ThemeToggle from '@/components/ThemeToggle'
 
 type Driver = {
   id: string
@@ -1128,6 +1129,8 @@ export default function DispatchBoardPage() {
               >
                 Dashboard
               </Link>
+
+              <ThemeToggle />
             </div>
           </div>
 

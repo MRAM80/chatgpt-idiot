@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import ThemeToggle from '@/components/ThemeToggle'
 
 type Order = {
   id: string
@@ -283,6 +284,7 @@ export default function DashboardPage() {
               >
                 Log Off
               </button>
+              <ThemeToggle />
             </div>
           </div>
         </div>

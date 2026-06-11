@@ -17,6 +17,7 @@ import {
   Search,
   ChevronRight,
 } from 'lucide-react'
+import ThemeToggle from './ThemeToggle'
 
 type NavItem = {
   href: string
@@ -240,8 +241,8 @@ export default function DashboardShell({
                 </div>
               </div>
 
-              <div className="hidden items-center gap-3 md:flex">
-                <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-3">
+                <div className="hidden items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 md:flex">
                   <Search className="h-4 w-4 text-slate-400" />
                   <input
                     type="text"
@@ -250,10 +251,12 @@ export default function DashboardShell({
                   />
                 </div>
 
-                <button className="relative rounded-2xl border border-slate-200 bg-white p-3 text-slate-600 hover:bg-slate-50">
+                <button className="relative hidden rounded-2xl border border-slate-200 bg-white p-3 text-slate-600 hover:bg-slate-50 md:block">
                   <Bell className="h-5 w-5" />
                   <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-emerald-500" />
                 </button>
+
+                <ThemeToggle />
               </div>
             </div>
           </header>

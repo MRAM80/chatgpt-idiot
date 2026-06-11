@@ -1,26 +1,104 @@
 @import "tailwindcss";
 
+/* ─── Enable class-based dark mode (Tailwind v4) ─────────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+.dark {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DARK MODE — global color overrides.
+   Applied when the <html> element has the class "dark".
+   All Tailwind utility classes below are overridden at CSS level, so no
+   page file needs a dark: variant for these common tokens.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Page & surface backgrounds ─────────────────────────────────────────── */
+.dark .bg-white          { background-color: #1e293b; } /* slate-800  — cards */
+.dark .bg-slate-50       { background-color: #0f172a; } /* slate-900  — fields */
+.dark .bg-slate-100      { background-color: #0f172a; } /* slate-900  — page bg */
+
+/* ── Text colors ─────────────────────────────────────────────────────────── */
+.dark .text-slate-900    { color: #f8fafc; }  /* slate-50  */
+.dark .text-slate-800    { color: #e2e8f0; }  /* slate-200 */
+.dark .text-slate-700    { color: #cbd5e1; }  /* slate-300 */
+.dark .text-slate-600    { color: #94a3b8; }  /* slate-400 */
+.dark .text-slate-500    { color: #94a3b8; }  /* slate-400 */
+.dark .text-slate-400    { color: #64748b; }  /* slate-500 */
+
+/* ── Borders & rings ─────────────────────────────────────────────────────── */
+.dark .border-slate-200  { border-color: #334155; }  /* slate-700 */
+.dark .border-slate-300  { border-color: #475569; }  /* slate-600 */
+.dark .ring-slate-200    { --tw-ring-color: #334155; }
+.dark .shadow-sm         { --tw-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.4); }
+
+/* ── Dark inverted buttons (bg-slate-800/900 with white text) ────────────── */
+.dark .bg-slate-800      { background-color: #334155; }  /* slate-700 */
+.dark .bg-slate-900      { background-color: #334155; }  /* slate-700 — stays readable */
+
+/* ── Status: Emerald (available, complete, success) ─────────────────────── */
+.dark .bg-emerald-50     { background-color: rgb(6 78 59 / 0.25); }
+.dark .bg-emerald-100    { background-color: rgb(6 78 59 / 0.3); }
+.dark .border-emerald-200{ border-color: rgb(6 78 59 / 0.5); }
+.dark .border-emerald-300{ border-color: rgb(6 78 59 / 0.6); }
+.dark .text-emerald-700  { color: #34d399; }  /* emerald-400 */
+.dark .text-emerald-600  { color: #34d399; }
+
+/* ── Status: Amber (warning, in-progress, notes) ────────────────────────── */
+.dark .bg-amber-50       { background-color: rgb(120 53 15 / 0.25); }
+.dark .bg-amber-100      { background-color: rgb(120 53 15 / 0.3); }
+.dark .border-amber-200  { border-color: rgb(120 53 15 / 0.5); }
+.dark .text-amber-700    { color: #fbbf24; }  /* amber-400 */
+.dark .text-amber-600    { color: #fbbf24; }
+.dark .text-amber-800    { color: #fde68a; }  /* amber-200 */
+
+/* ── Status: Rose (error, issue, removed) ───────────────────────────────── */
+.dark .bg-rose-50        { background-color: rgb(136 19 55 / 0.25); }
+.dark .bg-rose-100       { background-color: rgb(136 19 55 / 0.3); }
+.dark .border-rose-200   { border-color: rgb(136 19 55 / 0.5); }
+.dark .border-rose-300   { border-color: rgb(136 19 55 / 0.6); }
+.dark .text-rose-700     { color: #f87171; }  /* rose-400 */
+.dark .text-rose-600     { color: #f87171; }
+
+/* ── Status: Blue (heading back, info) ──────────────────────────────────── */
+.dark .bg-blue-50        { background-color: rgb(23 37 84 / 0.25); }
+.dark .border-blue-200   { border-color: rgb(23 37 84 / 0.5); }
+.dark .text-blue-700     { color: #60a5fa; }  /* blue-400 */
+
+/* ── Status: Violet (bin size badge) ────────────────────────────────────── */
+.dark .bg-violet-50      { background-color: rgb(46 16 101 / 0.25); }
+.dark .border-violet-200 { border-color: rgb(46 16 101 / 0.5); }
+.dark .text-violet-700   { color: #a78bfa; }  /* violet-400 */
+
+/* ── Status: Sky ─────────────────────────────────────────────────────────── */
+.dark .bg-sky-50         { background-color: rgb(7 89 133 / 0.25); }
+.dark .border-sky-200    { border-color: rgb(7 89 133 / 0.5); }
+.dark .text-sky-700      { color: #38bdf8; }
+
+/* ── Inputs & textareas ─────────────────────────────────────────────────── */
+.dark input:not([type="file"]),
+.dark textarea,
+.dark select {
+  background-color: #0f172a;
+  color: #f8fafc;
+  border-color: #334155;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #475569;
+}
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+  border-color: #64748b;
+  outline: none;
 }
