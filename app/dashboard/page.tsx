@@ -12,6 +12,7 @@ type Order = {
   id: string
   ticket_number: string | null
   customer_name: string | null
+  customer_id?: string | null
   pickup_address: string | null
   service_address?: string | null
   service_time?: string | null
@@ -20,6 +21,7 @@ type Order = {
   bin_size: string | null
   order_type: string | null
   driver_id: string | null
+  driver_notes?: string | null
   scheduled_date: string | null
   status: string | null
   created_at: string | null
@@ -121,6 +123,15 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
 
+  // Report state
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportCustomerId, setReportCustomerId] = useState('')
+  const [reportDateFrom, setReportDateFrom] = useState('')
+  const [reportDateTo, setReportDateTo] = useState('')
+  const [reportRows, setReportRows] = useState<Order[]>([])
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportCustomerName, setReportCustomerName] = useState('')
+
   async function loadDashboard() {
     setLoading(true)
     setPageError('')
@@ -165,6 +176,86 @@ export default function DashboardPage() {
   async function handleLogOff() {
     await supabase.auth.signOut()
     router.push('/login')
+  }
+
+  async function runReport() {
+    if (!reportCustomerId || !reportDateFrom || !reportDateTo) return
+    setReportLoading(true)
+    const customer = customers.find(c => c.id === reportCustomerId)
+    setReportCustomerName(customer?.name || '')
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('id,ticket_number,customer_name,customer_id,service_address,pickup_address,order_type,bin_size,bin_type,status,scheduled_date,driver_id,driver_notes')
+      .eq('customer_id', reportCustomerId)
+      .gte('scheduled_date', reportDateFrom)
+      .lte('scheduled_date', reportDateTo)
+      .order('scheduled_date', { ascending: true })
+    if (!error) setReportRows((data as Order[]) || [])
+    setReportLoading(false)
+  }
+
+  function exportCSV() {
+    if (!reportRows.length) return
+    const headers = ['Ticket','Date','Type','Bin Size','Bin Type','Address','Status','Driver','Driver Notes']
+    const rows = reportRows.map(o => [
+      o.ticket_number || '',
+      o.scheduled_date || '',
+      o.order_type || '',
+      o.bin_size || '',
+      o.bin_type || '',
+      o.service_address || o.pickup_address || '',
+      o.status || '',
+      driverMap[o.driver_id || '']?.name || '',
+      o.driver_notes || '',
+    ])
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `report-${reportCustomerName}-${reportDateFrom}-${reportDateTo}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function printReport() {
+    const win = window.open('', '_blank')
+    if (!win) return
+    const rows = reportRows.map(o => `
+      <tr>
+        <td>${o.ticket_number || '—'}</td>
+        <td>${o.scheduled_date || '—'}</td>
+        <td>${o.order_type || '—'}</td>
+        <td>${o.bin_size || '—'} ${o.bin_type || ''}</td>
+        <td>${o.service_address || o.pickup_address || '—'}</td>
+        <td>${o.status || '—'}</td>
+        <td>${driverMap[o.driver_id || '']?.name || '—'}</td>
+        <td>${o.driver_notes || '—'}</td>
+      </tr>`).join('')
+    win.document.write(`
+      <html><head><title>Report — ${reportCustomerName}</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 12px; padding: 20px; }
+        h2 { margin-bottom: 4px; }
+        p { margin: 0 0 16px; color: #666; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f1f5f9; text-align: left; padding: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        @media print { body { padding: 0; } }
+      </style></head>
+      <body>
+        <h2>${CLIENT_CONFIG.name} — Customer Report</h2>
+        <p>${reportCustomerName} &nbsp;|&nbsp; ${reportDateFrom} to ${reportDateTo} &nbsp;|&nbsp; ${reportRows.length} orders</p>
+        <table>
+          <thead><tr>
+            <th>Ticket</th><th>Date</th><th>Type</th><th>Bin</th>
+            <th>Address</th><th>Status</th><th>Driver</th><th>Notes</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </body></html>`)
+    win.document.close()
+    win.print()
   }
 
   useEffect(() => {
@@ -335,7 +426,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
           <Link
             href="/order"
             className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
@@ -375,6 +466,16 @@ export default function DashboardPage() {
               Keep active customer records organized
             </div>
           </Link>
+
+          <button
+            onClick={() => { setReportOpen(true); setReportRows([]) }}
+            className="rounded-3xl bg-violet-50 p-5 shadow-sm ring-1 ring-violet-200 transition hover:-translate-y-0.5 hover:shadow-md text-left"
+          >
+            <div className="text-lg font-bold text-violet-900">Reports</div>
+            <div className="mt-2 text-sm text-violet-600">
+              Export customer order history for invoicing
+            </div>
+          </button>
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -516,6 +617,124 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Report Modal */}
+      {reportOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16">
+          <div className="w-full max-w-4xl rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+              <h2 className="text-xl font-bold text-slate-900">Customer Report</h2>
+              <button
+                onClick={() => setReportOpen(false)}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Customer</label>
+                  <select
+                    value={reportCustomerId}
+                    onChange={e => setReportCustomerId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  >
+                    <option value="">Select a customer...</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">From</label>
+                  <input
+                    type="date"
+                    value={reportDateFrom}
+                    onChange={e => setReportDateFrom(e.target.value)}
+                    className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">To</label>
+                  <input
+                    type="date"
+                    value={reportDateTo}
+                    onChange={e => setReportDateTo(e.target.value)}
+                    className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                <button
+                  onClick={runReport}
+                  disabled={!reportCustomerId || !reportDateFrom || !reportDateTo || reportLoading}
+                  className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                >
+                  {reportLoading ? 'Loading...' : 'Generate'}
+                </button>
+              </div>
+
+              {reportRows.length > 0 && (
+                <div className="mt-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-sm text-slate-600">
+                      <span className="font-semibold">{reportRows.length}</span> orders for <span className="font-semibold">{reportCustomerName}</span> — {reportDateFrom} to {reportDateTo}
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={exportCSV}
+                        className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+                      >
+                        Export Excel / CSV
+                      </button>
+                      <button
+                        onClick={printReport}
+                        className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        Print / PDF
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          {['Ticket','Date','Type','Bin','Address','Status','Driver','Notes'].map(h => (
+                            <th key={h} className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {reportRows.map(o => (
+                          <tr key={o.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 text-xs font-medium text-slate-700">{o.ticket_number || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-600">{o.scheduled_date || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-600">{o.order_type || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-600">{[o.bin_size, o.bin_type].filter(Boolean).join(' ') || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-600">{o.service_address || o.pickup_address || '—'}</td>
+                            <td className="px-4 py-3 text-xs">
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusClasses[o.status || 'unassigned'] || statusClasses.unassigned}`}>
+                                {formatStatus(o.status)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-600">{driverMap[o.driver_id || '']?.name || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-600 max-w-xs truncate">{o.driver_notes || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {!reportLoading && reportRows.length === 0 && reportCustomerId && reportDateFrom && reportDateTo && (
+                <p className="mt-6 text-center text-sm text-slate-500">No orders found for this customer in the selected date range.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
