@@ -1,16 +1,20 @@
 import './globals.css'
 import type { ReactNode } from 'react'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  const key = CLIENT_CONFIG.themeStorageKey
+  const primary = CLIENT_CONFIG.primaryColor
+  const secondary = CLIENT_CONFIG.secondaryColor
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply theme before first paint to prevent flash */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                var stored = localStorage.getItem('simpliidash-theme');
+                var stored = localStorage.getItem('${key}');
                 var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                 if (stored === 'dark' || (!stored && prefersDark)) {
                   document.documentElement.classList.add('dark');
@@ -22,7 +26,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           }}
         />
       </head>
-      <body>{children}</body>
+      <body
+        style={{
+          ['--brand-primary' as string]: primary,
+          ['--brand-secondary' as string]: secondary,
+        }}
+      >
+        {children}
+      </body>
     </html>
   )
 }

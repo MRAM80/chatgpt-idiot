@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing driverId or event.' }, { status: 400 })
     }
 
-    let title = 'SimpliiTrash'
+    let title = process.env.NEXT_PUBLIC_CLIENT_NAME || 'SimpliiTrash'
     let bodyText = ''
 
     const customer = customerName || 'Order'

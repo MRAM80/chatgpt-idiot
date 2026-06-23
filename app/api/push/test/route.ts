@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     const payload = JSON.stringify({
-      title: 'SimpliiTrash Driver',
+      title: `${process.env.NEXT_PUBLIC_CLIENT_NAME || 'SimpliiTrash'} Driver`,
       body: 'This is a test notification.',
       url: '/driver',
     })

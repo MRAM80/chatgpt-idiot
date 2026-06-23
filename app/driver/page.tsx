@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import ThemeToggle from '@/components/ThemeToggle'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
 type Driver = {
   id: string
@@ -1029,11 +1030,11 @@ export default function DriverPage() {
 
             if (previousStatus !== nextStatus) {
               if (nextStatus === 'heading_back') {
-                notifyInApp('SimpliiTrash', 'HEAD BACK')
+                notifyInApp(CLIENT_CONFIG.name, 'HEAD BACK')
               } else if (nextStatus === 'parked') {
-                notifyInApp('SimpliiTrash', 'Park and finish today')
+                notifyInApp(CLIENT_CONFIG.name, 'Park and finish today')
               } else if (nextStatus === 'available') {
-                notifyInApp('SimpliiTrash', 'Available')
+                notifyInApp(CLIENT_CONFIG.name, 'Available')
               }
             }
 
@@ -1063,9 +1064,9 @@ export default function DriverPage() {
           if (!affectsThisDriver ||!affectsToday) return
 
           if ((payload as any).eventType === 'INSERT') {
-            notifyInApp('SimpliiTrash', 'You received a new order')
+            notifyInApp(CLIENT_CONFIG.name, 'You received a new order')
           } else if ((payload as any).eventType === 'UPDATE') {
-            notifyInApp('SimpliiTrash', 'Order updated')
+            notifyInApp(CLIENT_CONFIG.name, 'Order updated')
           }
 
           await refreshDriverData()
@@ -1277,15 +1278,23 @@ export default function DriverPage() {
       <div style={{ colorScheme: 'light' }} className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-500 via-green-500 to-emerald-700 px-6">
         <div className="w-full max-w-md rounded-[2rem] bg-white/10 p-10 text-center shadow-2xl backdrop-blur-md">
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-xl">
-            <img
-              src="/icons/icon-512.png"
-              alt="SimpliiTrash"
-              className="h-16 w-16 rounded-2xl object-contain"
-            />
+            {CLIENT_CONFIG.logoUrl ? (
+              <img
+                src={CLIENT_CONFIG.logoUrl}
+                alt={CLIENT_CONFIG.name}
+                className="h-16 w-16 rounded-2xl object-contain"
+              />
+            ) : (
+              <img
+                src="/icons/icon-512.png"
+                alt={CLIENT_CONFIG.name}
+                className="h-16 w-16 rounded-2xl object-contain"
+              />
+            )}
           </div>
 
           <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white">
-            SimpliiTrash
+            {CLIENT_CONFIG.name}
           </h1>
 
           <p className="mt-2 text-sm text-white/90">
@@ -1313,6 +1322,9 @@ export default function DriverPage() {
       <div className="shrink-0 bg-white border-b border-slate-200">
         <div className="mx-auto max-w-lg px-4 h-12 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
+            {CLIENT_CONFIG.logoUrl && (
+              <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.name} className="h-7 w-auto object-contain shrink-0" />
+            )}
             <span className="text-sm font-semibold text-slate-900 truncate">{driver?.name || 'Driver'}</span>
             {driver?.status === 'heading_back' && (
               <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">HB</span>

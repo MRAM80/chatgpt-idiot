@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, LockKeyhole } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -53,7 +54,7 @@ export default function ResetPasswordPage() {
           Reset password
         </p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Create a new password</h1>
-        <p className="mt-2 text-sm text-slate-500">Use a secure password for your SimpliiTrash account.</p>
+        <p className="mt-2 text-sm text-slate-500">Use a secure password for your {CLIENT_CONFIG.name} account.</p>
 
         {errorMessage ? (
           <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

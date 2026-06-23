@@ -18,6 +18,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import ThemeToggle from './ThemeToggle'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
 type NavItem = {
   href: string
@@ -46,9 +47,9 @@ function getInitials(name?: string) {
 
 export default function DashboardShell({
   title = 'Dashboard',
-  subtitle = 'Welcome back to SimpliiTrash',
+  subtitle = `Welcome back to ${CLIENT_CONFIG.name}`,
   roleLabel = 'Admin',
-  userName = 'SimpliiTrash User',
+  userName = `${CLIENT_CONFIG.name} User`,
   navItems = [],
   children,
 }: DashboardShellProps) {
@@ -132,9 +133,9 @@ export default function DashboardShell({
           <div className="flex h-20 items-center justify-between border-b border-slate-200 px-6">
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">
-                SimpliiTrash
+                {CLIENT_CONFIG.name}
               </h1>
-              <p className="text-sm text-slate-500">Operations Platform</p>
+              <p className="text-sm text-slate-500">{CLIENT_CONFIG.tagline}</p>
             </div>
             <button
               onClick={() => setMobileOpen(false)}

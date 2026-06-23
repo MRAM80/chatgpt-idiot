@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
-const STORAGE_KEY = 'simpliidash-theme'
+const STORAGE_KEY = CLIENT_CONFIG.themeStorageKey
 
 function applyTheme(dark: boolean) {
   if (dark) {

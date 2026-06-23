@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -192,7 +193,7 @@ export default function LoginPage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@simpliitrash.com"
+                    placeholder={CLIENT_CONFIG.emailPlaceholder}
                     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
                     required
                   />
