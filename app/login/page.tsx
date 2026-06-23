@@ -114,19 +114,21 @@ export default function LoginPage() {
           <div className="relative z-10 flex h-full w-full flex-col justify-between p-10 text-white">
             <div>
               <div className="flex items-center gap-3">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-lg font-bold text-slate-900 shadow-lg">
-                  ST
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-lg font-bold text-slate-900 shadow-lg overflow-hidden">
+                  {CLIENT_CONFIG.logoUrl
+                    ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-10 w-10 object-contain" />
+                    : CLIENT_CONFIG.shortName}
                 </div>
                 <div>
-                  <div className="text-2xl font-bold tracking-tight">SIMPLIITRASH</div>
-                  <div className="text-sm text-slate-300">Professional Operations Suite</div>
+                  <div className="text-2xl font-bold tracking-tight">{CLIENT_CONFIG.name}</div>
+                  <div className="text-sm text-slate-300">{CLIENT_CONFIG.tagline}</div>
                 </div>
               </div>
             </div>
 
             <div className="max-w-xl">
               <div className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200 backdrop-blur">
-                Waste Operations Platform
+                Operations Platform
               </div>
 
               <h1 className="mt-6 text-5xl font-bold leading-tight tracking-tight">
@@ -134,7 +136,7 @@ export default function LoginPage() {
               </h1>
 
               <p className="mt-5 max-w-lg text-base leading-7 text-slate-300">
-                Run SIMPLIITRASH with a modern dashboard built for scheduling,
+                Run {CLIENT_CONFIG.name} with a modern dashboard built for scheduling,
                 real-time dispatching, driver control, and organized customer management.
               </p>
 
@@ -155,7 +157,7 @@ export default function LoginPage() {
             </div>
 
             <div className="text-sm text-slate-400">
-              SIMPLIITRASH Secure Access
+              {CLIENT_CONFIG.name} Secure Access
             </div>
           </div>
         </div>
@@ -163,14 +165,16 @@ export default function LoginPage() {
         <div className="flex items-center justify-center bg-slate-100 px-4 py-10 sm:px-6 lg:px-10">
           <div className="w-full max-w-md">
             <div className="mb-8 text-center lg:hidden">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-lg font-bold text-white shadow-sm">
-                ST
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-lg font-bold text-white shadow-sm overflow-hidden">
+                {CLIENT_CONFIG.logoUrl
+                  ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-10 w-10 object-contain" />
+                  : CLIENT_CONFIG.shortName}
               </div>
               <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900">
-                SIMPLIITRASH
+                {CLIENT_CONFIG.name}
               </h1>
               <p className="mt-2 text-sm text-slate-500">
-                Professional Operations Suite
+                {CLIENT_CONFIG.tagline}
               </p>
             </div>
 
