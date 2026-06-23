@@ -260,7 +260,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
               <AppLogo className="h-12 w-auto" />
-              <h1 className="text-3xl font-bold tracking-tight">{CLIENT_CONFIG.name} Dashboard</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
             </div>
 
             <div className="flex flex-wrap gap-3">
