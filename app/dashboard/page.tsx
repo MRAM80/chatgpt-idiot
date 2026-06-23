@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import ThemeToggle from '@/components/ThemeToggle'
 import { CLIENT_CONFIG } from '@/lib/client-config'
+import AppLogo from '@/components/AppLogo'
 
 type Order = {
   id: string
@@ -257,11 +258,14 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-7xl p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">{CLIENT_CONFIG.name} Dashboard</h1>
-              <p className="mt-2 text-sm text-slate-300">
-                Professional operations overview for dispatch and orders
-              </p>
+            <div className="flex items-center gap-4">
+              <AppLogo className="h-12 w-auto" />
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">{CLIENT_CONFIG.name} Dashboard</h1>
+                <p className="mt-2 text-sm text-slate-300">
+                  Professional operations overview for dispatch and orders
+                </p>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">

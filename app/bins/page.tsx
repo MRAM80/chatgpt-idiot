@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import ThemeToggle from '@/components/ThemeToggle'
+import AppLogo from '@/components/AppLogo'
 
 type Bin = {
   id: string
@@ -786,13 +787,16 @@ export default function BinsPage() {
       <div className="mx-auto max-w-[92rem] p-4 md:p-6">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
+            <div className="flex items-center gap-3">
+              <AppLogo className="h-9 w-auto" />
+              <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
                 Bin Inventory
               </h1>
               <p className="mt-1 text-sm text-slate-500">
                 Track yard stock, live bin availability, and client site location from service orders
               </p>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">

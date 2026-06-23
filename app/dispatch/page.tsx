@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import ThemeToggle from '@/components/ThemeToggle'
+import AppLogo from '@/components/AppLogo'
 
 type Driver = {
   id: string
@@ -1092,6 +1093,7 @@ export default function DispatchBoardPage() {
         <div className="mb-4 rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
+              <AppLogo className="h-9 w-auto" />
               <div>
                 <h1 className="text-lg font-bold tracking-tight text-slate-900">Dispatch Board</h1>
                 <p className="text-xs text-slate-400">Planning: {formatBoardDayLabel(selectedDayKey)}</p>
