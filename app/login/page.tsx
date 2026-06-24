@@ -113,16 +113,10 @@ export default function LoginPage() {
 
           <div className="relative z-10 flex h-full w-full flex-col justify-between p-10 text-white">
             <div>
-              <div className="flex items-center gap-3">
-                <div className="flex h-20 w-20 items-center justify-center overflow-hidden">
-                  {CLIENT_CONFIG.logoUrl
-                    ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-16 w-auto object-contain" />
-                    : <span className="text-lg font-bold text-white">{CLIENT_CONFIG.shortName}</span>}
-                </div>
-                <div>
-                  <div className="text-2xl font-bold tracking-tight">{CLIENT_CONFIG.name}</div>
-                  <div className="text-sm text-slate-300">{CLIENT_CONFIG.tagline}</div>
-                </div>
+              <div className="flex items-center">
+                {CLIENT_CONFIG.logoUrl
+                  ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-24 w-auto object-contain" />
+                  : <span className="text-2xl font-bold text-white">{CLIENT_CONFIG.name}</span>}
               </div>
             </div>
 
@@ -164,18 +158,10 @@ export default function LoginPage() {
 
         <div className="flex items-center justify-center bg-slate-100 px-4 py-10 sm:px-6 lg:px-10">
           <div className="w-full max-w-md">
-            <div className="mb-8 text-center lg:hidden">
-              <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden">
-                {CLIENT_CONFIG.logoUrl
-                  ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-16 w-auto object-contain" />
-                  : <span className="text-lg font-bold text-slate-900">{CLIENT_CONFIG.shortName}</span>}
-              </div>
-              <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900">
-                {CLIENT_CONFIG.name}
-              </h1>
-              <p className="mt-2 text-sm text-slate-500">
-                {CLIENT_CONFIG.tagline}
-              </p>
+            <div className="mb-8 flex justify-center lg:hidden">
+              {CLIENT_CONFIG.logoUrl
+                ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-16 w-auto object-contain" />
+                : <span className="text-2xl font-bold text-slate-900">{CLIENT_CONFIG.name}</span>}
             </div>
 
             <div className="rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-200">
