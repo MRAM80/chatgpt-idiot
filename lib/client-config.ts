@@ -4,7 +4,7 @@ const shortName = process.env.NEXT_PUBLIC_CLIENT_SHORT_NAME || 'ST'
 export const CLIENT_CONFIG = {
   name,
   shortName,
-  tagline: process.env.NEXT_PUBLIC_CLIENT_TAGLINE || 'Operations Platform',
+  tagline: process.env.NEXT_PUBLIC_CLIENT_TAGLINE || '',
   logoUrl: process.env.NEXT_PUBLIC_CLIENT_LOGO_URL || null,
   primaryColor: process.env.NEXT_PUBLIC_CLIENT_PRIMARY_COLOR || '#0f172a',
   secondaryColor: process.env.NEXT_PUBLIC_CLIENT_SECONDARY_COLOR || '#0f172a',
