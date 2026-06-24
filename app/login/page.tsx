@@ -119,7 +119,7 @@ export default function LoginPage() {
                   : <span className="text-2xl font-bold text-white">{CLIENT_CONFIG.name}</span>}
                 {CLIENT_CONFIG.logoUrl && CLIENT_CONFIG.tagline && (
                   <span
-                    className="text-2xl font-bold tracking-tight"
+                    className="text-3xl font-bold tracking-tight"
                     style={{ color: CLIENT_CONFIG.secondaryColor }}
                   >
                     {CLIENT_CONFIG.tagline}

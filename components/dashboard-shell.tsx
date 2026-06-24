@@ -134,12 +134,9 @@ export default function DashboardShell({
           <div className="flex h-20 items-center justify-between border-b border-slate-200 px-6">
             <div className="flex items-center gap-3">
               <AppLogo className="h-10 w-auto" />
-              <div>
-                <h1 className="text-xl font-bold tracking-tight text-slate-900">
-                  {CLIENT_CONFIG.name}
-                </h1>
-                <p className="text-sm text-slate-500">{CLIENT_CONFIG.tagline}</p>
-              </div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900">
+                {CLIENT_CONFIG.name}
+              </h1>
             </div>
             <button
               onClick={() => setMobileOpen(false)}
