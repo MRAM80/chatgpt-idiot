@@ -113,10 +113,18 @@ export default function LoginPage() {
 
           <div className="relative z-10 flex h-full w-full flex-col justify-between p-10 text-white">
             <div>
-              <div className="flex items-center">
+              <div className="flex items-center gap-4">
                 {CLIENT_CONFIG.logoUrl
                   ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-24 w-auto object-contain" />
                   : <span className="text-2xl font-bold text-white">{CLIENT_CONFIG.name}</span>}
+                {CLIENT_CONFIG.logoUrl && CLIENT_CONFIG.tagline && (
+                  <span
+                    className="text-2xl font-bold tracking-tight"
+                    style={{ color: CLIENT_CONFIG.secondaryColor }}
+                  >
+                    {CLIENT_CONFIG.tagline}
+                  </span>
+                )}
               </div>
             </div>
 
