@@ -476,6 +476,16 @@ export default function DashboardPage() {
               Export customer order history for invoicing
             </div>
           </button>
+
+          <Link
+            href="/users"
+            className="rounded-3xl bg-slate-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-lg font-bold text-white">Users</div>
+            <div className="mt-2 text-sm text-slate-400">
+              Manage team roles and access
+            </div>
+          </Link>
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">

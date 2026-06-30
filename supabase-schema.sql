@@ -190,3 +190,15 @@ alter table driver_push_subscriptions disable row level security;
 alter table pre_trip_inspections disable row level security;
 alter table profiles disable row level security;
 alter table config disable row level security;
+
+-- ── user_profiles (roles) ─────────────────────────────────────
+create table if not exists user_profiles (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid references auth.users(id) on delete cascade unique not null,
+  role        text not null default 'dispatcher'
+              check (role in ('owner','manager','admin','dispatcher','driver')),
+  name        text,
+  email       text,
+  created_at  timestamptz default now()
+);
+alter table user_profiles disable row level security;
