@@ -5,15 +5,17 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 
+type Step = 'credentials' | 'faceid-enroll' | 'faceid-verify'
+
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(true)
   const [loading, setLoading] = useState(false)
-  const [faceIdLoading, setFaceIdLoading] = useState(false)
   const [error, setError] = useState('')
-  const [showEnroll, setShowEnroll] = useState(false)
+  const [step, setStep] = useState<Step>('credentials')
+  const [faceIdFactorId, setFaceIdFactorId] = useState<string | null>(null)
 
   async function redirectAfterLogin() {
     const supabase = createClient()
@@ -22,19 +24,17 @@ export default function LoginPage() {
 
     const { data: driver } = await supabase
       .from('drivers').select('id').eq('auth_user_id', user.id).maybeSingle()
-
     if (driver?.id) { router.push('/driver'); router.refresh(); return }
 
     const { data: driverByEmail } = await supabase
       .from('drivers').select('id').ilike('email', (user.email || '').toLowerCase()).maybeSingle()
-
     if (driverByEmail?.id) {
       await supabase.from('drivers').update({ auth_user_id: user.id, last_login_at: new Date().toISOString() }).eq('id', driverByEmail.id)
       router.push('/driver'); router.refresh(); return
     }
 
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('user_id', user.id).maybeSingle()
-    if (profile?.role === 'dispatcher') { router.push('/dispatch') } else { router.push('/dashboard') }
+    router.push(profile?.role === 'dispatcher' ? '/dispatch' : '/dashboard')
     router.refresh()
   }
 
@@ -45,70 +45,91 @@ export default function LoginPage() {
 
     const supabase = createClient()
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    if (signInError) { setError(signInError.message); setLoading(false); return }
 
-    if (signInError) {
-      setError(signInError.message)
+    if (!rememberMe) sessionStorage.setItem('no-persist', '1')
+
+    // Check for enrolled Face ID factor
+    const { data: factors } = await supabase.auth.mfa.listFactors()
+    const webauthnFactor = (factors as any)?.webauthn?.[0] ||
+      (factors?.all ?? []).find((f: any) => f.factor_type === 'webauthn')
+
+    if (webauthnFactor) {
+      // Has Face ID — verify it
+      setFaceIdFactorId(webauthnFactor.id)
       setLoading(false)
-      return
-    }
-
-    if (!rememberMe) {
-      sessionStorage.setItem('no-persist', '1')
-    }
-
-    // Offer Face ID enrollment if supported
-    if (window.PublicKeyCredential) {
-      setShowEnroll(true)
+      setStep('faceid-verify')
+      // Auto-trigger Face ID
+      await triggerFaceId(webauthnFactor.id)
+    } else if (window.PublicKeyCredential) {
+      // Offer enrollment
       setLoading(false)
-      return
+      setStep('faceid-enroll')
+    } else {
+      await redirectAfterLogin()
     }
-
-    await redirectAfterLogin()
   }
 
-  async function handleFaceId() {
-    setFaceIdLoading(true)
+  async function triggerFaceId(factorId: string) {
+    setLoading(true)
     setError('')
     const supabase = createClient()
     try {
-      // @ts-expect-error — signInWithPasskey is available in supabase-js v2.102+
-      const { error: passkeyError } = await supabase.auth.signInWithPasskey()
-      if (passkeyError) { setError(passkeyError.message); setFaceIdLoading(false); return }
+      const { error: authError } = await (supabase.auth as any).webauthn.authenticate({ factorId })
+      if (authError) {
+        setError('Face ID failed. ' + authError.message)
+        setLoading(false)
+        return
+      }
       await redirectAfterLogin()
-    } catch {
-      setError('Face ID is not set up yet. Please sign in with your password first.')
-      setFaceIdLoading(false)
+    } catch (err: any) {
+      setError(err?.message || 'Face ID failed. Try again.')
+      setLoading(false)
     }
   }
 
   async function enrollFaceId() {
+    setLoading(true)
+    setError('')
     const supabase = createClient()
     try {
-      // @ts-expect-error — enrollWithPasskey is available in supabase-js v2.102+
-      await supabase.auth.enrollWithPasskey({ display_name: `${CLIENT_CONFIG.name} Face ID` })
+      const { error: regError } = await (supabase.auth as any).webauthn.register({
+        friendlyName: `${CLIENT_CONFIG.name} Face ID`,
+      })
+      if (regError) {
+        // Enrollment failed — just go to dashboard
+        await redirectAfterLogin()
+        return
+      }
     } catch {
-      // enrollment failed silently — continue to dashboard anyway
+      // Silently skip
     }
     await redirectAfterLogin()
   }
 
-  const faceIdSupported = typeof window !== 'undefined' && !!window.PublicKeyCredential
-
-  if (showEnroll) {
+  // ── Enroll screen ────────────────────────────────────────────
+  if (step === 'faceid-enroll') {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
         <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-200 text-center">
-          <div className="text-5xl mb-4">🔐</div>
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
+            <svg className="h-8 w-8 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </div>
           <h2 className="text-2xl font-bold text-slate-900">Enable Face ID?</h2>
           <p className="mt-2 text-sm text-slate-500">
-            Sign in faster next time using Face ID, Touch ID, or your device PIN — no password needed.
+            Sign in faster next time — no password needed. Works with Face ID, Touch ID, or your device PIN.
           </p>
+          {error && <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
           <div className="mt-6 space-y-3">
             <button
               onClick={enrollFaceId}
-              className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:opacity-90 transition"
+              disabled={loading}
+              className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50"
             >
-              Yes, set up Face ID
+              {loading ? 'Setting up...' : 'Yes, enable Face ID'}
             </button>
             <button
               onClick={redirectAfterLogin}
@@ -122,6 +143,45 @@ export default function LoginPage() {
     )
   }
 
+  // ── Face ID verify screen ─────────────────────────────────────
+  if (step === 'faceid-verify') {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-200 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
+            <svg className="h-8 w-8 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">Face ID Verification</h2>
+          <p className="mt-2 text-sm text-slate-500">Confirm your identity to continue.</p>
+          {error && <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
+          <div className="mt-6 space-y-3">
+            <button
+              onClick={() => faceIdFactorId && triggerFaceId(faceIdFactorId)}
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              {loading ? 'Verifying...' : 'Try Face ID again'}
+            </button>
+            <button
+              onClick={redirectAfterLogin}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+            >
+              Skip Face ID this time
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Main login form ───────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-950">
       <div className="grid min-h-screen lg:grid-cols-2">
@@ -130,7 +190,6 @@ export default function LoginPage() {
         <div className="relative hidden overflow-hidden lg:flex">
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.18),transparent_30%)]" />
-
           <div className="relative z-10 flex h-full w-full flex-col justify-between p-10 text-white">
             <div>
               <div className="flex items-center gap-4">
@@ -144,7 +203,6 @@ export default function LoginPage() {
                 )}
               </div>
             </div>
-
             <div className="max-w-xl">
               <div className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200 backdrop-blur">
                 Operations Platform
@@ -171,7 +229,6 @@ export default function LoginPage() {
                 </div>
               </div>
             </div>
-
             <div className="text-sm text-slate-400">{CLIENT_CONFIG.name} Secure Access</div>
           </div>
         </div>
@@ -179,7 +236,6 @@ export default function LoginPage() {
         {/* Login panel */}
         <div className="flex items-center justify-center bg-slate-100 px-4 py-10 sm:px-6 lg:px-10">
           <div className="w-full max-w-md">
-
             <div className="mb-8 flex justify-center lg:hidden">
               {CLIENT_CONFIG.logoUrl
                 ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-16 w-auto object-contain" />
@@ -193,9 +249,7 @@ export default function LoginPage() {
               </div>
 
               {error && (
-                <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                  {error}
-                </div>
+                <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
               )}
 
               <form onSubmit={handleLogin} className="space-y-5">
@@ -211,7 +265,6 @@ export default function LoginPage() {
                     required
                   />
                 </div>
-
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-slate-700">Password</label>
                   <input
@@ -224,7 +277,6 @@ export default function LoginPage() {
                     required
                   />
                 </div>
-
                 <div className="flex items-center gap-2">
                   <input
                     id="remember"
@@ -237,7 +289,6 @@ export default function LoginPage() {
                     Remember me
                   </label>
                 </div>
-
                 <button
                   type="submit"
                   disabled={loading}
@@ -247,37 +298,12 @@ export default function LoginPage() {
                 </button>
               </form>
 
-              {faceIdSupported && (
-                <>
-                  <div className="my-5 flex items-center gap-3">
-                    <div className="h-px flex-1 bg-slate-200" />
-                    <span className="text-xs text-slate-400">or</span>
-                    <div className="h-px flex-1 bg-slate-200" />
-                  </div>
-
-                  <button
-                    onClick={handleFaceId}
-                    disabled={faceIdLoading}
-                    className="flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
-                      <circle cx="12" cy="12" r="3" />
-                      <path strokeLinecap="round" d="M9 9.5C9.5 8.5 10.5 8 12 8s2.5.5 3 1.5" />
-                      <path strokeLinecap="round" d="M9 14.5c.5 1 1.5 1.5 3 1.5s2.5-.5 3-1.5" />
-                    </svg>
-                    {faceIdLoading ? 'Authenticating...' : 'Sign in with Face ID'}
-                  </button>
-                </>
-              )}
-
               <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                Secure access for dispatch managers and drivers.
+                Face ID is enabled after your first sign-in.
               </div>
             </div>
           </div>
         </div>
-
       </div>
     </div>
   )
