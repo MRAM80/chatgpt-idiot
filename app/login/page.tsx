@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 
-type Step = 'credentials' | 'faceid-enroll' | 'faceid-verify'
-
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
@@ -14,8 +12,6 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [step, setStep] = useState<Step>('credentials')
-  const [faceIdFactorId, setFaceIdFactorId] = useState<string | null>(null)
 
   async function redirectAfterLogin() {
     const supabase = createClient()
@@ -49,151 +45,7 @@ export default function LoginPage() {
 
     if (!rememberMe) sessionStorage.setItem('no-persist', '1')
 
-    // Check for enrolled Face ID factor
-    const { data: factors } = await supabase.auth.mfa.listFactors()
-    const webauthnFactor = (factors?.all ?? []).find(
-      (f: any) => f.factor_type === 'webauthn' && f.status === 'verified'
-    )
-
-    if (webauthnFactor) {
-      // Has Face ID — verify it
-      setFaceIdFactorId(webauthnFactor.id)
-      setLoading(false)
-      setStep('faceid-verify')
-      // Auto-trigger Face ID
-      await triggerFaceId(webauthnFactor.id)
-    } else if (window.PublicKeyCredential) {
-      // Offer enrollment
-      setLoading(false)
-      setStep('faceid-enroll')
-    } else {
-      await redirectAfterLogin()
-    }
-  }
-
-  async function triggerFaceId(factorId: string) {
-    setLoading(true)
-    setError('')
-    const supabase = createClient()
-    try {
-      const { error: authError } = await (supabase.auth.mfa as any).webauthn.authenticate({ factorId })
-      if (authError) {
-        setError('Face ID failed. ' + authError.message)
-        setLoading(false)
-        return
-      }
-      await redirectAfterLogin()
-    } catch (err: any) {
-      setError(err?.message || 'Face ID failed. Try again.')
-      setLoading(false)
-    }
-  }
-
-  async function enrollFaceId() {
-    setLoading(true)
-    setError('')
-    const supabase = createClient()
-    try {
-      const webauthn = (supabase.auth.mfa as any).webauthn
-      if (!webauthn?.register) {
-        setError('Face ID is not supported on this device or browser.')
-        setLoading(false)
-        return
-      }
-      const { error: regError } = await webauthn.register({
-        friendlyName: `${CLIENT_CONFIG.name} Face ID`,
-      })
-      if (regError) {
-        setError('Face ID setup failed: ' + regError.message)
-        setLoading(false)
-        return
-      }
-    } catch (err: any) {
-      // User cancelled or device doesn't support it
-      if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
-        // User cancelled — skip silently
-        await redirectAfterLogin()
-        return
-      }
-      setError('Face ID setup failed: ' + (err?.message || 'Unknown error'))
-      setLoading(false)
-      return
-    }
     await redirectAfterLogin()
-  }
-
-  // ── Enroll screen ────────────────────────────────────────────
-  if (step === 'faceid-enroll') {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-200 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
-            <svg className="h-8 w-8 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900">Enable Face ID?</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            Sign in faster next time — no password needed. Works with Face ID, Touch ID, or your device PIN.
-          </p>
-          {error && <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
-          <div className="mt-6 space-y-3">
-            <button
-              onClick={enrollFaceId}
-              disabled={loading}
-              className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50"
-            >
-              {loading ? 'Setting up...' : 'Yes, enable Face ID'}
-            </button>
-            <button
-              onClick={redirectAfterLogin}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
-            >
-              Skip for now
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Face ID verify screen ─────────────────────────────────────
-  if (step === 'faceid-verify') {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-200 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
-            <svg className="h-8 w-8 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900">Face ID Verification</h2>
-          <p className="mt-2 text-sm text-slate-500">Confirm your identity to continue.</p>
-          {error && <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
-          <div className="mt-6 space-y-3">
-            <button
-              onClick={() => faceIdFactorId && triggerFaceId(faceIdFactorId)}
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50"
-            >
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              {loading ? 'Verifying...' : 'Try Face ID again'}
-            </button>
-            <button
-              onClick={redirectAfterLogin}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
-            >
-              Skip Face ID this time
-            </button>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   // ── Main login form ───────────────────────────────────────────
@@ -312,10 +164,6 @@ export default function LoginPage() {
                   {loading ? 'Signing in...' : 'Sign In'}
                 </button>
               </form>
-
-              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                Face ID is enabled after your first sign-in.
-              </div>
             </div>
           </div>
         </div>
