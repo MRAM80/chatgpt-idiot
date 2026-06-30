@@ -5,61 +5,25 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 
-type Tab = 'google' | 'magic' | 'password'
-
 export default function LoginPage() {
   const router = useRouter()
-  const [tab, setTab] = useState<Tab>('google')
-
-  // Email/password
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [magicEmail, setMagicEmail] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
   const [loading, setLoading] = useState(false)
+  const [faceIdLoading, setFaceIdLoading] = useState(false)
   const [error, setError] = useState('')
-  const [magicSent, setMagicSent] = useState(false)
+  const [showEnroll, setShowEnroll] = useState(false)
 
-  async function handleGoogle() {
-    setLoading(true)
-    setError('')
+  async function redirectAfterLogin() {
     const supabase = createClient()
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
-    })
-    if (oauthError) { setError(oauthError.message); setLoading(false) }
-  }
-
-  async function handleMagicLink(e: FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    const supabase = createClient()
-    const { error: mlError } = await supabase.auth.signInWithOtp({
-      email: magicEmail,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-    })
-    if (mlError) { setError(mlError.message) } else { setMagicSent(true) }
-    setLoading(false)
-  }
-
-  async function handlePassword(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-    const supabase = createClient()
-
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-    if (signInError) { setError(signInError.message); setLoading(false); return }
-
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setError('Could not load user.'); setLoading(false); return }
+    if (!user) { router.push('/login'); return }
 
-    // Check driver
-    const { data: driverByAuth } = await supabase
+    const { data: driver } = await supabase
       .from('drivers').select('id').eq('auth_user_id', user.id).maybeSingle()
 
-    if (driverByAuth?.id) { router.push('/driver'); router.refresh(); return }
+    if (driver?.id) { router.push('/driver'); router.refresh(); return }
 
     const { data: driverByEmail } = await supabase
       .from('drivers').select('id').ilike('email', (user.email || '').toLowerCase()).maybeSingle()
@@ -69,21 +33,99 @@ export default function LoginPage() {
       router.push('/driver'); router.refresh(); return
     }
 
-    // Check role
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('user_id', user.id).maybeSingle()
     if (profile?.role === 'dispatcher') { router.push('/dispatch') } else { router.push('/dashboard') }
     router.refresh()
   }
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'google', label: 'Google' },
-    { id: 'magic', label: 'Magic Link' },
-    { id: 'password', label: 'Password' },
-  ]
+  async function handleLogin(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    const supabase = createClient()
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (signInError) {
+      setError(signInError.message)
+      setLoading(false)
+      return
+    }
+
+    if (!rememberMe) {
+      sessionStorage.setItem('no-persist', '1')
+    }
+
+    // Offer Face ID enrollment if supported
+    if (window.PublicKeyCredential) {
+      setShowEnroll(true)
+      setLoading(false)
+      return
+    }
+
+    await redirectAfterLogin()
+  }
+
+  async function handleFaceId() {
+    setFaceIdLoading(true)
+    setError('')
+    const supabase = createClient()
+    try {
+      // @ts-expect-error — signInWithPasskey is available in supabase-js v2.102+
+      const { error: passkeyError } = await supabase.auth.signInWithPasskey()
+      if (passkeyError) { setError(passkeyError.message); setFaceIdLoading(false); return }
+      await redirectAfterLogin()
+    } catch {
+      setError('Face ID is not set up yet. Please sign in with your password first.')
+      setFaceIdLoading(false)
+    }
+  }
+
+  async function enrollFaceId() {
+    const supabase = createClient()
+    try {
+      // @ts-expect-error — enrollWithPasskey is available in supabase-js v2.102+
+      await supabase.auth.enrollWithPasskey({ display_name: `${CLIENT_CONFIG.name} Face ID` })
+    } catch {
+      // enrollment failed silently — continue to dashboard anyway
+    }
+    await redirectAfterLogin()
+  }
+
+  const faceIdSupported = typeof window !== 'undefined' && !!window.PublicKeyCredential
+
+  if (showEnroll) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-200 text-center">
+          <div className="text-5xl mb-4">🔐</div>
+          <h2 className="text-2xl font-bold text-slate-900">Enable Face ID?</h2>
+          <p className="mt-2 text-sm text-slate-500">
+            Sign in faster next time using Face ID, Touch ID, or your device PIN — no password needed.
+          </p>
+          <div className="mt-6 space-y-3">
+            <button
+              onClick={enrollFaceId}
+              className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:opacity-90 transition"
+            >
+              Yes, set up Face ID
+            </button>
+            <button
+              onClick={redirectAfterLogin}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+            >
+              Skip for now
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-950">
       <div className="grid min-h-screen lg:grid-cols-2">
+
         {/* Hero panel */}
         <div className="relative hidden overflow-hidden lg:flex">
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950" />
@@ -137,6 +179,7 @@ export default function LoginPage() {
         {/* Login panel */}
         <div className="flex items-center justify-center bg-slate-100 px-4 py-10 sm:px-6 lg:px-10">
           <div className="w-full max-w-md">
+
             <div className="mb-8 flex justify-center lg:hidden">
               {CLIENT_CONFIG.logoUrl
                 ? <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.shortName} className="h-16 w-auto object-contain" />
@@ -144,119 +187,88 @@ export default function LoginPage() {
             </div>
 
             <div className="rounded-3xl bg-white p-8 shadow-xl ring-1 ring-slate-200">
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Welcome back</h2>
-                <p className="mt-2 text-sm text-slate-500">Sign in to access your dashboard or driver route.</p>
-              </div>
-
-              {/* Tabs */}
-              <div className="mb-6 flex rounded-2xl bg-slate-100 p-1">
-                {tabs.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => { setTab(t.id); setError(''); setMagicSent(false) }}
-                    className={`flex-1 rounded-xl py-2 text-sm font-semibold transition ${
-                      tab === t.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+              <div className="mb-7">
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Sign in</h2>
+                <p className="mt-1 text-sm text-slate-500">Access your {CLIENT_CONFIG.name} account.</p>
               </div>
 
               {error && (
-                <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                   {error}
                 </div>
               )}
 
-              {/* Google */}
-              {tab === 'google' && (
-                <div className="space-y-4">
-                  <p className="text-sm text-slate-500">Recommended for owners, managers, admins, and dispatchers.</p>
-                  <button
-                    onClick={handleGoogle}
-                    disabled={loading}
-                    className="flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    <svg className="h-5 w-5" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                    </svg>
-                    {loading ? 'Redirecting...' : 'Continue with Google'}
-                  </button>
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Username</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder={CLIENT_CONFIG.emailPlaceholder}
+                    autoComplete="username email"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:bg-white transition"
+                    required
+                  />
                 </div>
-              )}
 
-              {/* Magic Link */}
-              {tab === 'magic' && (
-                magicSent ? (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-6 text-center">
-                    <div className="text-2xl mb-2">📧</div>
-                    <p className="font-semibold text-emerald-800">Check your email</p>
-                    <p className="mt-1 text-sm text-emerald-600">We sent a sign-in link to <strong>{magicEmail}</strong></p>
-                  </div>
-                ) : (
-                  <form onSubmit={handleMagicLink} className="space-y-4">
-                    <p className="text-sm text-slate-500">For drivers — enter your email and we'll send a sign-in link. No password needed.</p>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-slate-700">Email</label>
-                      <input
-                        type="email"
-                        value={magicEmail}
-                        onChange={e => setMagicEmail(e.target.value)}
-                        placeholder={CLIENT_CONFIG.emailPlaceholder}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                    >
-                      {loading ? 'Sending...' : 'Send Magic Link'}
-                    </button>
-                  </form>
-                )
-              )}
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:bg-white transition"
+                    required
+                  />
+                </div>
 
-              {/* Password */}
-              {tab === 'password' && (
-                <form onSubmit={handlePassword} className="space-y-5">
-                  <p className="text-sm text-slate-500">Email and password sign-in.</p>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Email</label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder={CLIENT_CONFIG.emailPlaceholder}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                      required
-                    />
+                <div className="flex items-center gap-2">
+                  <input
+                    id="remember"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={e => setRememberMe(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 accent-slate-900 cursor-pointer"
+                  />
+                  <label htmlFor="remember" className="text-sm text-slate-600 cursor-pointer select-none">
+                    Remember me
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {loading ? 'Signing in...' : 'Sign In'}
+                </button>
+              </form>
+
+              {faceIdSupported && (
+                <>
+                  <div className="my-5 flex items-center gap-3">
+                    <div className="h-px flex-1 bg-slate-200" />
+                    <span className="text-xs text-slate-400">or</span>
+                    <div className="h-px flex-1 bg-slate-200" />
                   </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Password</label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                      required
-                    />
-                  </div>
+
                   <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                    onClick={handleFaceId}
+                    disabled={faceIdLoading}
+                    className="flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
                   >
-                    {loading ? 'Signing in...' : 'Sign In'}
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M7 21H5a2 2 0 0 1-2-2v-2M17 21h2a2 2 0 0 0 2-2v-2" />
+                      <circle cx="12" cy="12" r="3" />
+                      <path strokeLinecap="round" d="M9 9.5C9.5 8.5 10.5 8 12 8s2.5.5 3 1.5" />
+                      <path strokeLinecap="round" d="M9 14.5c.5 1 1.5 1.5 3 1.5s2.5-.5 3-1.5" />
+                    </svg>
+                    {faceIdLoading ? 'Authenticating...' : 'Sign in with Face ID'}
                   </button>
-                </form>
+                </>
               )}
 
               <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
@@ -265,6 +277,7 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
+
       </div>
     </div>
   )
