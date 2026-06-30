@@ -1,6 +1,7 @@
 import './globals.css'
 import type { ReactNode } from 'react'
 import { CLIENT_CONFIG } from '@/lib/client-config'
+import ThemeWatcher from '@/components/ThemeWatcher'
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const key = CLIENT_CONFIG.themeStorageKey
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           ['--brand-secondary' as string]: secondary,
         }}
       >
+        <ThemeWatcher />
         {children}
       </body>
     </html>

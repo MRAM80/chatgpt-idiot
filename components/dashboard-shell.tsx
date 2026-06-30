@@ -17,7 +17,6 @@ import {
   Search,
   ChevronRight,
 } from 'lucide-react'
-import ThemeToggle from './ThemeToggle'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import AppLogo from './AppLogo'
 
@@ -258,7 +257,6 @@ export default function DashboardShell({
                   <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-emerald-500" />
                 </button>
 
-                <ThemeToggle />
               </div>
             </div>
           </header>

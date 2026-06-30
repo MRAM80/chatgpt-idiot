@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import ThemeToggle from '@/components/ThemeToggle'
 import AppLogo from '@/components/AppLogo'
 
 type Bin = {
@@ -829,7 +828,6 @@ export default function BinsPage() {
                   New Bin
                 </button>
               )}
-              <ThemeToggle />
             </div>
           </div>
 

@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import ThemeToggle from '@/components/ThemeToggle'
 import AppLogo from '@/components/AppLogo'
 
 type Driver = {
@@ -1506,7 +1505,6 @@ function OrdersPageContent() {
               >
                 New Order
               </button>
-              <ThemeToggle />
             </div>
           </div>
 

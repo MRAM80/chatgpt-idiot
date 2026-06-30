@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import ThemeToggle from './ThemeToggle'
 
 export default function Navbar({ title }: { title: string }) {
   const router = useRouter()
@@ -16,7 +15,6 @@ export default function Navbar({ title }: { title: string }) {
     <div className="flex items-center justify-between bg-black text-white px-6 py-4">
       <h1 className="font-bold text-lg">{title}</h1>
       <div className="flex items-center gap-3">
-        <ThemeToggle />
         <button onClick={logout} className="text-sm opacity-80 hover:opacity-100">
           Logout
         </button>

@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import ThemeToggle from '@/components/ThemeToggle'
 import AppLogo from '@/components/AppLogo'
 
 type Customer = {
@@ -309,7 +308,6 @@ export default function CustomersPage() {
               >
                 New Customer
               </button>
-              <ThemeToggle />
             </div>
           </div>
 

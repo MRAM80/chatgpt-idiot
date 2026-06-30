@@ -8,7 +8,6 @@ import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import { ROLE_LABELS, type Role } from '@/lib/roles'
 import AppLogo from '@/components/AppLogo'
-import ThemeToggle from '@/components/ThemeToggle'
 import Link from 'next/link'
 
 type UserProfile = {
@@ -120,7 +119,6 @@ export default function UsersPage() {
               <Link href="/dashboard" className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700">
                 ← Dashboard
               </Link>
-              <ThemeToggle />
             </div>
           </div>
         </div>

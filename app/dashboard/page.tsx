@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import ThemeToggle from '@/components/ThemeToggle'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import AppLogo from '@/components/AppLogo'
 
@@ -375,7 +374,6 @@ export default function DashboardPage() {
               >
                 Log Off
               </button>
-              <ThemeToggle />
             </div>
           </div>
         </div>

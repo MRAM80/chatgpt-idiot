@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import ThemeToggle from '@/components/ThemeToggle'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 
 type Driver = {
@@ -1350,7 +1349,6 @@ export default function DriverPage() {
                 Available
               </button>
             )}
-            <ThemeToggle />
             <button
               type="button"
               onClick={handleLogout}
