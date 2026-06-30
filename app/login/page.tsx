@@ -51,8 +51,9 @@ export default function LoginPage() {
 
     // Check for enrolled Face ID factor
     const { data: factors } = await supabase.auth.mfa.listFactors()
-    const webauthnFactor = (factors as any)?.webauthn?.[0] ||
-      (factors?.all ?? []).find((f: any) => f.factor_type === 'webauthn')
+    const webauthnFactor = (factors?.all ?? []).find(
+      (f: any) => f.factor_type === 'webauthn' && f.status === 'verified'
+    )
 
     if (webauthnFactor) {
       // Has Face ID — verify it
@@ -93,16 +94,30 @@ export default function LoginPage() {
     setError('')
     const supabase = createClient()
     try {
-      const { error: regError } = await (supabase.auth as any).webauthn.register({
+      const webauthn = (supabase.auth as any).webauthn
+      if (!webauthn?.register) {
+        setError('Face ID is not supported on this device or browser.')
+        setLoading(false)
+        return
+      }
+      const { error: regError } = await webauthn.register({
         friendlyName: `${CLIENT_CONFIG.name} Face ID`,
       })
       if (regError) {
-        // Enrollment failed — just go to dashboard
+        setError('Face ID setup failed: ' + regError.message)
+        setLoading(false)
+        return
+      }
+    } catch (err: any) {
+      // User cancelled or device doesn't support it
+      if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
+        // User cancelled — skip silently
         await redirectAfterLogin()
         return
       }
-    } catch {
-      // Silently skip
+      setError('Face ID setup failed: ' + (err?.message || 'Unknown error'))
+      setLoading(false)
+      return
     }
     await redirectAfterLogin()
   }
