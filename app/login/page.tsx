@@ -76,7 +76,7 @@ export default function LoginPage() {
     setError('')
     const supabase = createClient()
     try {
-      const { error: authError } = await (supabase.auth as any).webauthn.authenticate({ factorId })
+      const { error: authError } = await (supabase.auth.mfa as any).webauthn.authenticate({ factorId })
       if (authError) {
         setError('Face ID failed. ' + authError.message)
         setLoading(false)
@@ -94,7 +94,7 @@ export default function LoginPage() {
     setError('')
     const supabase = createClient()
     try {
-      const webauthn = (supabase.auth as any).webauthn
+      const webauthn = (supabase.auth.mfa as any).webauthn
       if (!webauthn?.register) {
         setError('Face ID is not supported on this device or browser.')
         setLoading(false)
