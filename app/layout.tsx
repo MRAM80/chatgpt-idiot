@@ -11,6 +11,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="apple-touch-icon" href={CLIENT_CONFIG.icon192} />
+        <link rel="icon" href={CLIENT_CONFIG.icon192} />
         <script
           dangerouslySetInnerHTML={{
             __html: `

@@ -40,6 +40,7 @@ export default function UsersPage() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<Role>('dispatcher')
   const [inviteName, setInviteName] = useState('')
+  const [invitePassword, setInvitePassword] = useState('')
   const [inviting, setInviting] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState('')
 
@@ -88,20 +89,40 @@ export default function UsersPage() {
     setError('')
     setInviteSuccess('')
 
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: inviteEmail,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    if (!invitePassword || invitePassword.length < 6) {
+      setError('Set a password (at least 6 characters) for this user.')
+      setInviting(false)
+      return
+    }
+
+    const res = await fetch('/api/admin/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: inviteEmail, password: invitePassword, name: inviteName }),
     })
+    const result = await res.json()
 
-    if (otpError) { setError(otpError.message); setInviting(false); return }
+    if (!res.ok) {
+      setError(result.error || 'Failed to create user.')
+      setInviting(false)
+      return
+    }
 
-    // Pre-create the profile so when they log in they have the right role
-    // We need their user_id — we store a pending invite using email lookup after they sign in
-    // For now, record intent in user_profiles using a placeholder that auth/callback will finalize
-    setInviteSuccess(`Invite sent to ${inviteEmail}. Once they sign in, set their role here.`)
+    const { error: profileError } = await supabase.from('user_profiles').insert([{
+      user_id: result.userId,
+      role: inviteRole,
+      name: inviteName || null,
+      email: inviteEmail,
+    }])
+
+    if (profileError) { setError(profileError.message); setInviting(false); return }
+
+    setInviteSuccess(`${inviteEmail} can sign in now with the password you set.`)
     setInviteEmail('')
     setInviteName('')
+    setInvitePassword('')
     setInviting(false)
+    await loadUsers()
   }
 
   useEffect(() => { void loadUsers() }, [])
@@ -129,38 +150,70 @@ export default function UsersPage() {
 
         {/* Invite */}
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <h2 className="mb-4 text-lg font-bold text-slate-900">Invite User</h2>
-          <form onSubmit={sendInvite} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex-1">
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Email</label>
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={e => setInviteEmail(e.target.value)}
-                placeholder="name@company.com"
-                required
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-              />
+          <h2 className="mb-4 text-lg font-bold text-slate-900">Add Team Member</h2>
+          <form onSubmit={sendInvite} className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Name</label>
+                <input
+                  value={inviteName}
+                  onChange={e => setInviteName(e.target.value)}
+                  placeholder="Full name"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Email</label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={e => setInviteEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Role</label>
+                <select
+                  value={inviteRole}
+                  onChange={e => setInviteRole(e.target.value as Role)}
+                  className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                  {ROLES.filter(r => r !== 'owner' || currentRole === 'owner').map(r => (
+                    <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Role</label>
-              <select
-                value={inviteRole}
-                onChange={e => setInviteRole(e.target.value as Role)}
-                className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Password</label>
+                <div className="flex gap-2">
+                  <input
+                    value={invitePassword}
+                    onChange={e => setInvitePassword(e.target.value)}
+                    placeholder="Set a login password"
+                    required
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setInvitePassword(Math.random().toString(36).slice(-6) + Math.random().toString(36).slice(-4).toUpperCase())}
+                    className="whitespace-nowrap rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Generate
+                  </button>
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={inviting}
+                className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
               >
-                {ROLES.filter(r => r !== 'owner' || currentRole === 'owner').map(r => (
-                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                ))}
-              </select>
+                {inviting ? 'Creating...' : 'Create User'}
+              </button>
             </div>
-            <button
-              type="submit"
-              disabled={inviting}
-              className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {inviting ? 'Sending...' : 'Send Invite'}
-            </button>
           </form>
           {inviteSuccess && (
             <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{inviteSuccess}</div>

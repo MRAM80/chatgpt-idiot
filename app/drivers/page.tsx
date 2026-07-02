@@ -111,6 +111,7 @@ export default function DriversPage() {
     phone: '',
     status: 'available',
     truck_id: '',
+    password: '',
   }
 
   const emptyTruckForm = {
@@ -303,6 +304,7 @@ export default function DriversPage() {
       phone: driver.phone || '',
       status: driver.status || 'available',
       truck_id: driver.truck_id || '',
+      password: '',
     })
     setShowDriverModal(true)
   }
@@ -362,12 +364,46 @@ export default function DriversPage() {
     setSavingDriver(true)
     setPageError('')
 
-    const payload = {
+    const payload: {
+      name: string | null
+      email: string | null
+      phone: string | null
+      status: string
+      truck_id: string | null
+      auth_user_id?: string
+    } = {
       name: driverForm.name || null,
       email: driverForm.email || null,
       phone: driverForm.phone || null,
       status: driverForm.status || 'available',
       truck_id: driverForm.truck_id || null,
+    }
+
+    if (!editingDriver) {
+      if (!driverForm.email || !driverForm.password) {
+        setPageError('Email and password are required to create a driver login.')
+        setSavingDriver(false)
+        return
+      }
+
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: driverForm.email,
+          password: driverForm.password,
+          name: driverForm.name,
+        }),
+      })
+      const result = await res.json()
+
+      if (!res.ok) {
+        setPageError(result.error || 'Failed to create login for this driver.')
+        setSavingDriver(false)
+        return
+      }
+
+      payload.auth_user_id = result.userId
     }
 
     if (editingDriver) {
@@ -1037,9 +1073,11 @@ export default function DriversPage() {
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                     placeholder="Email address"
                   />
-                  <p className="mt-2 text-xs text-slate-500">
-                    Use the same email created in Supabase Auth for automatic driver login linking.
-                  </p>
+                  {!editingDriver && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      A login account is created automatically with this email.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -1056,6 +1094,39 @@ export default function DriversPage() {
                   />
                 </div>
               </div>
+
+              {!editingDriver && (
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Password
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={driverForm.password}
+                      onChange={(e) =>
+                        setDriverForm((prev) => ({ ...prev, password: e.target.value }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                      placeholder="Set a login password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDriverForm((prev) => ({
+                          ...prev,
+                          password: Math.random().toString(36).slice(-6) + Math.random().toString(36).slice(-4).toUpperCase(),
+                        }))
+                      }
+                      className="whitespace-nowrap rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Generate
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Share this email and password with the driver — they can sign in right away.
+                  </p>
+                </div>
+              )}
 
               {editingDriver ? (
                 <div className="grid gap-4 md:grid-cols-2">

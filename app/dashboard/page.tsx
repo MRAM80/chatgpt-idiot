@@ -484,6 +484,16 @@ export default function DashboardPage() {
               Manage team roles and access
             </div>
           </Link>
+
+          <Link
+            href="/settings"
+            className="rounded-3xl bg-slate-700 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-lg font-bold text-white">Settings</div>
+            <div className="mt-2 text-sm text-slate-300">
+              Drivers, trucks, bins, and system config
+            </div>
+          </Link>
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">

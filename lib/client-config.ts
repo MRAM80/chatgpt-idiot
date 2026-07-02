@@ -1,5 +1,6 @@
 const name = process.env.NEXT_PUBLIC_CLIENT_NAME || 'SimpliiTrash'
 const shortName = process.env.NEXT_PUBLIC_CLIENT_SHORT_NAME || 'ST'
+const iconPrefix = process.env.NEXT_PUBLIC_CLIENT_ICON_PREFIX || 'icon'
 
 export const CLIENT_CONFIG = {
   name,
@@ -12,4 +13,6 @@ export const CLIENT_CONFIG = {
   swCacheName: `${shortName.toLowerCase()}-driver-v2`,
   emailPlaceholder: process.env.NEXT_PUBLIC_CLIENT_EMAIL_PLACEHOLDER || `you@${name.toLowerCase().replace(/\s+/g, '')}.com`,
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@simpliidash.ca',
+  icon192: `/icons/${iconPrefix}-192.png`,
+  icon512: `/icons/${iconPrefix}-512.png`,
 }
