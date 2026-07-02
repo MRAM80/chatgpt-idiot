@@ -1016,10 +1016,10 @@ export default function DriversPage() {
 
         <div className="mt-8 flex justify-center">
           <Link
-            href="/dashboard"
+            href="/settings"
             className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            Back to Dashboard
+            ← Settings
           </Link>
         </div>
       </div>

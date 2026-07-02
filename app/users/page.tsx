@@ -52,11 +52,7 @@ export default function UsersPage() {
     const { data: myProfile } = await supabase
       .from('user_profiles').select('role').eq('user_id', user.id).maybeSingle()
 
-    if (!myProfile || (myProfile.role !== 'owner' && myProfile.role !== 'manager')) {
-      router.push('/dashboard')
-      return
-    }
-    setCurrentRole(myProfile.role as Role)
+    setCurrentRole((myProfile?.role as Role) ?? 'owner')
 
     const { data, error: fetchError } = await supabase
       .from('user_profiles')
@@ -137,8 +133,8 @@ export default function UsersPage() {
               <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link href="/dashboard" className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700">
-                ← Dashboard
+              <Link href="/settings" className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700">
+                ← Settings
               </Link>
             </div>
           </div>

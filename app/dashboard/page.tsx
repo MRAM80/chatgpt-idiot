@@ -424,7 +424,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
           <Link
             href="/order"
             className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
@@ -436,32 +436,12 @@ export default function DashboardPage() {
           </Link>
 
           <Link
-            href="/drivers"
+            href="/dispatch"
             className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
           >
-            <div className="text-lg font-bold text-slate-900">Drivers</div>
+            <div className="text-lg font-bold text-slate-900">Dispatch</div>
             <div className="mt-2 text-sm text-slate-500">
-              Track driver availability, workload, and contact details
-            </div>
-          </Link>
-
-          <Link
-            href="/bins"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-lg font-bold text-slate-900">Bins</div>
-            <div className="mt-2 text-sm text-slate-500">
-              Manage inventory, stock status, and yard availability
-            </div>
-          </Link>
-
-          <Link
-            href="/customers"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-lg font-bold text-slate-900">Customers</div>
-            <div className="mt-2 text-sm text-slate-500">
-              Keep active customer records organized
+              Assign drivers and manage today's live board
             </div>
           </Link>
 
@@ -476,22 +456,12 @@ export default function DashboardPage() {
           </button>
 
           <Link
-            href="/users"
-            className="rounded-3xl bg-slate-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-          >
-            <div className="text-lg font-bold text-white">Users</div>
-            <div className="mt-2 text-sm text-slate-400">
-              Manage team roles and access
-            </div>
-          </Link>
-
-          <Link
             href="/settings"
-            className="rounded-3xl bg-slate-700 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            className="rounded-3xl bg-slate-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md col-span-full sm:col-span-1 md:col-span-3"
           >
-            <div className="text-lg font-bold text-white">Settings</div>
-            <div className="mt-2 text-sm text-slate-300">
-              Drivers, trucks, bins, and system config
+            <div className="text-lg font-bold text-white">⚙ Settings</div>
+            <div className="mt-2 text-sm text-slate-400">
+              Manage drivers, trucks, bins, customers, and team members
             </div>
           </Link>
         </div>

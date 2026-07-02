@@ -483,10 +483,10 @@ export default function CustomersPage() {
 
         <div className="mt-6 flex justify-center">
           <Link
-            href="/dashboard"
+            href="/settings"
             className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            Back to Dashboard
+            ← Settings
           </Link>
         </div>
       </div>
