@@ -20,8 +20,8 @@ type Counts = {
 const sections = [
   {
     href: '/drivers',
-    title: 'Drivers & Trucks',
-    description: 'Add, edit, or remove drivers and trucks. Assign trucks to drivers and manage fleet status.',
+    title: 'Drivers & Fleet',
+    description: 'Add, edit, or remove drivers and trucks. Assign trucks and manage fleet status.',
     color: 'bg-blue-50 ring-blue-200',
     titleColor: 'text-blue-900',
     descColor: 'text-blue-700',
@@ -36,7 +36,7 @@ const sections = [
   },
   {
     href: '/bins',
-    title: 'Bins',
+    title: 'Bin Inventory',
     description: 'Manage bin inventory, sizes, statuses, and yard availability for all active locations.',
     color: 'bg-amber-50 ring-amber-200',
     titleColor: 'text-amber-900',
@@ -60,7 +60,7 @@ const sections = [
     iconBg: 'bg-emerald-100',
     icon: (
       <svg className="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
       </svg>
     ),
     countKey: 'customers' as keyof Counts,
@@ -68,8 +68,8 @@ const sections = [
   },
   {
     href: '/users',
-    title: 'Team & Access',
-    description: 'Add team members, set roles (owner, manager, dispatcher, driver), and control system access.',
+    title: 'Personnel',
+    description: 'Add staff, assign roles (owner, manager, dispatcher, driver), and control system access.',
     color: 'bg-violet-50 ring-violet-200',
     titleColor: 'text-violet-900',
     descColor: 'text-violet-700',
@@ -81,6 +81,23 @@ const sections = [
     ),
     countKey: 'users' as keyof Counts,
     countLabel: 'members',
+  },
+  {
+    href: '/reports',
+    title: 'Reports',
+    description: 'Generate, export, and print customer order history for billing and invoicing.',
+    color: 'bg-slate-50 ring-slate-200',
+    titleColor: 'text-slate-900',
+    descColor: 'text-slate-600',
+    iconBg: 'bg-slate-100',
+    icon: (
+      <svg className="h-7 w-7 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+      </svg>
+    ),
+    countKey: 'users' as keyof Counts,
+    countLabel: '',
+    noCount: true,
   },
 ]
 
@@ -127,15 +144,18 @@ export default function SettingsPage() {
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
                 <p className="mt-0.5 text-sm text-slate-400">
-                  Everything you need to manage {CLIENT_CONFIG.name}
+                  System management for {CLIENT_CONFIG.name}
                 </p>
               </div>
             </div>
             <Link
               href="/dashboard"
-              className="self-start rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:self-auto"
+              className="self-start inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:self-auto"
             >
-              ← Dashboard
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+              </svg>
+              Dashboard
             </Link>
           </div>
         </div>
@@ -175,9 +195,9 @@ export default function SettingsPage() {
                   {s.icon}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className={`flex items-center justify-between gap-2`}>
+                  <div className="flex items-center justify-between gap-2">
                     <span className={`text-lg font-bold ${s.titleColor}`}>{s.title}</span>
-                    {!loading && (
+                    {!loading && !s.noCount && (
                       <span className={`text-sm font-semibold ${s.titleColor} opacity-60`}>
                         {counts[s.countKey]} {s.countLabel}
                       </span>

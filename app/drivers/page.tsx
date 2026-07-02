@@ -459,6 +459,16 @@ export default function DriversPage() {
       if (!data?.id) {
         setPageError('Driver created, but response did not return an id.')
       }
+
+      // Sync a user_profiles row so this driver appears in Personnel
+      if (payload.auth_user_id) {
+        await supabase.from('user_profiles').upsert([{
+          user_id: payload.auth_user_id,
+          role: 'driver',
+          name: payload.name,
+          email: payload.email,
+        }], { onConflict: 'user_id' })
+      }
     }
 
     await refreshAll()
@@ -1017,9 +1027,10 @@ export default function DriversPage() {
         <div className="mt-8 flex justify-center">
           <Link
             href="/settings"
-            className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            ← Settings
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+            Settings
           </Link>
         </div>
       </div>

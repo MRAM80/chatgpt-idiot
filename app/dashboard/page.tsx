@@ -445,16 +445,6 @@ export default function DashboardPage() {
             </div>
           </Link>
 
-          <button
-            onClick={() => { setReportOpen(true); setReportRows([]) }}
-            className="rounded-3xl bg-violet-50 p-5 shadow-sm ring-1 ring-violet-200 transition hover:-translate-y-0.5 hover:shadow-md text-left"
-          >
-            <div className="text-lg font-bold text-violet-900">Reports</div>
-            <div className="mt-2 text-sm text-violet-600">
-              Export customer order history for invoicing
-            </div>
-          </button>
-
           <Link
             href="/settings"
             className="rounded-3xl bg-slate-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md col-span-full sm:col-span-1 md:col-span-3"

@@ -124,6 +124,16 @@ export default function UsersPage() {
 
     if (profileError) { setError(profileError.message); setInviting(false); return }
 
+    // Auto-create a driver record so they appear in the Drivers page immediately
+    if (inviteRole === 'driver') {
+      await supabase.from('drivers').insert([{
+        name: inviteName || null,
+        email: inviteEmail,
+        status: 'available',
+        auth_user_id: result.userId,
+      }])
+    }
+
     setInviteSuccess(`${inviteEmail} can sign in now with the password you set.`)
     setInviteEmail('')
     setInviteName('')
@@ -144,8 +154,9 @@ export default function UsersPage() {
               <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link href="/settings" className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700">
-                ← Settings
+              <Link href="/settings" className="inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                Settings
               </Link>
             </div>
           </div>
