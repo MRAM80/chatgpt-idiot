@@ -49,10 +49,21 @@ export default function UsersPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
 
-    const { data: myProfile } = await supabase
+    let { data: myProfile } = await supabase
       .from('user_profiles').select('role').eq('user_id', user.id).maybeSingle()
 
-    setCurrentRole((myProfile?.role as Role) ?? 'owner')
+    if (!myProfile) {
+      // First-time owner: auto-create their profile so they appear in the list
+      await supabase.from('user_profiles').insert([{
+        user_id: user.id,
+        role: 'owner',
+        email: user.email ?? null,
+        name: user.user_metadata?.name ?? user.email ?? null,
+      }])
+      myProfile = { role: 'owner' }
+    }
+
+    setCurrentRole(myProfile.role as Role)
 
     const { data, error: fetchError } = await supabase
       .from('user_profiles')
