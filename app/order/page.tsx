@@ -471,31 +471,24 @@ function OrdersPageContent() {
     const { data: authData, error: authError } = await supabase.auth.getUser()
     if (authError || !authData?.user) return
 
-    const { data: profileById, error: profileError } = await supabase
-      .from('profiles')
-      .select('id,email,role,full_name,company,is_active')
-      .eq('id', authData.user.id)
+    const { data: userProfile } = await supabase
+      .from('user_profiles')
+      .select('role,name,email')
+      .eq('user_id', authData.user.id)
       .maybeSingle()
 
-    let profile = profileById as Profile | null
+    const resolvedRole = (userProfile?.role || '').toLowerCase()
+    const canDelete = resolvedRole === 'owner' || resolvedRole === 'manager'
 
-    if (!profile && authData.user.email) {
-      const { data: profileByEmail } = await supabase
-        .from('profiles')
-        .select('id,email,role,full_name,company,is_active')
-        .eq('email', authData.user.email)
-        .maybeSingle()
-
-      profile = (profileByEmail as Profile | null) || null
-    }
-
-    if (profileError && !profile) {
-      setPageError((prev) => prev || profileError.message)
-      return
-    }
-
-    setCurrentUser(profile)
-    setIsAdmin((profile?.role || '').toLowerCase() === 'admin')
+    setCurrentUser(userProfile ? {
+      id: authData.user.id,
+      email: userProfile.email || authData.user.email || '',
+      role: resolvedRole,
+      full_name: userProfile.name || '',
+      company: '',
+      is_active: true,
+    } as Profile : null)
+    setIsAdmin(canDelete)
   }
 
   async function refreshAll() {

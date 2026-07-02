@@ -2,8 +2,11 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import AppLogo from '@/components/AppLogo'
+import { useRole } from '@/hooks/useRole'
+import { can } from '@/lib/roles'
 
 type Driver = {
   id: string
@@ -84,6 +87,14 @@ function shortId(value: string | null | undefined) {
 
 export default function DriversPage() {
   const supabase = createClient()
+  const router = useRouter()
+  const { role, loading: roleLoading } = useRole()
+
+  useEffect(() => {
+    if (!roleLoading && role !== null && !can(role, 'canManageDrivers')) {
+      router.push('/dashboard')
+    }
+  }, [roleLoading, role])
 
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [trucks, setTrucks] = useState<Truck[]>([])

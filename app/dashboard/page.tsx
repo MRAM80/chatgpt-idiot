@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import AppLogo from '@/components/AppLogo'
+import { useRole } from '@/hooks/useRole'
+import { can } from '@/lib/roles'
 
 type Order = {
   id: string
@@ -114,6 +116,13 @@ function formatServiceTime(value: string | null | undefined) {
 export default function DashboardPage() {
   const supabase = createClient()
   const router = useRouter()
+  const { role, loading: roleLoading } = useRole()
+
+  useEffect(() => {
+    if (!roleLoading && role !== null && !can(role, 'canViewDashboard')) {
+      router.push(role === 'driver' ? '/driver' : '/dispatch')
+    }
+  }, [roleLoading, role])
 
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])

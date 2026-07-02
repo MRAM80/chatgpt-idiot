@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
-import { ROLE_LABELS, type Role } from '@/lib/roles'
+import { ROLE_LABELS, type Role, can } from '@/lib/roles'
 import AppLogo from '@/components/AppLogo'
 import Link from 'next/link'
 
@@ -63,7 +63,13 @@ export default function UsersPage() {
       myProfile = { role: 'owner' }
     }
 
-    setCurrentRole(myProfile.role as Role)
+    const resolvedRole = myProfile.role as Role
+    setCurrentRole(resolvedRole)
+
+    if (!can(resolvedRole, 'canManageUsers')) {
+      router.push('/dashboard')
+      return
+    }
 
     const { data, error: fetchError } = await supabase
       .from('user_profiles')

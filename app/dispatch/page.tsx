@@ -2,8 +2,11 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import AppLogo from '@/components/AppLogo'
+import { useRole } from '@/hooks/useRole'
+import { can } from '@/lib/roles'
 
 type Driver = {
   id: string
@@ -316,7 +319,15 @@ function getLastOrderSummary(order: Order | null) {
 }
 
 export default function DispatchBoardPage() {
+  const router = useRouter()
+  const { role, loading: roleLoading } = useRole()
   const supabase = useMemo(() => createClient(), [])
+
+  useEffect(() => {
+    if (!roleLoading && role !== null && !can(role, 'canDispatch')) {
+      router.push(role === 'driver' ? '/driver' : '/dashboard')
+    }
+  }, [roleLoading, role])
 
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])

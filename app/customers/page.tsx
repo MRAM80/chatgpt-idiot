@@ -2,8 +2,11 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import AppLogo from '@/components/AppLogo'
+import { useRole } from '@/hooks/useRole'
+import { can } from '@/lib/roles'
 
 type Customer = {
   id: string
@@ -51,6 +54,14 @@ function isOpenOrderStatus(status: string | null | undefined) {
 
 export default function CustomersPage() {
   const supabase = createClient()
+  const router = useRouter()
+  const { role, loading: roleLoading } = useRole()
+
+  useEffect(() => {
+    if (!roleLoading && role !== null && !can(role, 'canViewDashboard')) {
+      router.push(role === 'driver' ? '/driver' : '/dispatch')
+    }
+  }, [roleLoading, role])
 
   const [customers, setCustomers] = useState<Customer[]>([])
   const [orders, setOrders] = useState<Order[]>([])

@@ -381,35 +381,18 @@ export default function BinsPage() {
         return
       }
 
-      const metaRole =
-        (user.app_metadata?.role as string | undefined) ||
-        (user.user_metadata?.role as string | undefined)
-
-      if (metaRole === 'admin' || metaRole === 'dispatcher') {
-        setUserRole(metaRole)
-        return
-      }
-
-      const { data: profileById } = await supabase
-        .from('profiles')
+      const { data: profile } = await supabase
+        .from('user_profiles')
         .select('role')
-        .eq('id', user.id)
+        .eq('user_id', user.id)
         .maybeSingle()
 
-      let profileRole = profileById?.role as string | undefined
+      const profileRole = profile?.role as string | undefined
 
-      if (!profileRole && user.email) {
-        const { data: profileByEmail } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('email', user.email)
-          .maybeSingle()
-
-        profileRole = profileByEmail?.role as string | undefined
-      }
-
-      if (profileRole === 'admin' || profileRole === 'dispatcher') {
-        setUserRole(profileRole)
+      if (profileRole === 'owner' || profileRole === 'manager' || profileRole === 'admin') {
+        setUserRole('admin')
+      } else if (profileRole === 'dispatcher') {
+        setUserRole('dispatcher')
       } else {
         setUserRole('unknown')
       }
