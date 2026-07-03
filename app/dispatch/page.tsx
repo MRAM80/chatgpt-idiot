@@ -84,6 +84,8 @@ type QuickOrderForm = {
   order_type: string
   bin_size: string
   bin_type: string
+  bin_number: string
+  dump_site_address: string
   scheduled_date: string
   service_time: string
   driver_id: string
@@ -109,6 +111,8 @@ const emptyQuickForm = (): QuickOrderForm => ({
   order_type: 'DELIVERY',
   bin_size: '20',
   bin_type: 'Garbage',
+  bin_number: '',
+  dump_site_address: '',
   scheduled_date: toLocalDayKeyLocal(new Date()),
   service_time: '',
   driver_id: '',
@@ -1010,6 +1014,7 @@ export default function DispatchBoardPage() {
       setQuickForm((prev) => ({
         ...prev,
         bin_size: bin.bin_size || prev.bin_size,
+        bin_number: bin.bin_number ? String(bin.bin_number) : prev.bin_number,
       }))
     }
   }, [quickExistingBins])
@@ -1069,6 +1074,8 @@ export default function DispatchBoardPage() {
       order_type: quickForm.order_type,
       bin_size: quickForm.bin_size,
       bin_type: quickForm.bin_type,
+      bin_number: quickForm.bin_number || null,
+      dump_site_address: quickForm.dump_site_address || null,
       scheduled_date: quickForm.scheduled_date,
       service_time: quickForm.service_time || null,
       driver_id: quickForm.driver_id || null,
@@ -1710,6 +1717,32 @@ export default function DispatchBoardPage() {
                       <option>DUMP RETURN</option>
                     </select>
                   </div>
+
+                  {(quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL') && (
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold text-slate-600">Bin Number</label>
+                      <input
+                        type="text"
+                        value={quickForm.bin_number}
+                        onChange={(e) => setQuickField('bin_number', e.target.value)}
+                        placeholder="e.g. 001"
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                      />
+                    </div>
+                  )}
+
+                  {quickForm.order_type === 'DUMP RETURN' && (
+                    <div className="col-span-2">
+                      <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site Address</label>
+                      <input
+                        type="text"
+                        value={quickForm.dump_site_address}
+                        onChange={(e) => setQuickField('dump_site_address', e.target.value)}
+                        placeholder="Where is the bin being dumped?"
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                      />
+                    </div>
+                  )}
 
                   <div>
                     <label className="mb-1 block text-xs font-semibold text-slate-600">Bin Size</label>
