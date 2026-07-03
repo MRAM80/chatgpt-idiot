@@ -378,6 +378,7 @@ export default function DispatchBoardPage() {
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,driver_notes,delivery_photo_url,created_at,updated_at,completed_by,completed_at')
+      .not('status', 'in', '("cancelled","completed")')
       .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
 
