@@ -330,16 +330,36 @@ export default function DriverPage() {
     }))
   }
 
+  async function compressImage(file: File, maxPx = 1200, quality = 0.82): Promise<Blob> {
+    return new Promise((resolve) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+        canvas.toBlob((blob) => resolve(blob ?? file), 'image/jpeg', quality)
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file) }
+      img.src = url
+    })
+  }
+
   async function uploadDeliveryPhoto(order: Order, file: File) {
     setPhotoUploadStates((current) => ({ ...current, [order.id]: 'uploading' }))
     setPageError('')
 
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-    const path = `${order.id}-${Date.now()}.${ext}`
+    const compressed = await compressImage(file)
+    const path = `${order.id}-${Date.now()}.jpg`
 
     const { data: uploadData, error: storageError } = await supabase.storage
       .from('delivery-photos')
-      .upload(path, file, { upsert: true, contentType: file.type })
+      .upload(path, compressed, { upsert: true, contentType: 'image/jpeg' })
 
     if (storageError) {
       setPageError(`Photo upload failed: ${storageError.message}`)
