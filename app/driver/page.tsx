@@ -1153,6 +1153,21 @@ export default function DriverPage() {
     }
   }, [syncingQueue])
 
+  async function advanceToPickedUp(orderId: string) {
+    setSavingOrderId(orderId)
+    setPageError('')
+    const { error } = await supabase
+      .from(TABLE_NAME)
+      .update({ workflow_step: 'DUMP', status: 'in_progress' })
+      .eq('id', orderId)
+    if (error) {
+      setPageError(`Could not advance step: ${error.message}`)
+    } else {
+      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, workflow_step: 'DUMP', status: 'in_progress' } : o))
+    }
+    setSavingOrderId(null)
+  }
+
   async function updateOrderStatus(orderId: string, nextStatus: string) {
     setSavingOrderId(orderId)
     setPageError('')
@@ -1177,16 +1192,6 @@ export default function DriverPage() {
       setPageError('Finish previous job before continuing.')
       setSavingOrderId(null)
       return
-    }
-
-    // Block DUMP step until the PICKUP step (parent order) is completed
-    if (order.workflow_step === 'DUMP' && order.parent_order_id) {
-      const parentOrder = orders.find((o) => o.id === order.parent_order_id)
-      if (parentOrder && parentOrder.status !== 'completed') {
-        setPageError('Complete the pickup stop first before dumping.')
-        setSavingOrderId(null)
-        return
-      }
     }
 
     const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
@@ -1446,9 +1451,9 @@ export default function DriverPage() {
               const photoState = photoUploadStates[order.id]
               const commentState = commentSaveStates[order.id]
               const binBlocked = needsNewBin && !assignedBin?.bin_number
-              const parentOrder = order.parent_order_id ? orders.find((o) => o.id === order.parent_order_id) : null
-              const dumpStepBlocked = order.workflow_step === 'DUMP' && parentOrder != null && parentOrder.status !== 'completed'
-              const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked || dumpStepBlocked
+              const isPickupStep = order.workflow_step === 'PICKUP'
+              const isDumpStep = order.workflow_step === 'DUMP'
+              const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked
               const hasDumpSite = order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN'
 
               return (
@@ -1456,22 +1461,15 @@ export default function DriverPage() {
                   <div className="flex-1 min-h-0 rounded-2xl bg-white border border-slate-200 overflow-hidden flex flex-col">
 
                     {/* ── Stop bar ─────────────────────────────────────────── */}
-                    <div className={`shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 ${order.workflow_step === 'DUMP' ? 'bg-amber-50' : 'bg-slate-50'}`}>
+                    <div className={`shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 ${isDumpStep ? 'bg-amber-50' : 'bg-slate-50'}`}>
                       <span className="text-xs font-semibold text-slate-500">Stop {order.route_position || index + 1}</span>
-                      {order.workflow_step === 'PICKUP' && (
-                        <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">STEP 1 — PICKUP</span>
+                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
+                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
+                      {isPickupStep && (
+                        <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">PICKUP</span>
                       )}
-                      {order.workflow_step === 'DUMP' && (
-                        <span className="rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">STEP 2 — DUMP</span>
-                      )}
-                      {(!order.workflow_step || order.workflow_step === 'MAIN') && (
-                        <>
-                          <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
-                          <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
-                        </>
-                      )}
-                      {(order.workflow_step === 'PICKUP' || order.workflow_step === 'DUMP') && (
-                        <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
+                      {isDumpStep && (
+                        <span className="rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">DUMP</span>
                       )}
                       {(order.service_window || order.service_time) && (
                         <span className="ml-auto text-xs font-medium text-slate-500">
@@ -1483,9 +1481,9 @@ export default function DriverPage() {
 
                     {/* ── Card body ─────────────────────────────────────────── */}
                     <div className="flex-1 min-h-0 flex flex-col gap-3 px-4 py-3 overflow-hidden">
-                      {dumpStepBlocked && (
+                      {isDumpStep && order.dump_site_address && (
                         <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                          ⏳ Complete the pickup stop first — then come back here to dump.
+                          🚛 Dump at: {order.dump_site_address}
                         </div>
                       )}
 
@@ -1610,47 +1608,72 @@ export default function DriverPage() {
 
                     {/* ── Action bar ────────────────────────────────────────── */}
                     <div className="shrink-0 flex border-t border-slate-100">
-                      {order.status !== 'in_progress' && (
-                        <button
-                          type="button"
-                          onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                          disabled={isSaving || binBlocked}
-                          className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                            binBlocked ? 'bg-slate-300' : 'bg-amber-500 active:bg-amber-600'
-                          }`}
-                        >
-                          <span className="text-base leading-none">▶</span>
-                          <span className="text-xs font-semibold">{binBlocked ? 'Bin first' : 'Start'}</span>
-                        </button>
+                      {isPickupStep ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void advanceToPickedUp(order.id)}
+                            disabled={isSaving}
+                            className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-blue-600 text-white transition disabled:opacity-40 active:bg-blue-700"
+                          >
+                            <span className="text-base leading-none">📦</span>
+                            <span className="text-xs font-semibold">Picked Up</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void updateOrderStatus(order.id, 'issue')}
+                            disabled={isSaving}
+                            className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
+                          >
+                            <span className="text-base leading-none">⚠</span>
+                            <span className="text-xs font-semibold">Issue</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {order.status !== 'in_progress' && !isDumpStep && (
+                            <button
+                              type="button"
+                              onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                              disabled={isSaving || binBlocked}
+                              className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
+                                binBlocked ? 'bg-slate-300' : 'bg-amber-500 active:bg-amber-600'
+                              }`}
+                            >
+                              <span className="text-base leading-none">▶</span>
+                              <span className="text-xs font-semibold">{binBlocked ? 'Bin first' : 'Start'}</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (hasOpenPreviousOrder(order, orders)) {
+                                setPageError('Finish the previous stop first.')
+                                return
+                              }
+                              void updateOrderStatus(order.id, 'completed')
+                            }}
+                            disabled={completeBlocked}
+                            className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
+                              completeBlocked ? 'bg-slate-300' : 'bg-emerald-600 active:bg-emerald-700'
+                            }`}
+                          >
+                            <span className="text-base leading-none">✓</span>
+                            <span className="text-xs font-semibold">
+                              {binBlocked ? 'Bin first' : hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void updateOrderStatus(order.id, 'issue')}
+                            disabled={isSaving}
+                            className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
+                          >
+                            <span className="text-base leading-none">⚠</span>
+                            <span className="text-xs font-semibold">Issue</span>
+                          </button>
+                        </>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (hasOpenPreviousOrder(order, orders)) {
-                            setPageError('Finish the previous stop first.')
-                            return
-                          }
-                          void updateOrderStatus(order.id, 'completed')
-                        }}
-                        disabled={completeBlocked}
-                        className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                          completeBlocked ? 'bg-slate-300' : 'bg-emerald-600 active:bg-emerald-700'
-                        }`}
-                      >
-                        <span className="text-base leading-none">✓</span>
-                        <span className="text-xs font-semibold">
-                          {binBlocked ? 'Bin first' : hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void updateOrderStatus(order.id, 'issue')}
-                        disabled={isSaving}
-                        className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
-                      >
-                        <span className="text-base leading-none">⚠</span>
-                        <span className="text-xs font-semibold">Issue</span>
-                      </button>
                     </div>
 
                   </div>
