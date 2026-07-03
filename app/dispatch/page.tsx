@@ -1731,7 +1731,7 @@ export default function DispatchBoardPage() {
                     </div>
                   )}
 
-                  {quickForm.order_type === 'DUMP RETURN' && (
+                  {(quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL') && (
                     <div className="col-span-2">
                       <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site Address</label>
                       <input
