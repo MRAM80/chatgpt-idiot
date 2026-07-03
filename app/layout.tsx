@@ -11,6 +11,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         <link rel="apple-touch-icon" href={CLIENT_CONFIG.icon192} />
         <link rel="icon" href={CLIENT_CONFIG.icon192} />
         <script
