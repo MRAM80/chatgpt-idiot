@@ -1064,8 +1064,11 @@ export default function DispatchBoardPage() {
           .reduce((max, o) => Math.max(max, o.route_position || 0), 0)
       : 0
 
-    const payload = {
-      ticket_number: generateTicketNumber(),
+    const isMultiStep = quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL'
+    const ticketBase = generateTicketNumber()
+
+    const step1Payload = {
+      ticket_number: ticketBase,
       customer_id: quickForm.customer_id || null,
       customer_name: quickForm.customer_name.trim(),
       job_site_id: quickForm.job_site_id || null,
@@ -1082,15 +1085,46 @@ export default function DispatchBoardPage() {
       route_position: quickForm.driver_id ? maxRoute + 1 : null,
       status,
       notes: quickForm.notes || null,
-      workflow_step: 'MAIN',
+      workflow_step: isMultiStep ? 'PICKUP' : 'MAIN',
     }
 
-    const { error } = await supabase.from('order').insert(payload)
+    const { data: step1Data, error } = await supabase.from('order').insert(step1Payload).select('id').single()
 
     if (error) {
       setQuickError(error.message)
       setQuickSaving(false)
       return
+    }
+
+    // Create the dump step automatically for multi-step order types
+    if (isMultiStep && quickForm.dump_site_address.trim()) {
+      const step2Payload = {
+        ticket_number: `${ticketBase}-DUMP`,
+        customer_id: quickForm.customer_id || null,
+        customer_name: quickForm.customer_name.trim(),
+        job_site_id: quickForm.job_site_id || null,
+        pickup_address: quickForm.dump_site_address.trim(),
+        service_address: quickForm.dump_site_address.trim(),
+        dump_site_address: quickForm.dump_site_address.trim(),
+        order_type: quickForm.order_type,
+        bin_size: quickForm.bin_size,
+        bin_type: quickForm.bin_type,
+        bin_number: quickForm.bin_number || null,
+        scheduled_date: quickForm.scheduled_date,
+        service_time: quickForm.service_time || null,
+        driver_id: quickForm.driver_id || null,
+        route_position: quickForm.driver_id ? maxRoute + 2 : null,
+        status,
+        notes: `Dump step — bin picked up from ${quickForm.pickup_address.trim()}`,
+        workflow_step: 'DUMP',
+        parent_order_id: step1Data.id,
+      }
+      const { error: step2Error } = await supabase.from('order').insert(step2Payload)
+      if (step2Error) {
+        setQuickError(`Step 1 created but dump step failed: ${step2Error.message}`)
+        setQuickSaving(false)
+        return
+      }
     }
 
     if (quickForm.driver_id) {

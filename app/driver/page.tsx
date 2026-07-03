@@ -56,6 +56,8 @@ type Order = {
   updated_at: string | null
   completed_by?: string | null
   completed_at?: string | null
+  workflow_step?: string | null
+  parent_order_id?: string | null
   bins?: OrderBinRelation[] | null
   old_bin?: OrderBinRelation[] | null
 }
@@ -666,6 +668,8 @@ export default function DriverPage() {
         completed_at,
         driver_notes,
         delivery_photo_url,
+        workflow_step,
+        parent_order_id,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
         old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
       `
@@ -735,6 +739,8 @@ export default function DriverPage() {
         completed_at,
         driver_notes,
         delivery_photo_url,
+        workflow_step,
+        parent_order_id,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
         old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
       `
@@ -1173,6 +1179,16 @@ export default function DriverPage() {
       return
     }
 
+    // Block DUMP step until the PICKUP step (parent order) is completed
+    if (order.workflow_step === 'DUMP' && order.parent_order_id) {
+      const parentOrder = orders.find((o) => o.id === order.parent_order_id)
+      if (parentOrder && parentOrder.status !== 'completed') {
+        setPageError('Complete the pickup stop first before dumping.')
+        setSavingOrderId(null)
+        return
+      }
+    }
+
     const { completedAt, completedBy } = updateLocalOrderStatus(orderId, nextStatus)
 
     if (isOffline) {
@@ -1430,7 +1446,9 @@ export default function DriverPage() {
               const photoState = photoUploadStates[order.id]
               const commentState = commentSaveStates[order.id]
               const binBlocked = needsNewBin && !assignedBin?.bin_number
-              const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked
+              const parentOrder = order.parent_order_id ? orders.find((o) => o.id === order.parent_order_id) : null
+              const dumpStepBlocked = order.workflow_step === 'DUMP' && parentOrder != null && parentOrder.status !== 'completed'
+              const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked || dumpStepBlocked
               const hasDumpSite = order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN'
 
               return (
@@ -1438,10 +1456,23 @@ export default function DriverPage() {
                   <div className="flex-1 min-h-0 rounded-2xl bg-white border border-slate-200 overflow-hidden flex flex-col">
 
                     {/* ── Stop bar ─────────────────────────────────────────── */}
-                    <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50">
+                    <div className={`shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 ${order.workflow_step === 'DUMP' ? 'bg-amber-50' : 'bg-slate-50'}`}>
                       <span className="text-xs font-semibold text-slate-500">Stop {order.route_position || index + 1}</span>
-                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
-                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
+                      {order.workflow_step === 'PICKUP' && (
+                        <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">STEP 1 — PICKUP</span>
+                      )}
+                      {order.workflow_step === 'DUMP' && (
+                        <span className="rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">STEP 2 — DUMP</span>
+                      )}
+                      {(!order.workflow_step || order.workflow_step === 'MAIN') && (
+                        <>
+                          <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
+                          <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
+                        </>
+                      )}
+                      {(order.workflow_step === 'PICKUP' || order.workflow_step === 'DUMP') && (
+                        <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
+                      )}
                       {(order.service_window || order.service_time) && (
                         <span className="ml-auto text-xs font-medium text-slate-500">
                           {order.service_window ? displayValue(order.service_window) : formatServiceTime(order.service_time)}
@@ -1452,6 +1483,11 @@ export default function DriverPage() {
 
                     {/* ── Card body ─────────────────────────────────────────── */}
                     <div className="flex-1 min-h-0 flex flex-col gap-3 px-4 py-3 overflow-hidden">
+                      {dumpStepBlocked && (
+                        <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                          ⏳ Complete the pickup stop first — then come back here to dump.
+                        </div>
+                      )}
 
                       {/* Customer + address + Maps */}
                       <div className="shrink-0 flex items-center justify-between gap-3">
