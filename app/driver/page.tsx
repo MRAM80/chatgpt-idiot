@@ -42,6 +42,7 @@ type Order = {
   old_bin_id: string | number | null
   dump_site_id?: string | null
   dump_site_address?: string | null
+  bin_number?: string | null
   bin_size: string | number | null
   bin_type: string | null
   order_type: string | null
@@ -654,6 +655,7 @@ export default function DriverPage() {
         old_bin_id,
         dump_site_id,
         dump_site_address,
+        bin_number,
         bin_size,
         bin_type,
         order_type,
@@ -725,6 +727,7 @@ export default function DriverPage() {
         old_bin_id,
         dump_site_id,
         dump_site_address,
+        bin_number,
         bin_size,
         bin_type,
         order_type,
@@ -1446,8 +1449,8 @@ export default function DriverPage() {
               const usesExistingBin = order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
               const needsNewBin = order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
               const visibleBinNumber = usesExistingBin
-                ? oldBin?.bin_number || assignedBin?.bin_number || binInputs[order.id] || ''
-                : assignedBin?.bin_number || binInputs[order.id] || ''
+                ? oldBin?.bin_number || assignedBin?.bin_number || order.bin_number || binInputs[order.id] || ''
+                : assignedBin?.bin_number || order.bin_number || binInputs[order.id] || ''
               const photoState = photoUploadStates[order.id]
               const commentState = commentSaveStates[order.id]
               const binBlocked = needsNewBin && !assignedBin?.bin_number

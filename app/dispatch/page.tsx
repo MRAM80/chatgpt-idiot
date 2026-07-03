@@ -47,6 +47,7 @@ type Order = {
   service_window?: string | null
   bin_id: string | number | null
   old_bin_id: string | number | null
+  bin_number?: string | null
   bin_size: string | number | null
   bin_type: string | null
   order_type: string | null
@@ -378,7 +379,7 @@ export default function DispatchBoardPage() {
 
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,driver_notes,delivery_photo_url,created_at,updated_at,completed_by,completed_at')
+      .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_number,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,driver_notes,delivery_photo_url,created_at,updated_at,completed_by,completed_at')
       .not('status', 'in', '("cancelled","completed")')
       .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
@@ -1494,8 +1495,10 @@ export default function DispatchBoardPage() {
                   <DetailItem label="Scheduled Date" value={formatDate(selectedOrder.scheduled_date)} />
                   <DetailItem label="Service Time" value={formatServiceTime(selectedOrder.service_time)} />
                   <DetailItem label="Order Type" value={selectedOrder.order_type} />
+                  <DetailItem label="Bin Number" value={selectedOrder.bin_number} />
                   <DetailItem label="Bin Size" value={selectedOrder.bin_size} />
                   <DetailItem label="Bin Type" value={selectedOrder.bin_type} />
+                  {selectedOrder.dump_site_address && <DetailItem label="Dump Site" value={selectedOrder.dump_site_address} />}
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
