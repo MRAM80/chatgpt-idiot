@@ -428,7 +428,7 @@ function OrdersPageContent() {
     const { data, error } = await supabase
       .from('job_sites')
       .select('id,customer_id,site_name,address,notes,is_active')
-      .eq('is_active', true)
+      .neq('is_active', false)
       .order('site_name', { ascending: true })
 
     if (error) {

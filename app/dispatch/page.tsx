@@ -407,7 +407,7 @@ export default function DispatchBoardPage() {
     const { data } = await supabase
       .from('job_sites')
       .select('id,customer_id,site_name,address')
-      .eq('is_active', true)
+      .neq('is_active', false)
       .order('site_name', { ascending: true })
     setJobSites((data as JobSite[]) || [])
   }

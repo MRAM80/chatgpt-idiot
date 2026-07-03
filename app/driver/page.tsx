@@ -1640,7 +1640,7 @@ export default function DriverPage() {
                               onClick={() => void updateOrderStatus(order.id, 'in_progress')}
                               disabled={isSaving || binBlocked}
                               className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                                binBlocked ? 'bg-slate-300' : 'bg-amber-500 active:bg-amber-600'
+                                binBlocked ? 'bg-orange-400 active:bg-orange-500' : 'bg-amber-500 active:bg-amber-600'
                               }`}
                             >
                               <span className="text-base leading-none">▶</span>
@@ -1658,7 +1658,7 @@ export default function DriverPage() {
                             }}
                             disabled={completeBlocked}
                             className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                              completeBlocked ? 'bg-slate-300' : 'bg-emerald-600 active:bg-emerald-700'
+                              completeBlocked ? 'bg-orange-400 active:bg-orange-500' : 'bg-emerald-600 active:bg-emerald-700'
                             }`}
                           >
                             <span className="text-base leading-none">✓</span>
