@@ -32,6 +32,7 @@ type Bin = {
   id: string
   bin_number: string | null
   bin_size: string | null
+  bin_type: string | null
   status: string | null
   location: string | null
 }
@@ -413,7 +414,7 @@ export default function DispatchBoardPage() {
   async function loadBins() {
     const { data } = await supabase
       .from('bins')
-      .select('id,bin_number,bin_size,status,location')
+      .select('id,bin_number,bin_size,bin_type,status,location')
       .order('bin_number', { ascending: true })
     setBins((data as Bin[]) || [])
   }
@@ -1016,6 +1017,7 @@ export default function DispatchBoardPage() {
         ...prev,
         bin_size: bin.bin_size || prev.bin_size,
         bin_number: bin.bin_number ? String(bin.bin_number) : prev.bin_number,
+        bin_type: bin.bin_type || prev.bin_type,
       }))
     }
   }, [quickExistingBins])
