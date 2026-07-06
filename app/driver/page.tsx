@@ -1387,9 +1387,9 @@ export default function DriverPage() {
       <div className="shrink-0 bg-white border-b border-slate-200">
         <div className="mx-auto max-w-lg px-4 h-12 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            {(CLIENT_CONFIG.iconUrl || CLIENT_CONFIG.icon192) && (
+            {CLIENT_CONFIG.iconUrl && (
               <img
-                src={CLIENT_CONFIG.iconUrl || CLIENT_CONFIG.icon192}
+                src={CLIENT_CONFIG.iconUrl}
                 alt={CLIENT_CONFIG.name}
                 className="h-8 w-8 rounded-lg object-contain shrink-0"
               />
