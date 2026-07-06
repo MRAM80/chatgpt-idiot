@@ -372,6 +372,7 @@ export default function DispatchBoardPage() {
   const [selectedDayKey, setSelectedDayKey] = useState(getTodayKey())
   const [quickCreateOpen, setQuickCreateOpen] = useState(false)
   const [quickForm, setQuickForm] = useState<QuickOrderForm>(emptyQuickForm)
+  const [quickHistoryBin, setQuickHistoryBin] = useState<{ bin_number: string | null; bin_size: string | null; bin_type: string | null } | null>(null)
   const [quickSaving, setQuickSaving] = useState(false)
   const [quickError, setQuickError] = useState('')
   const [modalNoteDraft, setModalNoteDraft] = useState('')
@@ -1029,7 +1030,7 @@ export default function DispatchBoardPage() {
     const addr = (quickForm.pickup_address || '').trim().toLowerCase()
     if (!addr) return []
     return bins.filter((bin) => {
-      return (bin.location || '').trim().toLowerCase() === addr && bin.status === 'in_use'
+      return (bin.location || '').trim().toLowerCase() === addr && bin.status !== 'available'
     })
   }, [bins, quickForm.pickup_address])
 
@@ -1040,8 +1041,15 @@ export default function DispatchBoardPage() {
     return []
   }, [quickBinsAtJobSite, quickForm.order_type])
 
+  const isMultiStepType = quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL'
+
   useEffect(() => {
-    if (quickExistingBins.length === 1) {
+    if (!isMultiStepType || !quickForm.pickup_address.trim()) {
+      setQuickHistoryBin(null)
+      return
+    }
+    if (quickExistingBins.length >= 1) {
+      setQuickHistoryBin(null)
       const bin = quickExistingBins[0]
       setQuickForm((prev) => ({
         ...prev,
@@ -1049,8 +1057,32 @@ export default function DispatchBoardPage() {
         bin_number: bin.bin_number ? String(bin.bin_number) : prev.bin_number,
         bin_type: bin.bin_type || prev.bin_type,
       }))
+      return
     }
-  }, [quickExistingBins])
+    // Fallback: look up bin info from order history at this address
+    const supabase = createClient()
+    const addr = quickForm.pickup_address.trim()
+    supabase
+      .from('order')
+      .select('bin_number,bin_size,bin_type')
+      .or(`service_address.eq.${addr},pickup_address.eq.${addr}`)
+      .not('bin_type', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const h = data[0] as { bin_number: string | null; bin_size: string | null; bin_type: string | null }
+          setQuickHistoryBin(h)
+          setQuickForm((prev) => ({
+            ...prev,
+            bin_size: h.bin_size || prev.bin_size,
+            bin_number: h.bin_number || prev.bin_number,
+            bin_type: h.bin_type || prev.bin_type,
+          }))
+        }
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickForm.pickup_address, quickForm.order_type])
 
   function handleQuickCustomerChange(customerId: string) {
     const customer = customers.find((c) => c.id === customerId)
@@ -1136,6 +1168,7 @@ export default function DispatchBoardPage() {
     setQuickSaving(false)
     setQuickCreateOpen(false)
     setQuickForm(emptyQuickForm())
+    setQuickHistoryBin(null)
     await refreshAll()
   }
 
@@ -1206,7 +1239,7 @@ export default function DispatchBoardPage() {
 
               <button
                 type="button"
-                onClick={() => { setQuickForm(emptyQuickForm()); setQuickError(''); setQuickCreateOpen(true) }}
+                onClick={() => { setQuickForm(emptyQuickForm()); setQuickHistoryBin(null); setQuickError(''); setQuickCreateOpen(true) }}
                 className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
               >
                 + New Order
@@ -1757,7 +1790,12 @@ export default function DispatchBoardPage() {
                     )}
                     {quickExistingBins.length === 1 && (
                       <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-                        Bin on site: #{quickExistingBins[0].bin_number} ({quickExistingBins[0].bin_size} yd) — auto-filled
+                        Bin on site: {quickExistingBins[0].bin_number ? `#${quickExistingBins[0].bin_number}` : 'bin'} ({quickExistingBins[0].bin_size} yd · {quickExistingBins[0].bin_type}) — auto-filled
+                      </div>
+                    )}
+                    {quickExistingBins.length === 0 && quickHistoryBin && isMultiStepType && (
+                      <div className="mt-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800">
+                        From order history: {quickHistoryBin.bin_number ? `#${quickHistoryBin.bin_number}` : 'bin'} ({quickHistoryBin.bin_size} yd · {quickHistoryBin.bin_type}) — auto-filled
                       </div>
                     )}
                   </div>
