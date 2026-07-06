@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 import AppLogo from '@/components/AppLogo'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
-import NewOrderModal from '@/components/NewOrderModal'
 
 type Driver = {
   id: string
@@ -321,7 +320,6 @@ export default function DispatchBoardPage() {
   const [dropTarget, setDropTarget] = useState<{ columnKey: string; beforeId: string | null } | null>(null)
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({})
   const [selectedDayKey, setSelectedDayKey] = useState(getTodayKey())
-  const [quickCreateOpen, setQuickCreateOpen] = useState(false)
   const [modalNoteDraft, setModalNoteDraft] = useState('')
   const [modalNoteSaving, setModalNoteSaving] = useState(false)
 
@@ -1033,7 +1031,7 @@ export default function DispatchBoardPage() {
 
               <button
                 type="button"
-                onClick={() => setQuickCreateOpen(true)}
+                onClick={() => router.push('/order?newOrder=1')}
                 className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
               >
                 + New Order
@@ -1477,18 +1475,6 @@ export default function DispatchBoardPage() {
         ) : null}
 
 
-        {quickCreateOpen && (
-          <NewOrderModal
-            defaultDate={selectedDayKey}
-            onClose={() => setQuickCreateOpen(false)}
-            onCreated={() => { setQuickCreateOpen(false); void refreshAll() }}
-            drivers={drivers}
-            customers={customers}
-            bins={bins}
-            dumpSites={dumpSites}
-            jobSites={jobSites}
-          />
-        )}
       </div>
     </div>
   )
