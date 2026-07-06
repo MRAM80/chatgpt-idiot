@@ -3,24 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Shared types (must match dispatch page types) ─────────────────────────────
 
-type Driver = { id: string; name: string | null; status: string | null }
-type Customer = { id: string; name: string | null; status?: string | null }
-type Bin = { id: string; bin_number: string | null; bin_size: string | null; bin_type?: string | null; status: string | null; location?: string | null }
-type DumpSite = { id: string; name: string | null; address: string | null }
-type JobSite = { id: string; customer_id: string | null; site_name: string | null; address: string | null; is_active?: boolean | null }
-type PastOrder = {
-  id: string
-  customer_id: string | null
-  bin_id: string | null
-  old_bin_id: string | null
-  bin_type: string | null
-  service_address: string | null
-  pickup_address: string | null
-  updated_at?: string | null
-  created_at?: string | null
-}
+export type NOMDriver = { id: string; name: string | null; status: string | null }
+export type NOMCustomer = { id: string; name: string | null }
+export type NOMBin = { id: string; bin_number: string | null; bin_size: string | null; bin_type?: string | null; status: string | null; location?: string | null }
+export type NOMDumpSite = { id: string; name: string | null; address: string | null }
+export type NOMJobSite = { id: string; customer_id: string | null; site_name: string | null; address: string | null; is_active?: boolean | null }
+export type NOMOrder = { id: string; customer_id?: string | null; bin_id?: string | null; old_bin_id?: string | null; bin_type?: string | null; service_address?: string | null; pickup_address?: string | null; updated_at?: string | null; created_at?: string | null }
 
 type FormState = {
   customer_id: string
@@ -103,47 +93,40 @@ interface Props {
   onCreated: () => void
   defaultDate?: string
   defaultDriverId?: string
+  // Data passed from parent — same arrays the parent already loaded
+  drivers: NOMDriver[]
+  customers: NOMCustomer[]
+  bins: NOMBin[]
+  dumpSites: NOMDumpSite[]
+  jobSites: NOMJobSite[]
+  // Past orders for address suggestions + material lookup (parent may not have these)
+  // If not provided, modal fetches them itself
+  pastOrders?: NOMOrder[]
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function NewOrderModal({ onClose, onCreated, defaultDate, defaultDriverId }: Props) {
+export default function NewOrderModal({
+  onClose, onCreated, defaultDate, defaultDriverId,
+  drivers, customers, bins, dumpSites, jobSites,
+  pastOrders: pastOrdersProp,
+}: Props) {
   const supabase = createClient()
 
-  const [drivers, setDrivers] = useState<Driver[]>([])
-  const [customers, setCustomers] = useState<Customer[]>([])
-  const [bins, setBins] = useState<Bin[]>([])
-  const [dumpSites, setDumpSites] = useState<DumpSite[]>([])
-  const [jobSites, setJobSites] = useState<JobSite[]>([])
-  const [pastOrders, setPastOrders] = useState<PastOrder[]>([])
-
+  const [pastOrders, setPastOrders] = useState<NOMOrder[]>(pastOrdersProp || [])
   const [form, setForm] = useState<FormState>(emptyForm(defaultDate, defaultDriverId))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    void loadAll()
+    if (pastOrdersProp) return // parent provided orders, skip fetch
+    void supabase
+      .from('order')
+      .select('id,customer_id,bin_id,old_bin_id,bin_type,service_address,pickup_address,updated_at,created_at')
+      .order('updated_at', { ascending: false })
+      .limit(2000)
+      .then(({ data }) => { if (data) setPastOrders(data as NOMOrder[]) })
   }, [])
-
-  async function loadAll() {
-    const [d, c, b, ds, js, po] = await Promise.all([
-      supabase.from('drivers').select('id,name,status').order('name'),
-      supabase.from('customers').select('id,name,status').eq('status', 'active').order('name'),
-      supabase.from('bins').select('id,bin_number,bin_size,bin_type,status,location').order('bin_number'),
-      supabase.from('dump_sites').select('id,name,address').order('name'),
-      supabase.from('job_sites').select('id,customer_id,site_name,address,is_active').neq('is_active', false).order('site_name'),
-      supabase.from('order')
-        .select('id,customer_id,bin_id,old_bin_id,bin_type,service_address,pickup_address,updated_at,created_at')
-        .order('updated_at', { ascending: false })
-        .limit(1000),
-    ])
-    if (d.data) setDrivers(d.data as Driver[])
-    if (c.data) setCustomers(c.data as Customer[])
-    if (b.data) setBins(b.data as Bin[])
-    if (ds.data) setDumpSites(ds.data as DumpSite[])
-    if (js.data) setJobSites(js.data as JobSite[])
-    if (po.data) setPastOrders(po.data as PastOrder[])
-  }
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
@@ -152,7 +135,7 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
     return jobSites.filter((s) => s.customer_id === form.customer_id)
   }, [jobSites, form.customer_id])
 
-  const dumpSiteAddresses = useMemo(() => {
+  const dumpSiteKeys = useMemo(() => {
     const set = new Set<string>()
     for (const ds of dumpSites) {
       if (ds.address) set.add(ds.address.trim().toLowerCase())
@@ -161,48 +144,36 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
     return set
   }, [dumpSites])
 
-  // All unique addresses for this customer: saved job sites + past order addresses (excluding dump sites)
   const customerAddressSuggestions = useMemo(() => {
     const seen = new Set<string>()
     const results: string[] = []
-
-    // First: saved job site addresses
     for (const site of selectedCustomerJobSites) {
       const addr = (site.address || '').trim()
       const key = addr.toLowerCase()
-      if (addr && !seen.has(key) && !dumpSiteAddresses.has(key)) {
-        seen.add(key)
-        results.push(addr)
-      }
+      if (addr && !seen.has(key) && !dumpSiteKeys.has(key)) { seen.add(key); results.push(addr) }
     }
-
-    // Then: past order addresses (skip dump site addresses and single-word entries like "YARD")
     if (form.customer_id) {
       for (const order of pastOrders) {
         if (order.customer_id !== form.customer_id) continue
         for (const addr of [order.service_address, order.pickup_address]) {
           const trimmed = (addr || '').trim()
           const key = trimmed.toLowerCase()
-          if (trimmed && !seen.has(key) && !dumpSiteAddresses.has(key) && trimmed.includes(' ')) {
-            seen.add(key)
-            results.push(trimmed)
+          if (trimmed && !seen.has(key) && !dumpSiteKeys.has(key) && trimmed.includes(' ')) {
+            seen.add(key); results.push(trimmed)
           }
         }
       }
     }
-
     return results
-  }, [selectedCustomerJobSites, pastOrders, form.customer_id, dumpSiteAddresses])
+  }, [selectedCustomerJobSites, pastOrders, form.customer_id, dumpSiteKeys])
 
   const binsAtJobSite = useMemo(() => {
     const addr = normalizeAddress(form.pickup_address)
     if (!addr) return []
-
-    // Primary: bins marked in_use whose location exactly matches the address
+    // Primary: bin.location matches address exactly
     const byLocation = bins.filter((b) => normalizeAddress(b.location) === addr && b.status === 'in_use')
     if (byLocation.length > 0) return byLocation
-
-    // Fallback: bins referenced in past orders at this address that are still in_use
+    // Fallback: find bins referenced in past orders at this address that are still in_use
     const binIdsAtAddr = new Set(
       pastOrders
         .filter((o) => normalizeAddress(o.service_address) === addr || normalizeAddress(o.pickup_address) === addr)
@@ -212,7 +183,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
   }, [bins, pastOrders, form.pickup_address])
 
   const isMultiStep = form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL' || form.order_type === 'DUMP RETURN'
-
   const jobSiteExistingBins = useMemo(() => (isMultiStep ? binsAtJobSite : []), [binsAtJobSite, isMultiStep])
 
   const selectedExistingBin = useMemo(
@@ -310,7 +280,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
 
   async function handleCreate() {
     setError('')
-
     if (!form.customer_name.trim()) { setError('Customer is required.'); return }
     if (!form.pickup_address.trim()) { setError('Job Site Address is required.'); return }
     if (!form.scheduled_date) { setError('Date is required.'); return }
@@ -322,7 +291,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
       const addr = form.pickup_address.trim()
       const jobSiteId = form.customer_id ? await ensureJobSite(form.customer_id, addr) : null
       const dumpSiteAddress = selectedDumpSite?.address || null
-      const bin_id = isMultiStep ? (form.old_bin_id || null) : null
       const old_bin_id = isMultiStep ? (form.old_bin_id || null) : null
 
       const payload = {
@@ -336,7 +304,7 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
         bin_size: form.bin_size || null,
         bin_type: form.bin_type || null,
         bin_number: selectedExistingBin?.bin_number || null,
-        bin_id,
+        bin_id: isMultiStep ? old_bin_id : null,
         old_bin_id,
         dump_site_id: isMultiStep ? (form.dump_site_id || null) : null,
         dump_site_address: isMultiStep ? dumpSiteAddress : null,
@@ -365,7 +333,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
       <div className="flex min-h-full items-start justify-center p-4 md:p-6">
         <div className="my-6 w-full max-w-3xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
 
-          {/* Header */}
           <div className="mb-6 flex items-start justify-between gap-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">New Order</div>
@@ -382,7 +349,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
 
           <div className="grid gap-4 md:grid-cols-2">
 
-            {/* Customer */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Customer</label>
               <select
@@ -397,7 +363,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </select>
             </div>
 
-            {/* Customer Name */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Customer Name</label>
               <input
@@ -408,7 +373,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               />
             </div>
 
-            {/* Job Site Address — full width, suggestions from job sites + past orders */}
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Job Site Address
@@ -417,21 +381,20 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
                 )}
               </label>
               <input
-                list="new-order-address-suggestions"
+                list="nom-address-suggestions"
                 value={form.pickup_address}
                 onChange={(e) => handleJobSiteAddressInput(e.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
                 placeholder={customerAddressSuggestions.length > 0 ? 'Start typing a saved address' : 'Job site address'}
                 autoComplete="street-address"
               />
-              <datalist id="new-order-address-suggestions">
+              <datalist id="nom-address-suggestions">
                 {customerAddressSuggestions.map((addr) => (
                   <option key={addr} value={addr} />
                 ))}
               </datalist>
             </div>
 
-            {/* Order Type — full width */}
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-slate-700">Order Type</label>
               <select
@@ -450,7 +413,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </select>
             </div>
 
-            {/* Date */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Date</label>
               <div className="grid gap-2">
@@ -469,7 +431,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </div>
             </div>
 
-            {/* Time */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Time</label>
               <select
@@ -484,7 +445,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </select>
             </div>
 
-            {/* Bin Size */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
               <select
@@ -496,7 +456,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </select>
             </div>
 
-            {/* Material */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin</label>
               <select
@@ -508,7 +467,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </select>
             </div>
 
-            {/* Dump site fields — multi-step types only */}
             {isMultiStep && (
               <>
                 <div>
@@ -530,7 +488,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
                   </div>
                 </div>
 
-                {/* Existing bin at job site */}
                 <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     {form.order_type === 'DUMP RETURN' ? 'Bin at this Job Site' : 'Old / Existing Bin at this Job Site'}
@@ -579,7 +536,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
                   )}
                 </div>
 
-                {/* Assigned bin summary */}
                 {form.old_bin_id && (
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                     Assigned bin on this order: <span className="font-semibold">{selectedExistingBin?.bin_number || form.old_bin_id.slice(0, 8)}</span>
@@ -588,7 +544,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </>
             )}
 
-            {/* Assign Driver */}
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-slate-700">Assign Driver (optional)</label>
               <select
@@ -605,7 +560,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
               </select>
             </div>
 
-            {/* Notes */}
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-slate-700">Note</label>
               <textarea
@@ -619,7 +573,6 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
 
           </div>
 
-          {/* Footer */}
           <div className="mt-6 flex flex-wrap justify-end gap-3">
             <button
               onClick={onClose}

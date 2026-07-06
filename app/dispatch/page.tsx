@@ -1482,6 +1482,11 @@ export default function DispatchBoardPage() {
             defaultDate={selectedDayKey}
             onClose={() => setQuickCreateOpen(false)}
             onCreated={() => { setQuickCreateOpen(false); void refreshAll() }}
+            drivers={drivers}
+            customers={customers}
+            bins={bins}
+            dumpSites={dumpSites}
+            jobSites={jobSites}
           />
         )}
       </div>
