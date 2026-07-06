@@ -61,6 +61,7 @@ type Order = {
   parent_order_id?: string | null
   bins?: OrderBinRelation[] | null
   old_bin?: OrderBinRelation[] | null
+  dump_site?: { id: string; name: string | null; notes: string | null }[] | null
 }
 
 type QueuedAction = {
@@ -687,7 +688,8 @@ export default function DriverPage() {
         workflow_step,
         parent_order_id,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
-        old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
+        old_bin:old_bin_id ( id, bin_number, bin_size, status, location ),
+        dump_site:dump_site_id ( id, name, notes )
       `
       )
       .eq('driver_id', driver.id)
@@ -751,7 +753,8 @@ export default function DriverPage() {
         workflow_step,
         parent_order_id,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
-        old_bin:old_bin_id ( id, bin_number, bin_size, status, location )
+        old_bin:old_bin_id ( id, bin_number, bin_size, status, location ),
+        dump_site:dump_site_id ( id, name, notes )
       `
       )
       .eq('driver_id', resolvedDriver.id)
@@ -1522,9 +1525,9 @@ export default function DriverPage() {
                               href={stopRouteLink}
                               target="_blank"
                               rel="noreferrer"
-                              className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                              className="shrink-0 flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white active:bg-blue-700"
                             >
-                              Maps
+                              🗺️ Maps
                             </a>
                           )}
                         </div>
@@ -1561,19 +1564,19 @@ export default function DriverPage() {
                                 onChange={(e) => setBinInputs((c) => ({ ...c, [order.id]: e.target.value }))}
                                 placeholder="Enter number"
                                 style={{ fontSize: '16px' }}
-                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
                               />
                               <button
                                 type="button"
                                 onClick={() => void saveBinNumber(order)}
                                 disabled={binSaveState === 'saving'}
-                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                                className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50 active:bg-slate-900"
                               >
                                 {binSaveState === 'saving' ? '…' : 'Save'}
                               </button>
                             </div>
                           ) : (
-                            <p className="text-sm font-semibold text-slate-800">{visibleBinNumber || '—'}</p>
+                            <p className="text-2xl font-black text-slate-900 tracking-wide">{visibleBinNumber || '—'}</p>
                           )}
                           {order.order_type === 'EXCHANGE' && oldBin?.bin_number && (
                             <p className="mt-1 text-xs text-slate-400">Old bin: <span className="font-semibold text-slate-600">{oldBin.bin_number}</span></p>
@@ -1583,7 +1586,15 @@ export default function DriverPage() {
                         {hasDumpSite && (
                           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Dump Site</p>
-                            <p className="text-sm font-semibold text-slate-800 leading-snug">{displayValue(order.dump_site_address)}</p>
+                            {(() => {
+                              const ds = Array.isArray(order.dump_site) ? order.dump_site[0] : order.dump_site
+                              return (
+                                <>
+                                  <p className="text-sm font-bold text-slate-900 leading-snug">{ds?.name || order.dump_site_address || '—'}</p>
+                                  {ds?.notes && <p className="mt-1 text-xs text-slate-500 leading-snug">{ds.notes}</p>}
+                                </>
+                              )
+                            })()}
                           </div>
                         )}
                       </div>
@@ -1642,13 +1653,13 @@ export default function DriverPage() {
                           type="button"
                           onClick={() => void saveDriverComment(order)}
                           disabled={commentState === 'saving'}
-                          className={`shrink-0 rounded-xl border px-3 py-2.5 text-xs font-semibold transition disabled:opacity-50 ${
-                            commentState === 'saved' ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                            : commentState === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700'
-                            : 'border-slate-200 bg-white text-slate-700'
+                          className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:opacity-50 ${
+                            commentState === 'saved' ? 'bg-emerald-600 text-white'
+                            : commentState === 'error' ? 'bg-rose-600 text-white'
+                            : 'bg-slate-800 text-white active:bg-slate-900'
                           }`}
                         >
-                          {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? 'Saved' : commentState === 'error' ? 'Failed — retry' : 'Save Note'}
+                          {commentState === 'saving' ? 'Saving…' : commentState === 'saved' ? '✓ Saved' : commentState === 'error' ? '⚠ Failed — retry' : 'Save Note'}
                         </button>
                       </div>
                     </div>
