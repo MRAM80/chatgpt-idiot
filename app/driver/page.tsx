@@ -1388,15 +1388,15 @@ export default function DriverPage() {
                   const ok = await markDriverAvailable(driver.id)
                   if (ok) await refreshDriverData()
                 }}
-                className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700"
+                className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-bold text-white active:bg-emerald-700"
               >
-                Available
+                ✓ Available
               </button>
             )}
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
+              className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-bold text-white active:bg-rose-700"
             >
               Log out
             </button>
@@ -1410,8 +1410,14 @@ export default function DriverPage() {
           </div>
         )}
         {driver?.status === 'heading_back' && (
-          <div className="mx-auto max-w-lg px-4 pb-2">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">Head back to base</div>
+          <div className="mx-auto max-w-lg px-4 pb-3">
+            <div className="flex items-center gap-3 rounded-2xl bg-blue-600 px-4 py-3 shadow-sm">
+              <span className="text-2xl leading-none">🏠</span>
+              <div>
+                <p className="text-sm font-black uppercase tracking-wide text-white">Head back to base</p>
+                <p className="text-xs font-medium text-blue-200">All orders done — return to yard</p>
+              </div>
+            </div>
           </div>
         )}
         {driver?.status === 'parked' && (
