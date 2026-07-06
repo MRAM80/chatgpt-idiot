@@ -1387,8 +1387,12 @@ export default function DriverPage() {
       <div className="shrink-0 bg-white border-b border-slate-200">
         <div className="mx-auto max-w-lg px-4 h-12 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            {CLIENT_CONFIG.logoUrl && (
-              <img src={CLIENT_CONFIG.logoUrl} alt={CLIENT_CONFIG.name} className="h-7 w-auto object-contain shrink-0" />
+            {(CLIENT_CONFIG.iconUrl || CLIENT_CONFIG.icon192) && (
+              <img
+                src={CLIENT_CONFIG.iconUrl || CLIENT_CONFIG.icon192}
+                alt={CLIENT_CONFIG.name}
+                className="h-8 w-8 rounded-lg object-contain shrink-0"
+              />
             )}
             <span className="text-sm font-semibold text-slate-900 truncate">{driver?.name || 'Driver'}</span>
             {driver?.status === 'heading_back' && (

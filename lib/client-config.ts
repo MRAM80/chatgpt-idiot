@@ -7,6 +7,7 @@ export const CLIENT_CONFIG = {
   shortName,
   tagline: process.env.NEXT_PUBLIC_CLIENT_TAGLINE || '',
   logoUrl: process.env.NEXT_PUBLIC_CLIENT_LOGO_URL || null,
+  iconUrl: process.env.NEXT_PUBLIC_CLIENT_ICON_URL || null,
   primaryColor: process.env.NEXT_PUBLIC_CLIENT_PRIMARY_COLOR || '#0f172a',
   secondaryColor: process.env.NEXT_PUBLIC_CLIENT_SECONDARY_COLOR || '#0f172a',
   themeStorageKey: `${shortName.toLowerCase()}-theme`,
