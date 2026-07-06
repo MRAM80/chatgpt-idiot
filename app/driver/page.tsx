@@ -1518,6 +1518,7 @@ export default function DriverPage() {
                                 value={binInputs[order.id] || ''}
                                 onChange={(e) => setBinInputs((c) => ({ ...c, [order.id]: e.target.value }))}
                                 placeholder="Enter number"
+                                style={{ fontSize: '16px' }}
                                 className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
                               />
                               <button
@@ -1592,6 +1593,7 @@ export default function DriverPage() {
                             setDriverComments((c) => ({ ...c, [order.id]: e.target.value }))
                             setCommentSaveStates((c) => ({ ...c, [order.id]: 'idle' }))
                           }}
+                          style={{ fontSize: '16px' }}
                           className="flex-1 min-h-0 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 placeholder:font-normal focus:border-slate-400 resize-none"
                         />
                         <button
@@ -1634,38 +1636,50 @@ export default function DriverPage() {
                         </>
                       ) : (
                         <>
-                          {order.status !== 'in_progress' && !isDumpStep && (
+                          {binBlocked ? (
                             <button
                               type="button"
-                              onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                              disabled={isSaving || binBlocked}
-                              className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                                binBlocked ? 'bg-orange-400 active:bg-orange-500' : 'bg-amber-500 active:bg-amber-600'
-                              }`}
+                              disabled
+                              className="flex flex-[2] flex-col items-center justify-center gap-1 py-3.5 bg-emerald-600 text-white opacity-90"
                             >
-                              <span className="text-base leading-none">▶</span>
-                              <span className="text-xs font-semibold">{binBlocked ? 'Bin first' : 'Start'}</span>
+                              <span className="text-lg leading-none">📦</span>
+                              <span className="text-xs font-bold tracking-wide">LOAD BIN</span>
+                              <span className="text-[10px] font-medium opacity-80">Enter bin number above</span>
                             </button>
+                          ) : (
+                            <>
+                              {order.status !== 'in_progress' && !isDumpStep && (
+                                <button
+                                  type="button"
+                                  onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                                  disabled={isSaving}
+                                  className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-amber-500 text-white transition disabled:opacity-40 active:bg-amber-600"
+                                >
+                                  <span className="text-base leading-none">▶</span>
+                                  <span className="text-xs font-semibold">Start</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (hasOpenPreviousOrder(order, orders)) {
+                                    setPageError('Finish the previous stop first.')
+                                    return
+                                  }
+                                  void updateOrderStatus(order.id, 'completed')
+                                }}
+                                disabled={completeBlocked}
+                                className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
+                                  completeBlocked ? 'bg-orange-400 active:bg-orange-500' : 'bg-emerald-600 active:bg-emerald-700'
+                                }`}
+                              >
+                                <span className="text-base leading-none">✓</span>
+                                <span className="text-xs font-semibold">
+                                  {hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
+                                </span>
+                              </button>
+                            </>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (hasOpenPreviousOrder(order, orders)) {
-                                setPageError('Finish the previous stop first.')
-                                return
-                              }
-                              void updateOrderStatus(order.id, 'completed')
-                            }}
-                            disabled={completeBlocked}
-                            className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                              completeBlocked ? 'bg-orange-400 active:bg-orange-500' : 'bg-emerald-600 active:bg-emerald-700'
-                            }`}
-                          >
-                            <span className="text-base leading-none">✓</span>
-                            <span className="text-xs font-semibold">
-                              {binBlocked ? 'Bin first' : hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
-                            </span>
-                          </button>
                           <button
                             type="button"
                             onClick={() => void updateOrderStatus(order.id, 'issue')}
