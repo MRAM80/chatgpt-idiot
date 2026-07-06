@@ -314,7 +314,7 @@ export default function DriverPage() {
       return
     }
     if (!hadActiveOrdersRef.current) return
-    if (!driver?.id || driver.status === 'available') return
+    if (!driver?.id || driver.status === 'available' || driver.status === 'heading_back') return
     void markDriverAvailable(driver.id).then((ok) => {
       if (ok) setDriver((d) => d ? { ...d, status: 'available' } : d)
     })
