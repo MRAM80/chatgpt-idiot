@@ -93,6 +93,7 @@ type QuickOrderForm = {
   bin_size: string
   bin_type: string
   bin_number: string
+  old_bin_id: string
   dump_site_id: string
   dump_site_address: string
   scheduled_date: string
@@ -133,6 +134,7 @@ const emptyQuickForm = (): QuickOrderForm => ({
   bin_size: '20',
   bin_type: 'Garbage',
   bin_number: '',
+  old_bin_id: '',
   dump_site_id: '',
   dump_site_address: '',
   scheduled_date: toLocalDayKeyLocal(new Date()),
@@ -372,7 +374,6 @@ export default function DispatchBoardPage() {
   const [selectedDayKey, setSelectedDayKey] = useState(getTodayKey())
   const [quickCreateOpen, setQuickCreateOpen] = useState(false)
   const [quickForm, setQuickForm] = useState<QuickOrderForm>(emptyQuickForm)
-  const [quickHistoryBin, setQuickHistoryBin] = useState<{ bin_number: string | null; bin_size: string | null; bin_type: string | null } | null>(null)
   const [quickSaving, setQuickSaving] = useState(false)
   const [quickError, setQuickError] = useState('')
   const [modalNoteDraft, setModalNoteDraft] = useState('')
@@ -1030,59 +1031,57 @@ export default function DispatchBoardPage() {
     const addr = (quickForm.pickup_address || '').trim().toLowerCase()
     if (!addr) return []
     return bins.filter((bin) => {
-      return (bin.location || '').trim().toLowerCase() === addr && bin.status !== 'available'
+      return (bin.location || '').trim().toLowerCase() === addr && (bin.status || '') === 'in_use'
     })
   }, [bins, quickForm.pickup_address])
 
-  const quickExistingBins = useMemo(() => {
+  const quickJobSiteExistingBins = useMemo(() => {
     if (quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL' || quickForm.order_type === 'DUMP RETURN') {
       return quickBinsAtJobSite
     }
     return []
   }, [quickBinsAtJobSite, quickForm.order_type])
 
+  const quickSelectedExistingBin = useMemo(() => {
+    return quickJobSiteExistingBins.find((bin) => bin.id === quickForm.old_bin_id) || null
+  }, [quickJobSiteExistingBins, quickForm.old_bin_id])
+
+  const quickSelectedExistingBinMaterial = useMemo(() => {
+    if (!quickForm.old_bin_id) return ''
+    const linkedOrders = boardOrders
+      .filter((o) => o.bin_id === quickForm.old_bin_id || o.old_bin_id === quickForm.old_bin_id)
+      .sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime())
+    return linkedOrders.find((o) => o.bin_type)?.bin_type
+      || quickSelectedExistingBin?.bin_type
+      || ''
+  }, [boardOrders, quickForm.old_bin_id, quickSelectedExistingBin])
+
   const isMultiStepType = quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL'
 
+  // Auto-select the only bin at job site (mirrors order page logic)
   useEffect(() => {
-    if (!isMultiStepType || !quickForm.pickup_address.trim()) {
-      setQuickHistoryBin(null)
-      return
-    }
-    if (quickExistingBins.length >= 1) {
-      setQuickHistoryBin(null)
-      const bin = quickExistingBins[0]
-      setQuickForm((prev) => ({
-        ...prev,
-        bin_size: bin.bin_size || prev.bin_size,
-        bin_number: bin.bin_number ? String(bin.bin_number) : prev.bin_number,
-        bin_type: bin.bin_type || prev.bin_type,
-      }))
-      return
-    }
-    // Fallback: look up bin info from order history at this address
-    const supabase = createClient()
-    const addr = quickForm.pickup_address.trim()
-    supabase
-      .from('order')
-      .select('bin_number,bin_size,bin_type')
-      .or(`service_address.eq.${addr},pickup_address.eq.${addr}`)
-      .not('bin_type', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          const h = data[0] as { bin_number: string | null; bin_size: string | null; bin_type: string | null }
-          setQuickHistoryBin(h)
-          setQuickForm((prev) => ({
-            ...prev,
-            bin_size: h.bin_size || prev.bin_size,
-            bin_number: h.bin_number || prev.bin_number,
-            bin_type: h.bin_type || prev.bin_type,
-          }))
-        }
-      })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickForm.pickup_address, quickForm.order_type])
+    if (!isMultiStepType) return
+    if (quickJobSiteExistingBins.length !== 1) return
+    if (quickForm.old_bin_id) return
+    const onlyBin = quickJobSiteExistingBins[0]
+    setQuickForm((prev) => ({
+      ...prev,
+      old_bin_id: onlyBin.id,
+      bin_number: onlyBin.bin_number ? String(onlyBin.bin_number) : prev.bin_number,
+      bin_size: onlyBin.bin_size || prev.bin_size,
+    }))
+  }, [quickForm.order_type, quickForm.old_bin_id, quickJobSiteExistingBins])
+
+  // When old_bin_id changes, fill size, material, bin_number
+  useEffect(() => {
+    if (!quickForm.old_bin_id || !isMultiStepType) return
+    setQuickForm((prev) => ({
+      ...prev,
+      bin_size: quickSelectedExistingBin?.bin_size || prev.bin_size,
+      bin_type: quickSelectedExistingBinMaterial || quickSelectedExistingBin?.bin_type || prev.bin_type,
+      bin_number: quickSelectedExistingBin?.bin_number ? String(quickSelectedExistingBin.bin_number) : prev.bin_number,
+    }))
+  }, [quickForm.old_bin_id, quickSelectedExistingBin, quickSelectedExistingBinMaterial])
 
   function handleQuickCustomerChange(customerId: string) {
     const customer = customers.find((c) => c.id === customerId)
@@ -1092,6 +1091,8 @@ export default function DispatchBoardPage() {
       customer_name: customer?.name || '',
       job_site_id: '',
       pickup_address: '',
+      old_bin_id: '',
+      bin_number: '',
     }))
   }
 
@@ -1103,6 +1104,8 @@ export default function DispatchBoardPage() {
       ...prev,
       pickup_address: address,
       job_site_id: matched?.id || '',
+      old_bin_id: '',
+      bin_number: '',
     }))
   }
 
@@ -1117,6 +1120,14 @@ export default function DispatchBoardPage() {
       setQuickError('Job site address is required.')
       return
     }
+    if (isMultiStepType && !quickForm.old_bin_id) {
+      setQuickError(`${quickForm.order_type} requires selecting the bin at this job site.`)
+      return
+    }
+    if (isMultiStepType && !quickForm.dump_site_id) {
+      setQuickError('Please select a dump site.')
+      return
+    }
 
     setQuickSaving(true)
 
@@ -1129,7 +1140,9 @@ export default function DispatchBoardPage() {
           .reduce((max, o) => Math.max(max, o.route_position || 0), 0)
       : 0
 
-    const isMultiStep = quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL'
+    // bin_id / old_bin_id mirrors order page logic
+    const bin_id_payload = isMultiStepType ? quickForm.old_bin_id || null : null
+    const old_bin_id_payload = isMultiStepType ? quickForm.old_bin_id || null : null
 
     const payload = {
       ticket_number: generateTicketNumber(),
@@ -1142,6 +1155,8 @@ export default function DispatchBoardPage() {
       bin_size: quickForm.bin_size,
       bin_type: quickForm.bin_type,
       bin_number: quickForm.bin_number || null,
+      bin_id: bin_id_payload,
+      old_bin_id: old_bin_id_payload,
       dump_site_id: quickForm.dump_site_id || null,
       dump_site_address: quickForm.dump_site_address || null,
       scheduled_date: quickForm.scheduled_date,
@@ -1150,7 +1165,7 @@ export default function DispatchBoardPage() {
       route_position: quickForm.driver_id ? maxRoute + 1 : null,
       status,
       notes: quickForm.notes || null,
-      workflow_step: isMultiStep ? 'PICKUP' : 'MAIN',
+      workflow_step: isMultiStepType ? 'PICKUP' : 'MAIN',
     }
 
     const { error } = await supabase.from('order').insert(payload)
@@ -1168,7 +1183,6 @@ export default function DispatchBoardPage() {
     setQuickSaving(false)
     setQuickCreateOpen(false)
     setQuickForm(emptyQuickForm())
-    setQuickHistoryBin(null)
     await refreshAll()
   }
 
@@ -1239,7 +1253,7 @@ export default function DispatchBoardPage() {
 
               <button
                 type="button"
-                onClick={() => { setQuickForm(emptyQuickForm()); setQuickHistoryBin(null); setQuickError(''); setQuickCreateOpen(true) }}
+                onClick={() => { setQuickForm(emptyQuickForm()); setQuickError(''); setQuickCreateOpen(true) }}
                 className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
               >
                 + New Order
@@ -1766,45 +1780,15 @@ export default function DispatchBoardPage() {
                         className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
                       />
                     )}
-                    {quickExistingBins.length > 1 && (
-                      <select
-                        className="mt-1.5 w-full rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm outline-none"
-                        value={quickForm.bin_number}
-                        onChange={(e) => {
-                          const bin = quickExistingBins.find(b => String(b.bin_number) === e.target.value)
-                          if (bin) setQuickForm(prev => ({
-                            ...prev,
-                            bin_number: String(bin.bin_number || ''),
-                            bin_size: bin.bin_size || prev.bin_size,
-                            bin_type: bin.bin_type || prev.bin_type,
-                          }))
-                        }}
-                      >
-                        <option value="">Select bin at this Job Site</option>
-                        {quickExistingBins.map(b => (
-                          <option key={b.id} value={String(b.bin_number)}>
-                            #{b.bin_number} · {b.bin_size}yd · {b.bin_type}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {quickExistingBins.length === 1 && (
-                      <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-                        Bin on site: {quickExistingBins[0].bin_number ? `#${quickExistingBins[0].bin_number}` : 'bin'} ({quickExistingBins[0].bin_size} yd · {quickExistingBins[0].bin_type}) — auto-filled
-                      </div>
-                    )}
-                    {quickExistingBins.length === 0 && quickHistoryBin && isMultiStepType && (
-                      <div className="mt-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-800">
-                        From order history: {quickHistoryBin.bin_number ? `#${quickHistoryBin.bin_number}` : 'bin'} ({quickHistoryBin.bin_size} yd · {quickHistoryBin.bin_type}) — auto-filled
-                      </div>
-                    )}
                   </div>
 
                   <div>
                     <label className="mb-1 block text-xs font-semibold text-slate-600">Order Type</label>
                     <select
                       value={quickForm.order_type}
-                      onChange={(e) => setQuickField('order_type', e.target.value)}
+                      onChange={(e) => {
+                        setQuickForm((prev) => ({ ...prev, order_type: e.target.value, old_bin_id: '', bin_number: '' }))
+                      }}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
                     >
                       <option>DELIVERY</option>
@@ -1814,21 +1798,50 @@ export default function DispatchBoardPage() {
                     </select>
                   </div>
 
-                  {(quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL') && (
+                  {isMultiStepType && (
                     <>
-                      <div>
-                        <label className="mb-1 block text-xs font-semibold text-slate-600">Bin Number</label>
-                        <input
-                          type="text"
-                          value={quickForm.bin_number}
-                          onChange={(e) => setQuickField('bin_number', e.target.value)}
-                          placeholder="e.g. 001"
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
-                        />
+                      <div className="col-span-2">
+                        <label className="mb-1 block text-xs font-semibold text-slate-600">
+                          {quickForm.order_type === 'DUMP RETURN' ? 'Bin at this Job Site' : 'Old / Existing Bin at this Job Site'} *
+                        </label>
+                        {quickJobSiteExistingBins.length > 0 ? (
+                          <select
+                            value={quickForm.old_bin_id}
+                            onChange={(e) => {
+                              const bin = quickJobSiteExistingBins.find(b => b.id === e.target.value) || null
+                              setQuickForm(prev => ({
+                                ...prev,
+                                old_bin_id: e.target.value,
+                                bin_number: bin?.bin_number ? String(bin.bin_number) : prev.bin_number,
+                                bin_size: bin?.bin_size || prev.bin_size,
+                              }))
+                            }}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                          >
+                            <option value="">{quickForm.order_type === 'DUMP RETURN' ? 'Bin at this Job Site' : 'Old / Existing Bin at this Job Site'}</option>
+                            {quickJobSiteExistingBins.map((bin) => (
+                              <option key={bin.id} value={bin.id}>
+                                {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y • {bin.location || 'Job Site'}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+                            No bins found at this address. Ensure the bin is marked as &ldquo;in use&rdquo; at this location in Bin Inventory.
+                          </div>
+                        )}
+                        {quickForm.old_bin_id && quickForm.order_type === 'DUMP RETURN' && (
+                          <div className="mt-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-800">
+                            DUMP RETURN uses the same bin already on hold at this Job Site. Bin size and material are filled automatically from that bin.
+                          </div>
+                        )}
+                        {quickJobSiteExistingBins.length > 0 && (
+                          <div className="mt-1 text-xs text-slate-500">Bins found at this Job Site: <span className="font-semibold">{quickJobSiteExistingBins.length}</span></div>
+                        )}
                       </div>
 
                       <div>
-                        <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site</label>
+                        <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site *</label>
                         <select
                           value={quickForm.dump_site_id}
                           onChange={(e) => {
@@ -1848,16 +1861,22 @@ export default function DispatchBoardPage() {
                         </select>
                       </div>
 
-                      <div className="col-span-2">
+                      <div>
                         <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site Address</label>
                         <input
                           type="text"
                           value={quickForm.dump_site_address}
                           onChange={(e) => setQuickField('dump_site_address', e.target.value)}
-                          placeholder="Auto-filled from dump site, or enter manually"
+                          placeholder="Auto-filled from dump site"
                           className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
                         />
                       </div>
+
+                      {quickForm.old_bin_id && (
+                        <div className="col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700">
+                          Assigned bin on this order: <span className="font-semibold">{quickSelectedExistingBin?.bin_number || quickForm.bin_number || quickForm.old_bin_id.slice(0,8)}</span>
+                        </div>
+                      )}
                     </>
                   )}
 
