@@ -715,14 +715,6 @@ export default function DriverPage() {
       return
     }
 
-    if (!hasInitializedPresenceRef.current) {
-      const becameAvailable = await markDriverAvailable(resolvedDriver.id)
-      if (becameAvailable) {
-        resolvedDriver = { ...resolvedDriver, status: 'available' }
-      }
-      hasInitializedPresenceRef.current = true
-    }
-
     setDriver(resolvedDriver)
     void ensureNotificationsSubscribed(resolvedDriver.id)
 
@@ -787,6 +779,15 @@ export default function DriverPage() {
     persistOrders(nextOrders)
     setUsingCachedOrders(false)
     await loadBinsForOrders(nextOrders)
+
+    // Mark available on first load only if no active orders and not heading back
+    if (!hasInitializedPresenceRef.current) {
+      hasInitializedPresenceRef.current = true
+      if (nextOrders.length === 0 && resolvedDriver.status !== 'heading_back') {
+        const ok = await markDriverAvailable(resolvedDriver.id)
+        if (ok) setDriver((d) => d ? { ...d, status: 'available' } : d)
+      }
+    }
 
     setBinInputs((current) => {
       const next = { ...current }
