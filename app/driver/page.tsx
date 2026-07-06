@@ -1170,17 +1170,17 @@ export default function DriverPage() {
     }
   }, [syncingQueue])
 
-  async function advanceToPickedUp(orderId: string) {
+  async function advanceWorkflowStep(orderId: string, nextStep: string) {
     setSavingOrderId(orderId)
     setPageError('')
     const { error } = await supabase
       .from(TABLE_NAME)
-      .update({ workflow_step: 'DUMP', status: 'in_progress' })
+      .update({ workflow_step: nextStep, status: 'in_progress' })
       .eq('id', orderId)
     if (error) {
       setPageError(`Could not advance step: ${error.message}`)
     } else {
-      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, workflow_step: 'DUMP', status: 'in_progress' } : o))
+      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, workflow_step: nextStep, status: 'in_progress' } : o))
     }
     setSavingOrderId(null)
   }
@@ -1461,21 +1461,30 @@ export default function DriverPage() {
             {orders.map((order, index) => {
               const isSaving = savingOrderId === order.id
               const syncBadge = getOrderSyncBadge(order.id)
-              const stopAddress = getOrderAddress(order)
               const assignedBin = firstRelation(order.bins) || (order.bin_id ? binsMap[String(order.bin_id)] : null)
               const oldBin = firstRelation(order.old_bin) || (order.old_bin_id ? binsMap[String(order.old_bin_id)] : null)
               const binSaveState = binSaveStates[order.id] || 'idle'
-              const stopRouteLink = buildGoogleMapsLinkFromStop(orders, index)
               const usesExistingBin = order.order_type === 'REMOVAL' || order.order_type === 'DUMP RETURN'
               const needsNewBin = order.order_type === 'DELIVERY' || order.order_type === 'EXCHANGE'
+              const isMultiStep = order.order_type === 'DUMP RETURN' || order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE'
               const visibleBinNumber = usesExistingBin
                 ? oldBin?.bin_number || assignedBin?.bin_number || order.bin_number || binInputs[order.id] || ''
                 : assignedBin?.bin_number || order.bin_number || binInputs[order.id] || ''
               const photoState = photoUploadStates[order.id]
               const commentState = commentSaveStates[order.id]
               const binBlocked = needsNewBin && !assignedBin?.bin_number
-              const isPickupStep = order.workflow_step === 'PICKUP'
+
+              // Step-aware derived values
               const isDumpStep = order.workflow_step === 'DUMP'
+              const isReturnStep = order.workflow_step === 'RETURN'
+              const isLoadStep = isMultiStep && !isDumpStep && !isReturnStep
+              const customerAddress = getOrderAddress(order)
+              const dumpAddress = order.dump_site_address || ''
+              const stopAddress = isDumpStep ? (dumpAddress || customerAddress) : customerAddress
+              const stopRouteLink = isDumpStep && dumpAddress
+                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dumpAddress)}`
+                : buildGoogleMapsLinkFromStop(orders, index)
+
               const completeBlocked = isSaving || hasOpenPreviousOrder(order, orders) || binBlocked
               const hasDumpSite = order.order_type === 'REMOVAL' || order.order_type === 'EXCHANGE' || order.order_type === 'DUMP RETURN'
 
@@ -1484,15 +1493,18 @@ export default function DriverPage() {
                   <div className="flex-1 min-h-0 rounded-2xl bg-white border border-slate-200 overflow-hidden flex flex-col">
 
                     {/* ── Stop bar ─────────────────────────────────────────── */}
-                    <div className={`shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 ${isDumpStep ? 'bg-amber-50' : 'bg-slate-50'}`}>
+                    <div className={`shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 ${isDumpStep ? 'bg-amber-50' : isReturnStep ? 'bg-emerald-50' : 'bg-slate-50'}`}>
                       <span className="text-xs font-semibold text-slate-500">Stop {order.route_position || index + 1}</span>
                       <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
                       <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
-                      {isPickupStep && (
-                        <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">PICKUP</span>
+                      {isLoadStep && (
+                        <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">1 — LOAD BIN</span>
                       )}
                       {isDumpStep && (
-                        <span className="rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">DUMP</span>
+                        <span className="rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">2 — DUMP BIN</span>
+                      )}
+                      {isReturnStep && (
+                        <span className="rounded-md border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">3 — RETURN</span>
                       )}
                       {(order.service_window || order.service_time) && (
                         <span className="ml-auto text-xs font-medium text-slate-500">
@@ -1504,9 +1516,31 @@ export default function DriverPage() {
 
                     {/* ── Card body ─────────────────────────────────────────── */}
                     <div className="flex-1 min-h-0 flex flex-col gap-3 px-4 py-3 overflow-hidden">
-                      {isDumpStep && order.dump_site_address && (
-                        <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                          🚛 Dump at: {order.dump_site_address}
+                      {isLoadStep && isMultiStep && (
+                        <div className="shrink-0 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+                          <span className="text-base">🚛</span>
+                          <div>
+                            <p className="text-xs font-bold text-blue-800">Step 1 — Go to customer & load bin</p>
+                            <p className="text-xs text-blue-600 truncate">{customerAddress}</p>
+                          </div>
+                        </div>
+                      )}
+                      {isDumpStep && (
+                        <div className="shrink-0 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                          <span className="text-base">🗑️</span>
+                          <div>
+                            <p className="text-xs font-bold text-amber-800">Step 2 — Go to dump site</p>
+                            <p className="text-xs text-amber-700 truncate">{dumpAddress || 'See dump site below'}</p>
+                          </div>
+                        </div>
+                      )}
+                      {isReturnStep && (
+                        <div className="shrink-0 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                          <span className="text-base">🔄</span>
+                          <div>
+                            <p className="text-xs font-bold text-emerald-800">Step 3 — Return bin to customer</p>
+                            <p className="text-xs text-emerald-700 truncate">{customerAddress}</p>
+                          </div>
                         </div>
                       )}
 
@@ -1633,17 +1667,53 @@ export default function DriverPage() {
 
                     {/* ── Action bar ────────────────────────────────────────── */}
                     <div className="shrink-0 flex border-t border-slate-100">
-                      {isPickupStep ? (
+                      {isMultiStep ? (
                         <>
-                          <button
-                            type="button"
-                            onClick={() => void advanceToPickedUp(order.id)}
-                            disabled={isSaving}
-                            className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-blue-600 text-white transition disabled:opacity-40 active:bg-blue-700"
-                          >
-                            <span className="text-base leading-none">📦</span>
-                            <span className="text-xs font-semibold">Picked Up</span>
-                          </button>
+                          {/* Multi-step workflow: LOAD BIN → DUMP BIN → (RETURN/COMPLETE) */}
+                          {isLoadStep && (
+                            <button
+                              type="button"
+                              onClick={() => void advanceWorkflowStep(order.id, 'DUMP')}
+                              disabled={isSaving}
+                              className="flex flex-[2] flex-col items-center justify-center gap-0.5 py-3.5 bg-blue-600 text-white transition disabled:opacity-40 active:bg-blue-700"
+                            >
+                              <span className="text-lg leading-none">🚛</span>
+                              <span className="text-xs font-black tracking-wide">LOAD BIN</span>
+                              <span className="text-[10px] font-medium opacity-80">Bin loaded on truck</span>
+                            </button>
+                          )}
+                          {isDumpStep && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (order.order_type === 'DUMP RETURN') {
+                                  void advanceWorkflowStep(order.id, 'RETURN')
+                                } else {
+                                  void updateOrderStatus(order.id, 'completed')
+                                }
+                              }}
+                              disabled={isSaving}
+                              className="flex flex-[2] flex-col items-center justify-center gap-0.5 py-3.5 bg-amber-500 text-white transition disabled:opacity-40 active:bg-amber-600"
+                            >
+                              <span className="text-lg leading-none">🗑️</span>
+                              <span className="text-xs font-black tracking-wide">BIN DUMPED</span>
+                              <span className="text-[10px] font-medium opacity-80">
+                                {order.order_type === 'DUMP RETURN' ? 'Now return to customer' : 'Job complete'}
+                              </span>
+                            </button>
+                          )}
+                          {isReturnStep && (
+                            <button
+                              type="button"
+                              onClick={() => void updateOrderStatus(order.id, 'completed')}
+                              disabled={completeBlocked}
+                              className="flex flex-[2] flex-col items-center justify-center gap-0.5 py-3.5 bg-emerald-600 text-white transition disabled:opacity-40 active:bg-emerald-700"
+                            >
+                              <span className="text-lg leading-none">✅</span>
+                              <span className="text-xs font-black tracking-wide">BACK TO CUSTOMER</span>
+                              <span className="text-[10px] font-medium opacity-80">Bin returned — complete</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => void updateOrderStatus(order.id, 'issue')}
@@ -1656,19 +1726,20 @@ export default function DriverPage() {
                         </>
                       ) : (
                         <>
+                          {/* Single-step: DELIVERY */}
                           {binBlocked ? (
                             <button
                               type="button"
                               disabled
-                              className="flex flex-[2] flex-col items-center justify-center gap-1 py-3.5 bg-emerald-600 text-white opacity-90"
+                              className="flex flex-[2] flex-col items-center justify-center gap-0.5 py-3.5 bg-emerald-600 text-white opacity-90"
                             >
                               <span className="text-lg leading-none">📦</span>
-                              <span className="text-xs font-bold tracking-wide">LOAD BIN</span>
+                              <span className="text-xs font-black tracking-wide">LOAD BIN</span>
                               <span className="text-[10px] font-medium opacity-80">Enter bin number above</span>
                             </button>
                           ) : (
                             <>
-                              {order.status !== 'in_progress' && !isDumpStep && (
+                              {order.status !== 'in_progress' && (
                                 <button
                                   type="button"
                                   onClick={() => void updateOrderStatus(order.id, 'in_progress')}
@@ -1690,7 +1761,7 @@ export default function DriverPage() {
                                 }}
                                 disabled={completeBlocked}
                                 className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                                  completeBlocked ? 'bg-orange-400 active:bg-orange-500' : 'bg-emerald-600 active:bg-emerald-700'
+                                  completeBlocked ? 'bg-orange-400' : 'bg-emerald-600 active:bg-emerald-700'
                                 }`}
                               >
                                 <span className="text-base leading-none">✓</span>
