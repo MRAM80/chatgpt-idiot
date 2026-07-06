@@ -456,7 +456,7 @@ export default function DashboardPage() {
 
           <Link
             href="/settings"
-            className="rounded-3xl bg-slate-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md col-span-full sm:col-span-1 md:col-span-3"
+            className="rounded-3xl bg-slate-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           >
             <div className="text-lg font-bold text-white">⚙ Settings</div>
             <div className="mt-2 text-sm text-slate-400">

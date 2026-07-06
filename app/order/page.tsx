@@ -1879,7 +1879,7 @@ function OrdersPageContent() {
                       <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
                       <select
                         value={form.bin_size}
-                        onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '' }))}
+                        onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '', old_bin_id: '' }))}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
                       >
                         {BIN_SIZES.map((size) => (

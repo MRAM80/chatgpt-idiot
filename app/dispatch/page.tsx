@@ -98,6 +98,18 @@ function generateTicketNumber() {
   return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
 }
 
+function buildTimeOptions() {
+  const options: string[] = []
+  for (let hour = 5; hour <= 20; hour++) {
+    for (const minute of [0, 30]) {
+      options.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`)
+    }
+  }
+  return options
+}
+const QUICK_TIME_OPTIONS = buildTimeOptions()
+
+
 function toLocalDayKeyLocal(date: Date) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
@@ -1781,12 +1793,16 @@ export default function DispatchBoardPage() {
 
                   <div>
                     <label className="mb-1 block text-xs font-semibold text-slate-600">Time</label>
-                    <input
-                      type="time"
+                    <select
                       value={quickForm.service_time}
                       onChange={(e) => setQuickField('service_time', e.target.value)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
-                    />
+                    >
+                      <option value="">Select time</option>
+                      {QUICK_TIME_OPTIONS.map((t) => (
+                        <option key={t} value={t}>{formatServiceTime(t)}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
