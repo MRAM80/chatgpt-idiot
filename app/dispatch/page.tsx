@@ -28,6 +28,12 @@ type JobSite = {
   address: string | null
 }
 
+type DumpSite = {
+  id: string
+  name: string | null
+  address: string | null
+}
+
 type Bin = {
   id: string
   bin_number: string | null
@@ -87,6 +93,7 @@ type QuickOrderForm = {
   bin_size: string
   bin_type: string
   bin_number: string
+  dump_site_id: string
   dump_site_address: string
   scheduled_date: string
   service_time: string
@@ -126,6 +133,7 @@ const emptyQuickForm = (): QuickOrderForm => ({
   bin_size: '20',
   bin_type: 'Garbage',
   bin_number: '',
+  dump_site_id: '',
   dump_site_address: '',
   scheduled_date: toLocalDayKeyLocal(new Date()),
   service_time: '',
@@ -352,6 +360,7 @@ export default function DispatchBoardPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [jobSites, setJobSites] = useState<JobSite[]>([])
   const [bins, setBins] = useState<Bin[]>([])
+  const [dumpSites, setDumpSites] = useState<DumpSite[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState('')
   const [search, setSearch] = useState('')
@@ -432,9 +441,17 @@ export default function DispatchBoardPage() {
     setBins((data as Bin[]) || [])
   }
 
+  async function loadDumpSites() {
+    const { data } = await supabase
+      .from('dump_sites')
+      .select('id,name,address')
+      .order('name', { ascending: true })
+    setDumpSites((data as DumpSite[]) || [])
+  }
+
   async function refreshAll() {
     setPageError('')
-    await Promise.all([loadDrivers(), loadOrders(), loadCustomers(), loadJobSites(), loadBins()])
+    await Promise.all([loadDrivers(), loadOrders(), loadCustomers(), loadJobSites(), loadBins(), loadDumpSites()])
   }
 
   useEffect(() => {
@@ -1093,6 +1110,7 @@ export default function DispatchBoardPage() {
       bin_size: quickForm.bin_size,
       bin_type: quickForm.bin_type,
       bin_number: quickForm.bin_number || null,
+      dump_site_id: quickForm.dump_site_id || null,
       dump_site_address: quickForm.dump_site_address || null,
       scheduled_date: quickForm.scheduled_date,
       service_time: quickForm.service_time || null,
@@ -1715,11 +1733,31 @@ export default function DispatchBoardPage() {
                         className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
                       />
                     )}
-                    {quickExistingBins.length > 0 && (
+                    {quickExistingBins.length > 1 && (
+                      <select
+                        className="mt-1.5 w-full rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm outline-none"
+                        value={quickForm.bin_number}
+                        onChange={(e) => {
+                          const bin = quickExistingBins.find(b => String(b.bin_number) === e.target.value)
+                          if (bin) setQuickForm(prev => ({
+                            ...prev,
+                            bin_number: String(bin.bin_number || ''),
+                            bin_size: bin.bin_size || prev.bin_size,
+                            bin_type: bin.bin_type || prev.bin_type,
+                          }))
+                        }}
+                      >
+                        <option value="">Select bin at this Job Site</option>
+                        {quickExistingBins.map(b => (
+                          <option key={b.id} value={String(b.bin_number)}>
+                            #{b.bin_number} · {b.bin_size}yd · {b.bin_type}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {quickExistingBins.length === 1 && (
                       <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
-                        {quickExistingBins.length === 1
-                          ? `Bin on site: #${quickExistingBins[0].bin_number} (${quickExistingBins[0].bin_size} yd) — auto-filled`
-                          : `${quickExistingBins.length} bins on site — select below`}
+                        Bin on site: #{quickExistingBins[0].bin_number} ({quickExistingBins[0].bin_size} yd) — auto-filled
                       </div>
                     )}
                   </div>
@@ -1739,29 +1777,50 @@ export default function DispatchBoardPage() {
                   </div>
 
                   {(quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL') && (
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold text-slate-600">Bin Number</label>
-                      <input
-                        type="text"
-                        value={quickForm.bin_number}
-                        onChange={(e) => setQuickField('bin_number', e.target.value)}
-                        placeholder="e.g. 001"
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
-                      />
-                    </div>
-                  )}
+                    <>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-600">Bin Number</label>
+                        <input
+                          type="text"
+                          value={quickForm.bin_number}
+                          onChange={(e) => setQuickField('bin_number', e.target.value)}
+                          placeholder="e.g. 001"
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                        />
+                      </div>
 
-                  {(quickForm.order_type === 'DUMP RETURN' || quickForm.order_type === 'EXCHANGE' || quickForm.order_type === 'REMOVAL') && (
-                    <div className="col-span-2">
-                      <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site Address</label>
-                      <input
-                        type="text"
-                        value={quickForm.dump_site_address}
-                        onChange={(e) => setQuickField('dump_site_address', e.target.value)}
-                        placeholder="Where is the bin being dumped?"
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
-                      />
-                    </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site</label>
+                        <select
+                          value={quickForm.dump_site_id}
+                          onChange={(e) => {
+                            const site = dumpSites.find(s => s.id === e.target.value)
+                            setQuickForm(prev => ({
+                              ...prev,
+                              dump_site_id: e.target.value,
+                              dump_site_address: site?.address || '',
+                            }))
+                          }}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                        >
+                          <option value="">Select dump site</option>
+                          {dumpSites.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="col-span-2">
+                        <label className="mb-1 block text-xs font-semibold text-slate-600">Dump Site Address</label>
+                        <input
+                          type="text"
+                          value={quickForm.dump_site_address}
+                          onChange={(e) => setQuickField('dump_site_address', e.target.value)}
+                          placeholder="Auto-filled from dump site, or enter manually"
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                        />
+                      </div>
+                    </>
                   )}
 
                   <div>
