@@ -656,19 +656,27 @@ function OrdersPageContent() {
 
   const binsAtSelectedJobSite = useMemo(() => {
     const addr = normalizeAddress(form.pickup_address)
-    if (!addr) return []
+    const allInUse = bins.filter((b) => b.status === 'in_use')
+    if (!addr) return allInUse
 
-    // Primary: bins marked in_use whose location exactly matches the address
-    const byLocation = bins.filter((b) => normalizeAddress(b.location) === addr && b.status === 'in_use')
-    if (byLocation.length > 0) return byLocation
+    // Bins matching this address by location or past order history
+    const atAddr = new Set<string>()
+    for (const b of allInUse) {
+      if (normalizeAddress(b.location) === addr) atAddr.add(b.id)
+    }
+    for (const o of orders) {
+      if (normalizeAddress(o.service_address) === addr || normalizeAddress(o.pickup_address) === addr) {
+        if (o.bin_id && typeof o.bin_id === 'string') atAddr.add(o.bin_id)
+        if (o.old_bin_id && typeof o.old_bin_id === 'string') atAddr.add(o.old_bin_id)
+      }
+    }
 
-    // Fallback: bins referenced in past orders at this address that are still in_use
-    const binIdsAtAddr = new Set(
-      orders
-        .filter((o) => normalizeAddress(o.service_address) === addr || normalizeAddress(o.pickup_address) === addr)
-        .flatMap((o) => [o.bin_id, o.old_bin_id].filter((id): id is string => Boolean(id)))
-    )
-    return bins.filter((b) => binIdsAtAddr.has(b.id) && b.status === 'in_use')
+    // Address matches first, then remaining in_use bins
+    return [...allInUse].sort((a, b) => {
+      const aMatch = atAddr.has(a.id) ? 0 : 1
+      const bMatch = atAddr.has(b.id) ? 0 : 1
+      return aMatch - bMatch
+    })
   }, [bins, orders, form.pickup_address])
 
   const jobSiteExistingBins = useMemo(() => {
@@ -2025,12 +2033,16 @@ function OrdersPageContent() {
                         }}
                         className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                       >
-                        <option value="">Select bin from this Job Site</option>
-                        {jobSiteExistingBins.map((bin) => (
-                          <option key={bin.id} value={bin.id}>
-                            {bin.bin_number || 'Bin'} • {bin.bin_size || ''}Y • {bin.location || 'Job Site'}
-                          </option>
-                        ))}
+                        <option value="">Select bin</option>
+                        {jobSiteExistingBins.map((bin) => {
+                          const addrNorm = normalizeAddress(form.pickup_address)
+                          const atThisSite = addrNorm && normalizeAddress(bin.location) === addrNorm
+                          return (
+                            <option key={bin.id} value={bin.id}>
+                              {atThisSite ? '📍 ' : ''}{bin.bin_number || 'Bin'} • {bin.bin_size || '?'}Y • {bin.location || 'Unknown location'}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                   ))}
