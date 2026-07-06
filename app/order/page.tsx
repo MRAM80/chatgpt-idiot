@@ -311,13 +311,14 @@ function OrdersPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  useEffect(() => {
-  const newOrder = searchParams.get('newOrder')
+  const isEmbedded = searchParams.get('embedded') === '1'
 
-  if (newOrder === '1') {
-    openCreateModal()
-  }
-}, [searchParams])
+  useEffect(() => {
+    const newOrder = searchParams.get('newOrder')
+    if (newOrder === '1') {
+      openCreateModal()
+    }
+  }, [searchParams])
 
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
@@ -793,6 +794,11 @@ function OrdersPageContent() {
     setForm(emptyForm)
     setPageError('')
 
+    if (isEmbedded) {
+      window.parent?.postMessage({ type: 'order-modal-close' }, '*')
+      return
+    }
+
     const params = new URLSearchParams(searchParams.toString())
     params.delete('orderId')
     const next = params.toString()
@@ -1194,6 +1200,11 @@ function OrdersPageContent() {
       const { error } = await supabase.from(TABLE_NAME).insert([insertPayload])
       if (error) throw new Error(error.message)
 
+      if (isEmbedded) {
+        window.parent?.postMessage({ type: 'order-created' }, '*')
+        return
+      }
+
       await refreshAll()
       closeModal()
     } catch (error: any) {
@@ -1509,8 +1520,8 @@ function OrdersPageContent() {
   }
 
   return (
-    <div className="light min-h-screen bg-slate-100 text-slate-900" style={{ colorScheme: 'light' }}>
-      <div className="mx-auto max-w-[92rem] p-4 md:p-6">
+    <div className="light min-h-screen bg-slate-100 text-slate-900" style={{ colorScheme: 'light', ...(isEmbedded ? { background: 'transparent', minHeight: 'unset' } : {}) }}>
+      <div className={isEmbedded ? 'hidden' : 'mx-auto max-w-[92rem] p-4 md:p-6'}>
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">

@@ -322,6 +322,20 @@ export default function DispatchBoardPage() {
   const [selectedDayKey, setSelectedDayKey] = useState(getTodayKey())
   const [modalNoteDraft, setModalNoteDraft] = useState('')
   const [modalNoteSaving, setModalNoteSaving] = useState(false)
+  const [newOrderOpen, setNewOrderOpen] = useState(false)
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.data?.type === 'order-created') {
+        setNewOrderOpen(false)
+        void refreshAll()
+      } else if (e.data?.type === 'order-modal-close') {
+        setNewOrderOpen(false)
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
 
   const todayKey = useMemo(() => getTodayKey(), [])
   const tomorrowKey = useMemo(() => getTomorrowKey(), [])
@@ -965,6 +979,7 @@ export default function DispatchBoardPage() {
 
 
   return (
+    <>
     <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-[1920px] p-3 md:p-4">
         {/* Header */}
@@ -1031,7 +1046,7 @@ export default function DispatchBoardPage() {
 
               <button
                 type="button"
-                onClick={() => router.push('/order?newOrder=1')}
+                onClick={() => setNewOrderOpen(true)}
                 className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
               >
                 + New Order
@@ -1474,8 +1489,19 @@ export default function DispatchBoardPage() {
           </div>
         ) : null}
 
-
       </div>
     </div>
+
+      {newOrderOpen && (
+        <div className="fixed inset-0 z-50">
+          <iframe
+            src="/order?newOrder=1&embedded=1"
+            className="w-full h-full border-0"
+            style={{ background: 'transparent' }}
+            title="New Order"
+          />
+        </div>
+      )}
+    </>
   )
 }
