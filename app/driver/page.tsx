@@ -874,6 +874,10 @@ export default function DriverPage() {
   }
 
   async function handleLogout() {
+    if (hasActiveOrders) {
+      setPageError('You must complete all orders before logging out.')
+      return
+    }
     await supabase.auth.signOut()
     router.push('/login')
   }
