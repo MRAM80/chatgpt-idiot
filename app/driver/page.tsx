@@ -303,8 +303,22 @@ export default function DriverPage() {
   const [photoUploadStates, setPhotoUploadStates] = useState<Record<string, PhotoUploadState>>({})
   const hasInitializedPresenceRef = useRef(false)
   const previousOrderIdsRef = useRef<string[]>([])
+  const hadActiveOrdersRef = useRef(false)
   const hasActiveOrders = orders.length > 0
   const showAvailableButton = !hasActiveOrders && driver?.status !== 'available'
+
+  // Auto-mark available when all orders are done
+  useEffect(() => {
+    if (hasActiveOrders) {
+      hadActiveOrdersRef.current = true
+      return
+    }
+    if (!hadActiveOrdersRef.current) return
+    if (!driver?.id || driver.status === 'available') return
+    void markDriverAvailable(driver.id).then((ok) => {
+      if (ok) setDriver((d) => d ? { ...d, status: 'available' } : d)
+    })
+  }, [hasActiveOrders, driver?.id, driver?.status])
 
   function persistOrders(nextOrders: Order[]) {
     setOrders(nextOrders)
