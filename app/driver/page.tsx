@@ -1531,17 +1531,17 @@ export default function DriverPage() {
                           <div className="mt-1.5">
                             {isLoadStep && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-2.5 py-0.5 text-xs font-bold text-white">
-                                🚛 Step 1 — Load bin at customer
+                                🚛 Load bin at customer
                               </span>
                             )}
                             {isDumpStep && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-bold text-white">
-                                🗑️ Step 2 — Dump at site
+                                🗑️ Dump bin at site
                               </span>
                             )}
                             {isReturnStep && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">
-                                🔄 Step 3 — Return bin to customer
+                                🔄 Return bin to customer
                               </span>
                             )}
                           </div>
