@@ -152,7 +152,16 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
     return jobSites.filter((s) => s.customer_id === form.customer_id)
   }, [jobSites, form.customer_id])
 
-  // All unique addresses for this customer: saved job sites + past order addresses
+  const dumpSiteAddresses = useMemo(() => {
+    const set = new Set<string>()
+    for (const ds of dumpSites) {
+      if (ds.address) set.add(ds.address.trim().toLowerCase())
+      if (ds.name) set.add(ds.name.trim().toLowerCase())
+    }
+    return set
+  }, [dumpSites])
+
+  // All unique addresses for this customer: saved job sites + past order addresses (excluding dump sites)
   const customerAddressSuggestions = useMemo(() => {
     const seen = new Set<string>()
     const results: string[] = []
@@ -160,20 +169,22 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
     // First: saved job site addresses
     for (const site of selectedCustomerJobSites) {
       const addr = (site.address || '').trim()
-      if (addr && !seen.has(addr.toLowerCase())) {
-        seen.add(addr.toLowerCase())
+      const key = addr.toLowerCase()
+      if (addr && !seen.has(key) && !dumpSiteAddresses.has(key)) {
+        seen.add(key)
         results.push(addr)
       }
     }
 
-    // Then: past order addresses for this customer
+    // Then: past order addresses (skip dump site addresses and single-word entries like "YARD")
     if (form.customer_id) {
       for (const order of pastOrders) {
         if (order.customer_id !== form.customer_id) continue
         for (const addr of [order.service_address, order.pickup_address]) {
           const trimmed = (addr || '').trim()
-          if (trimmed && !seen.has(trimmed.toLowerCase())) {
-            seen.add(trimmed.toLowerCase())
+          const key = trimmed.toLowerCase()
+          if (trimmed && !seen.has(key) && !dumpSiteAddresses.has(key) && trimmed.includes(' ')) {
+            seen.add(key)
             results.push(trimmed)
           }
         }
@@ -181,13 +192,24 @@ export default function NewOrderModal({ onClose, onCreated, defaultDate, default
     }
 
     return results
-  }, [selectedCustomerJobSites, pastOrders, form.customer_id])
+  }, [selectedCustomerJobSites, pastOrders, form.customer_id, dumpSiteAddresses])
 
   const binsAtJobSite = useMemo(() => {
     const addr = normalizeAddress(form.pickup_address)
     if (!addr) return []
-    return bins.filter((b) => normalizeAddress(b.location) === addr && (b.status || '') === 'in_use')
-  }, [bins, form.pickup_address])
+
+    // Primary: bins marked in_use whose location exactly matches the address
+    const byLocation = bins.filter((b) => normalizeAddress(b.location) === addr && b.status === 'in_use')
+    if (byLocation.length > 0) return byLocation
+
+    // Fallback: bins referenced in past orders at this address that are still in_use
+    const binIdsAtAddr = new Set(
+      pastOrders
+        .filter((o) => normalizeAddress(o.service_address) === addr || normalizeAddress(o.pickup_address) === addr)
+        .flatMap((o) => [o.bin_id, o.old_bin_id].filter((id): id is string => Boolean(id)))
+    )
+    return bins.filter((b) => binIdsAtAddr.has(b.id) && b.status === 'in_use')
+  }, [bins, pastOrders, form.pickup_address])
 
   const isMultiStep = form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL' || form.order_type === 'DUMP RETURN'
 
