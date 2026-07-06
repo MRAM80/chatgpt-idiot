@@ -19,7 +19,7 @@ Multi-tenant dispatch SaaS. Same codebase, different Supabase projects per tenan
 | `order` | `bin_id`, `old_bin_id`, `bin_number` (text), `bin_size`, `bin_type`, `workflow_step` (MAIN/PICKUP/DUMP), `dump_site_id`, `dump_site_address`, `service_time`, `parent_order_id` |
 | `bins` | `bin_number`, `bin_size`, `bin_type`, `status` (`in_use`/`available`), `location` |
 | `dump_sites` | `id`, `name`, `address`, `notes` |
-| `job_sites` | `customer_id`, `site_name`, `address`, `is_active` |
+| `job_sites` | `customer_id`, `site_name`, `address`, `unit`, `city`, `province`, `postal_code`, `is_active` |
 | `drivers` | `auth_user_id` links to `user_profiles` |
 | `user_profiles` | `auth_user_id`, `role`, `full_name` |
 
@@ -60,6 +60,10 @@ ALTER TABLE "order" ADD COLUMN IF NOT EXISTS parent_order_id uuid;
 ALTER TABLE "order" ADD COLUMN IF NOT EXISTS dump_site_address text;
 ALTER TABLE "order" ADD COLUMN IF NOT EXISTS delivery_photo_url text;
 ALTER TABLE dump_sites ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE job_sites ADD COLUMN IF NOT EXISTS unit text;
+ALTER TABLE job_sites ADD COLUMN IF NOT EXISTS city text;
+ALTER TABLE job_sites ADD COLUMN IF NOT EXISTS province text DEFAULT 'ON';
+ALTER TABLE job_sites ADD COLUMN IF NOT EXISTS postal_code text;
 UPDATE customers SET status = 'active' WHERE status IS NULL;
 ```
 

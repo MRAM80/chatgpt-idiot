@@ -342,12 +342,63 @@ function OrdersPageContent() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
+  const [newAddrDetails, setNewAddrDetails] = useState({ unit: '', city: '', postal_code: '' })
+  const addressInputRef = useRef<HTMLInputElement | null>(null)
+
   const modalTitleRef = useRef<HTMLSelectElement | null>(null)
   const modalCardRef = useRef<HTMLDivElement | null>(null)
   const [modalVisible, setModalVisible] = useState(false)
 
   const isCompletedEditing = editingOrder?.status === 'completed'
   const isReadOnlyModal = Boolean(isCompletedEditing)
+
+  // Google Places Autocomplete — only loads if API key is configured
+  useEffect(() => {
+    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!key) return
+
+    function attachAutocomplete() {
+      const input = addressInputRef.current
+      if (!input || !(window as any).google?.maps?.places) return
+      const ac = new (window as any).google.maps.places.Autocomplete(input, {
+        componentRestrictions: { country: 'ca' },
+        fields: ['address_components'],
+        types: ['address'],
+      })
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace()
+        if (!place.address_components) return
+        let streetNumber = '', streetName = '', city = '', postalCode = ''
+        for (const comp of place.address_components as { long_name: string; types: string[] }[]) {
+          if (comp.types.includes('street_number')) streetNumber = comp.long_name
+          if (comp.types.includes('route')) streetName = comp.long_name
+          if (comp.types.includes('locality') || comp.types.includes('sublocality_level_1')) city = comp.long_name
+          if (comp.types.includes('postal_code')) postalCode = comp.long_name
+        }
+        const street = [streetNumber, streetName].filter(Boolean).join(' ')
+        if (street) {
+          setForm((prev) => ({ ...prev, pickup_address: street, job_site_id: '', old_bin_id: '' }))
+        }
+        setNewAddrDetails((prev) => ({ ...prev, city: city || prev.city, postal_code: postalCode || prev.postal_code }))
+      })
+    }
+
+    if ((window as any).google?.maps?.places) {
+      attachAutocomplete()
+    } else {
+      const existing = document.querySelector('script[data-gmaps]')
+      if (!existing) {
+        const script = document.createElement('script')
+        script.setAttribute('data-gmaps', '1')
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`
+        script.async = true
+        script.onload = attachAutocomplete
+        document.head.appendChild(script)
+      } else {
+        existing.addEventListener('load', attachAutocomplete)
+      }
+    }
+  }, [showCreateModal])
 
   async function loadOrders() {
     const { data, error } = await supabase
@@ -792,6 +843,7 @@ function OrdersPageContent() {
     setEditingOrder(null)
     setShowCreateModal(false)
     setForm(emptyForm)
+    setNewAddrDetails({ unit: '', city: '', postal_code: '' })
     setPageError('')
 
     if (isEmbedded) {
@@ -815,6 +867,7 @@ function OrdersPageContent() {
       job_site_id: '',
       pickup_address: '',
     }))
+    setNewAddrDetails({ unit: '', city: '', postal_code: '' })
   }
 
   function handleJobSiteAddressInput(address: string) {
@@ -828,6 +881,10 @@ function OrdersPageContent() {
       pickup_address: address,
       old_bin_id: '',
     }))
+
+    if (matchedSite) {
+      setNewAddrDetails({ unit: '', city: '', postal_code: '' })
+    }
   }
 
   useEffect(() => {
@@ -854,7 +911,11 @@ function OrdersPageContent() {
   }, [form.order_type, form.old_bin_id, jobSiteExistingBins])
 
 
-  async function ensureJobSiteForOrder(customerId: string, address: string) {
+  async function ensureJobSiteForOrder(
+    customerId: string,
+    address: string,
+    details?: { unit?: string; city?: string; postal_code?: string }
+  ) {
     const trimmedAddress = address.trim()
     if (!customerId || !trimmedAddress) return null
 
@@ -866,12 +927,15 @@ function OrdersPageContent() {
 
     if (existing) return existing.id
 
-    const insertPayload = {
+    const insertPayload: Record<string, unknown> = {
       customer_id: customerId,
       site_name: trimmedAddress,
       address: trimmedAddress,
       is_active: true,
     }
+    if (details?.city) insertPayload.city = details.city
+    if (details?.postal_code) insertPayload.postal_code = details.postal_code
+    if (details?.unit) insertPayload.unit = details.unit
 
     const { data, error } = await supabase
       .from('job_sites')
@@ -980,10 +1044,25 @@ function OrdersPageContent() {
     const orderType = form.order_type || 'DELIVERY'
     const isEditing = Boolean(editingOrder)
     const status = isEditing ? form.status || 'unassigned' : 'unassigned'
-    const jobSiteAddress = form.pickup_address.trim() || null
+
+    // Build full address for new addresses (includes city/postal for GTA disambiguation)
+    let rawAddress = form.pickup_address.trim()
+    const isNew = !isEditing && !form.job_site_id && rawAddress.length > 0
+    if (isNew && (newAddrDetails.city || newAddrDetails.postal_code)) {
+      const parts = [rawAddress]
+      if (newAddrDetails.unit) parts.push(`Unit ${newAddrDetails.unit}`)
+      if (newAddrDetails.city) parts.push(newAddrDetails.city)
+      const provincePart = newAddrDetails.postal_code ? `ON ${newAddrDetails.postal_code}` : 'ON'
+      parts.push(provincePart)
+      rawAddress = parts.join(', ')
+    }
+
+    const jobSiteAddress = rawAddress || null
     const dumpSite = dumpSites.find((site) => site.id === form.dump_site_id) || null
     const ensuredJobSiteId =
-      form.customer_id && jobSiteAddress ? await ensureJobSiteForOrder(form.customer_id, jobSiteAddress) : null
+      form.customer_id && jobSiteAddress
+        ? await ensureJobSiteForOrder(form.customer_id, jobSiteAddress, isNew ? newAddrDetails : undefined)
+        : null
 
     const completionFields =
       status === 'completed'
@@ -1108,6 +1187,11 @@ function OrdersPageContent() {
 
       if (!form.pickup_address.trim()) {
         throw new Error('Job Site Address is required.')
+      }
+
+      const isNewAddr = !editingOrder && !form.job_site_id && form.pickup_address.trim().length > 0
+      if (isNewAddr && !newAddrDetails.city.trim()) {
+        throw new Error('Please enter the city for this new address.')
       }
 
       if (!form.scheduled_date) {
@@ -1845,12 +1929,13 @@ function OrdersPageContent() {
                         )}
                       </label>
                       <input
+                        ref={addressInputRef}
                         list={form.customer_id ? 'customer-job-site-addresses' : undefined}
                         value={form.pickup_address}
                         onChange={(e) => handleJobSiteAddressInput(e.target.value)}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                        placeholder={customerAddressSuggestions.length > 0 ? 'Start typing a saved address' : 'Job site address'}
-                        autoComplete="street-address"
+                        placeholder={customerAddressSuggestions.length > 0 ? 'Start typing a saved address' : 'e.g. 420 Eglinton Ave W'}
+                        autoComplete="off"
                       />
                       {customerAddressSuggestions.length > 0 ? (
                         <datalist id="customer-job-site-addresses">
@@ -1859,6 +1944,51 @@ function OrdersPageContent() {
                           ))}
                         </datalist>
                       ) : null}
+
+                      {/* Expanded address details — only for new addresses not in saved sites */}
+                      {!editingOrder && !form.job_site_id && form.pickup_address.trim().length > 2 && (
+                        <div className="mt-3 grid grid-cols-2 gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-3">
+                          <p className="col-span-2 text-xs font-semibold text-blue-700">New address — add details to avoid duplicates in GTA</p>
+                          <div className="col-span-2">
+                            <label className="mb-1 block text-xs font-medium text-slate-600">Unit / Apt <span className="text-slate-400">(optional)</span></label>
+                            <input
+                              value={newAddrDetails.unit}
+                              onChange={(e) => setNewAddrDetails((prev) => ({ ...prev, unit: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-400"
+                              placeholder="e.g. Unit 4, Suite 200"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-600">City <span className="text-red-500">*</span></label>
+                            <input
+                              value={newAddrDetails.city}
+                              onChange={(e) => setNewAddrDetails((prev) => ({ ...prev, city: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-400"
+                              placeholder="e.g. Toronto"
+                              list="gta-cities"
+                            />
+                            <datalist id="gta-cities">
+                              {['Toronto','Mississauga','Brampton','Markham','Vaughan','Richmond Hill','Oakville','Burlington','Ajax','Whitby','Pickering','Oshawa','Newmarket','Aurora','King City','Etobicoke','North York','Scarborough'].map((c) => (
+                                <option key={c} value={c} />
+                              ))}
+                            </datalist>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-600">Postal Code <span className="text-red-500">*</span></label>
+                            <input
+                              value={newAddrDetails.postal_code}
+                              onChange={(e) => setNewAddrDetails((prev) => ({ ...prev, postal_code: e.target.value.toUpperCase() }))}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-400"
+                              placeholder="e.g. M5P 1N8"
+                              maxLength={7}
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="mb-1 block text-xs font-medium text-slate-600">Province</label>
+                            <div className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500">Ontario (ON)</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="md:col-span-2">
