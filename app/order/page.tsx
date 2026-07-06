@@ -555,6 +555,25 @@ function OrdersPageContent() {
     return jobSites.filter((site) => site.customer_id === form.customer_id)
   }, [jobSites, form.customer_id])
 
+  const customerAddressSuggestions = useMemo(() => {
+    const seen = new Set<string>()
+    const results: string[] = []
+    for (const site of selectedCustomerJobSites) {
+      const addr = (site.address || '').trim()
+      if (addr && !seen.has(addr.toLowerCase())) { seen.add(addr.toLowerCase()); results.push(addr) }
+    }
+    if (form.customer_id) {
+      for (const order of orders) {
+        if (order.customer_id !== form.customer_id) continue
+        for (const addr of [order.service_address, order.pickup_address]) {
+          const trimmed = (addr || '').trim()
+          if (trimmed && !seen.has(trimmed.toLowerCase())) { seen.add(trimmed.toLowerCase()); results.push(trimmed) }
+        }
+      }
+    }
+    return results
+  }, [selectedCustomerJobSites, orders, form.customer_id])
+
   const selectedDumpSite = useMemo(() => {
     return dumpSites.find((site) => site.id === form.dump_site_id) || null
   }, [dumpSites, form.dump_site_id])
@@ -782,6 +801,7 @@ function OrdersPageContent() {
       ...prev,
       job_site_id: matchedSite?.id || '',
       pickup_address: address,
+      old_bin_id: '',
     }))
   }
 
@@ -1788,19 +1808,24 @@ function OrdersPageContent() {
                 ) : (
                   <>
                     <div className="md:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Job Site Address</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                        Job Site Address
+                        {form.job_site_id && (
+                          <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Saved Site</span>
+                        )}
+                      </label>
                       <input
                         list={form.customer_id ? 'customer-job-site-addresses' : undefined}
                         value={form.pickup_address}
                         onChange={(e) => handleJobSiteAddressInput(e.target.value)}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                        placeholder={selectedCustomerJobSites.length > 0 ? 'Start typing a saved address' : 'Job site address'}
+                        placeholder={customerAddressSuggestions.length > 0 ? 'Start typing a saved address' : 'Job site address'}
                         autoComplete="street-address"
                       />
-                      {selectedCustomerJobSites.length > 0 ? (
+                      {customerAddressSuggestions.length > 0 ? (
                         <datalist id="customer-job-site-addresses">
-                          {selectedCustomerJobSites.map((site) => (
-                            <option key={site.id} value={site.address || ''} />
+                          {customerAddressSuggestions.map((addr) => (
+                            <option key={addr} value={addr} />
                           ))}
                         </datalist>
                       ) : null}
