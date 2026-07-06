@@ -167,31 +167,19 @@ export default function NewOrderModal({
     return results
   }, [selectedCustomerJobSites, pastOrders, form.customer_id, dumpSiteKeys])
 
-  // All in_use bins, sorted: address-matched first, then rest
   const binsAtJobSite = useMemo(() => {
     const addr = normalizeAddress(form.pickup_address)
-    const allInUse = bins.filter((b) => b.status === 'in_use')
-    if (!addr) return allInUse
-
-    // Bins whose location matches this address (exact or partial)
-    const atAddr = new Set<string>()
-    for (const b of allInUse) {
-      if (normalizeAddress(b.location) === addr) atAddr.add(b.id)
-    }
-    // Also include bins referenced in past orders at this address
-    for (const o of pastOrders) {
-      if (normalizeAddress(o.service_address) === addr || normalizeAddress(o.pickup_address) === addr) {
-        if (o.bin_id) atAddr.add(o.bin_id)
-        if (o.old_bin_id) atAddr.add(o.old_bin_id)
-      }
-    }
-
-    // Sort: address matches first, then other in_use bins
-    return [...allInUse].sort((a, b) => {
-      const aMatch = atAddr.has(a.id) ? 0 : 1
-      const bMatch = atAddr.has(b.id) ? 0 : 1
-      return aMatch - bMatch
-    })
+    if (!addr) return []
+    // Primary: bin.location matches address exactly
+    const byLocation = bins.filter((b) => normalizeAddress(b.location) === addr && b.status === 'in_use')
+    if (byLocation.length > 0) return byLocation
+    // Fallback: find bins referenced in past orders at this address that are still in_use
+    const binIdsAtAddr = new Set(
+      pastOrders
+        .filter((o) => normalizeAddress(o.service_address) === addr || normalizeAddress(o.pickup_address) === addr)
+        .flatMap((o) => [o.bin_id, o.old_bin_id].filter((id): id is string => Boolean(id)))
+    )
+    return bins.filter((b) => binIdsAtAddr.has(b.id) && b.status === 'in_use')
   }, [bins, pastOrders, form.pickup_address])
 
   const isMultiStep = form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL' || form.order_type === 'DUMP RETURN'
@@ -522,26 +510,28 @@ export default function NewOrderModal({
                       }}
                       className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-400"
                     >
-                      <option value="">Select bin</option>
-                      {jobSiteExistingBins.map((b) => {
-                        const addrNorm = normalizeAddress(form.pickup_address)
-                        const atThisSite = addrNorm && normalizeAddress(b.location) === addrNorm
-                        return (
-                          <option key={b.id} value={b.id}>
-                            {atThisSite ? '📍 ' : ''}{b.bin_number || 'Bin'} • {b.bin_size || '?'}Y • {b.location || 'Unknown location'}
-                          </option>
-                        )
-                      })}
+                      <option value="">Select bin from this Job Site</option>
+                      {jobSiteExistingBins.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.bin_number || 'Bin'} • {b.bin_size || ''}Y • {b.location || 'Job Site'}
+                        </option>
+                      ))}
                     </select>
                   ) : (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                      No bins currently in use. Check Bin Inventory to confirm bin status.
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                      No bins found at this address. Ensure the bin is marked as &ldquo;in use&rdquo; at this location in Bin Inventory.
                     </div>
                   )}
 
                   {form.order_type === 'DUMP RETURN' && (
                     <div className="mt-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
                       DUMP RETURN uses the same bin already on hold at this Job Site. Bin size and material are filled automatically from that bin.
+                    </div>
+                  )}
+
+                  {(form.order_type === 'EXCHANGE' || form.order_type === 'DUMP RETURN') && (
+                    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                      Bins found at this Job Site: <span className="font-semibold">{jobSiteExistingBins.length}</span>
                     </div>
                   )}
                 </div>
