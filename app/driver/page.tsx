@@ -1497,19 +1497,10 @@ export default function DriverPage() {
                   <div className="flex-1 min-h-0 rounded-2xl bg-white border border-slate-200 overflow-hidden flex flex-col">
 
                     {/* ── Stop bar ─────────────────────────────────────────── */}
-                    <div className={`shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 ${isDumpStep ? 'bg-amber-50' : isReturnStep ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                    <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50">
                       <span className="text-xs font-semibold text-slate-500">Stop {order.route_position || index + 1}</span>
                       <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
                       <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
-                      {isLoadStep && (
-                        <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">1 — LOAD BIN</span>
-                      )}
-                      {isDumpStep && (
-                        <span className="rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">2 — DUMP BIN</span>
-                      )}
-                      {isReturnStep && (
-                        <span className="rounded-md border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">3 — RETURN</span>
-                      )}
                       {(order.service_window || order.service_time) && (
                         <span className="ml-auto text-xs font-medium text-slate-500">
                           {order.service_window ? displayValue(order.service_window) : formatServiceTime(order.service_time)}
@@ -1520,50 +1511,42 @@ export default function DriverPage() {
 
                     {/* ── Card body ─────────────────────────────────────────── */}
                     <div className="flex-1 min-h-0 flex flex-col gap-3 px-4 py-3 overflow-hidden">
-                      {isLoadStep && isMultiStep && (
-                        <div className="shrink-0 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
-                          <span className="text-base">🚛</span>
-                          <div>
-                            <p className="text-xs font-bold text-blue-800">Step 1 — Go to customer & load bin</p>
-                            <p className="text-xs text-blue-600 truncate">{customerAddress}</p>
-                          </div>
-                        </div>
-                      )}
-                      {isDumpStep && (
-                        <div className="shrink-0 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
-                          <span className="text-base">🗑️</span>
-                          <div>
-                            <p className="text-xs font-bold text-amber-800">Step 2 — Go to dump site</p>
-                            <p className="text-xs text-amber-700 truncate">{dumpAddress || 'See dump site below'}</p>
-                          </div>
-                        </div>
-                      )}
-                      {isReturnStep && (
-                        <div className="shrink-0 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                          <span className="text-base">🔄</span>
-                          <div>
-                            <p className="text-xs font-bold text-emerald-800">Step 3 — Return bin to customer</p>
-                            <p className="text-xs text-emerald-700 truncate">{customerAddress}</p>
-                          </div>
-                        </div>
-                      )}
 
-                      {/* Customer + address + Maps */}
-                      <div className="shrink-0 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-base font-semibold text-slate-900 truncate">{order.customer_name || 'No customer'}</div>
-                          <div className="text-sm text-slate-500 truncate mt-0.5">{displayValue(stopAddress)}</div>
+                      {/* Customer name + Maps + step pill */}
+                      <div className="shrink-0">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-base font-bold text-slate-900 truncate">{order.customer_name || 'No customer'}</div>
+                          {stopRouteLink && (
+                            <a
+                              href={stopRouteLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                            >
+                              Maps
+                            </a>
+                          )}
                         </div>
-                        {stopRouteLink && (
-                          <a
-                            href={stopRouteLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
-                          >
-                            Maps
-                          </a>
+                        {isMultiStep && (
+                          <div className="mt-1.5">
+                            {isLoadStep && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                                🚛 Step 1 — Load bin at customer
+                              </span>
+                            )}
+                            {isDumpStep && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-bold text-white">
+                                🗑️ Step 2 — Dump at site
+                              </span>
+                            )}
+                            {isReturnStep && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                                🔄 Step 3 — Return bin to customer
+                              </span>
+                            )}
+                          </div>
                         )}
+                        <div className="mt-1 text-sm text-slate-500 truncate">{displayValue(stopAddress)}</div>
                       </div>
 
                       {/* Bin # and Dump Site — equal-width columns */}
