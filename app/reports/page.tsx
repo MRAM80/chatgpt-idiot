@@ -140,7 +140,7 @@ export default function ReportsPage() {
     win.document.write(`<html><head><title>Report — ${customerName}</title>
       <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}h2{margin-bottom:4px}p{margin:0 0 16px;color:#666}table{width:100%;border-collapse:collapse}th{background:#f1f5f9;text-align:left;padding:8px;font-size:11px;text-transform:uppercase;letter-spacing:.05em}td{padding:8px;border-bottom:1px solid #e2e8f0;vertical-align:top}@media print{body{padding:0}}</style>
       </head><body>
-      <h2>${CLIENT_CONFIG.name} — Customer Report</h2>
+      <h2>${CLIENT_CONFIG.name} — Customer Statement</h2>
       <p>${customerName} &nbsp;|&nbsp; ${dateFrom} to ${dateTo} &nbsp;|&nbsp; ${rows.length} orders</p>
       <table><thead><tr><th>Ticket</th><th>Date</th><th>Type</th><th>Bin</th><th>Address</th><th>Status</th><th>Driver</th><th>Notes</th></tr></thead>
       <tbody>${tableRows}</tbody></table></body></html>`)
@@ -158,19 +158,19 @@ export default function ReportsPage() {
             <div className="flex items-center gap-4">
               <AppLogo className="h-9 w-auto" />
               <div>
-                <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
-                <p className="mt-0.5 text-sm text-violet-300">Export and print customer order history</p>
+                <h1 className="text-2xl font-bold tracking-tight">Statements & Performance</h1>
+                <p className="mt-0.5 text-sm text-violet-300">Generate statements and export customer billing history</p>
               </div>
             </div>
-            <Link href="/settings" className="self-start rounded-2xl border border-violet-600 bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 sm:self-auto">
-              ← Settings
+            <Link href="/dashboard" className="self-start rounded-2xl border border-violet-600 bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 sm:self-auto">
+              ← Dashboard
             </Link>
           </div>
         </div>
 
         {/* Filters */}
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <h2 className="mb-4 text-base font-bold text-slate-900">Generate Report</h2>
+          <h2 className="mb-4 text-base font-bold text-slate-900">Generate Statement</h2>
           {pageLoading ? (
             <p className="text-sm text-slate-500">Loading...</p>
           ) : (

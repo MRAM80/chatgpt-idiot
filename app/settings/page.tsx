@@ -102,8 +102,8 @@ const sections = [
   },
   {
     href: '/reports',
-    title: 'Reports',
-    description: 'Generate, export, and print customer order history for billing and invoicing.',
+    title: 'Statements & Performance',
+    description: 'Generate, export, and print customer statements for billing and invoicing.',
     color: 'bg-slate-50 ring-slate-200',
     titleColor: 'text-slate-900',
     descColor: 'text-slate-600',

@@ -463,6 +463,16 @@ export default function DashboardPage() {
               Manage drivers, trucks, bins, customers, and team members
             </div>
           </Link>
+
+          <Link
+            href="/reports"
+            className="rounded-3xl bg-violet-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="text-lg font-bold text-white">📄 Statements & Performance</div>
+            <div className="mt-2 text-sm text-violet-300">
+              Generate customer statements and export billing history
+            </div>
+          </Link>
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
