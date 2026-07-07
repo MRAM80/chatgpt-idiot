@@ -81,6 +81,23 @@ create policy "dump_sites_update" on dump_sites for update to authenticated usin
 create policy "dump_sites_delete" on dump_sites for delete to authenticated using (true);
 ```
 
-Storage bucket `delivery-photos`: needs INSERT/SELECT policies for authenticated users in both projects.
+Storage bucket `delivery-photos` (both projects — bucket must be PUBLIC for getPublicUrl display; upload uses upsert so UPDATE policy is required too):
+
+```sql
+insert into storage.buckets (id, name, public)
+values ('delivery-photos', 'delivery-photos', true)
+on conflict (id) do update set public = true;
+drop policy if exists "delivery_photos_insert" on storage.objects;
+drop policy if exists "delivery_photos_update" on storage.objects;
+drop policy if exists "delivery_photos_select" on storage.objects;
+create policy "delivery_photos_insert" on storage.objects
+  for insert to authenticated with check (bucket_id = 'delivery-photos');
+create policy "delivery_photos_update" on storage.objects
+  for update to authenticated using (bucket_id = 'delivery-photos') with check (bucket_id = 'delivery-photos');
+create policy "delivery_photos_select" on storage.objects
+  for select to authenticated using (bucket_id = 'delivery-photos');
+```
+
+(Verified 2026-07-07 on SimpliiTrash: bucket exists and is public; writes still RLS-blocked until the policies above are run.)
 
 BR Garden Center: Rodrigo driver needs Supabase Auth account created and `auth_user_id` linked in `drivers` table.
