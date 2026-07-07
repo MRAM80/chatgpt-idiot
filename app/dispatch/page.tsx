@@ -1337,15 +1337,17 @@ export default function DispatchBoardPage() {
                             </button>
                             <button
                               type="button"
-                              title="Emergency stop — halts the driver's route while you reorganize. Press again to release."
+                              title={driver.status === 'stopped'
+                                ? 'Resume the route — driver goes back on duty'
+                                : 'Emergency stop — halts the driver\'s route while you reorganize'}
                               onClick={() => void setDriverOperationalStatus(driver.id, driver.status === 'stopped' ? 'available' : 'stopped')}
                               className={`rounded-lg py-1 text-[10px] font-bold transition ${
                                 driver.status === 'stopped'
-                                  ? 'bg-rose-600 text-white'
+                                  ? 'bg-emerald-600 text-white hover:bg-emerald-500'
                                   : 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
                               }`}
                             >
-                              STOP
+                              {driver.status === 'stopped' ? 'RESUME' : 'STOP'}
                             </button>
                           </div>
 
