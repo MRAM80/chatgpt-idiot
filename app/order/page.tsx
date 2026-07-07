@@ -1766,7 +1766,6 @@ function OrdersPageContent() {
                       >
                         <td className="px-4 py-4 align-top">
                           <div className="font-semibold text-white">{order.ticket_number || 'Pending'}</div>
-                          <div className="mt-1 text-xs text-slate-500">#{order.id.slice(0, 8)}</div>
                         </td>
 
                         <td className="px-4 py-4 align-top text-sm text-slate-300">
