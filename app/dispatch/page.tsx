@@ -983,32 +983,32 @@ export default function DispatchBoardPage() {
     <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-[1920px] p-3 md:p-4">
         {/* Header */}
-        <div className="mb-4 rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200">
+        <div className="mb-4 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 px-4 py-3 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <AppLogo className="h-9 w-auto" />
               <div>
-                <h1 className="text-lg font-bold tracking-tight text-slate-900">Dispatch Board</h1>
+                <h1 className="text-lg font-bold tracking-tight text-white">Dispatch Board</h1>
                 <p className="text-xs text-slate-400">Planning: {formatBoardDayLabel(selectedDayKey)}</p>
               </div>
 
               {/* Stats inline */}
               <div className="hidden md:flex items-center gap-2">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-center">
+                <div className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-center">
                   <div className="text-[10px] font-semibold uppercase text-slate-400">Unassigned</div>
-                  <div className="text-base font-bold text-slate-900">{stats.unassigned}</div>
+                  <div className="text-base font-bold text-white">{stats.unassigned}</div>
                 </div>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center">
-                  <div className="text-[10px] font-semibold uppercase text-emerald-600">Available</div>
-                  <div className="text-base font-bold text-emerald-900">{stats.available}</div>
+                <div className="rounded-xl border border-emerald-700 bg-emerald-900/40 px-3 py-1.5 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-emerald-400">Available</div>
+                  <div className="text-base font-bold text-emerald-300">{stats.available}</div>
                 </div>
-                <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-center">
-                  <div className="text-[10px] font-semibold uppercase text-blue-600">Active</div>
-                  <div className="text-base font-bold text-blue-900">{stats.activeDrivers}</div>
+                <div className="rounded-xl border border-blue-700 bg-blue-900/40 px-3 py-1.5 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-blue-400">Active</div>
+                  <div className="text-base font-bold text-blue-300">{stats.activeDrivers}</div>
                 </div>
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-center">
-                  <div className="text-[10px] font-semibold uppercase text-amber-600">In Progress</div>
-                  <div className="text-base font-bold text-amber-900">{stats.inProgress}</div>
+                <div className="rounded-xl border border-amber-700 bg-amber-900/40 px-3 py-1.5 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-amber-400">In Progress</div>
+                  <div className="text-base font-bold text-amber-300">{stats.inProgress}</div>
                 </div>
               </div>
             </div>
@@ -1018,7 +1018,7 @@ export default function DispatchBoardPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search ticket, customer, address…"
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 w-56"
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-400 w-56"
               />
 
               <button
@@ -1026,8 +1026,8 @@ export default function DispatchBoardPage() {
                 onClick={() => setSelectedDayKey(todayKey)}
                 className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
                   selectedDayKey === todayKey
-                    ? 'border-slate-900 bg-slate-900 text-white'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    ? 'border-white bg-white text-slate-900'
+                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
                 Today
@@ -1037,8 +1037,8 @@ export default function DispatchBoardPage() {
                 onClick={() => setSelectedDayKey(tomorrowKey)}
                 className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
                   selectedDayKey === tomorrowKey
-                    ? 'border-slate-900 bg-slate-900 text-white'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    ? 'border-white bg-white text-slate-900'
+                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
                 Tomorrow
@@ -1047,21 +1047,21 @@ export default function DispatchBoardPage() {
               <button
                 type="button"
                 onClick={() => setNewOrderOpen(true)}
-                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
+                className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-slate-900 transition hover:opacity-90"
               >
                 + New Order
               </button>
 
               <button
                 onClick={refreshAll}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-slate-700"
               >
                 Refresh
               </button>
 
               <Link
                 href="/dashboard"
-                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700"
               >
                 Dashboard
               </Link>
