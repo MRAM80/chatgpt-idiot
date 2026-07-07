@@ -693,8 +693,8 @@ export default function DriverPage() {
       `
       )
       .eq('driver_id', driver.id)
-      .eq('scheduled_date', getTodayKey())
-      .neq('status', 'completed')
+      .lte('scheduled_date', getTodayKey())
+      .not('status', 'in', '("completed","cancelled")')
       .order('route_position', { ascending: true })
       .order('created_at', { ascending: true })
 
@@ -758,8 +758,8 @@ export default function DriverPage() {
       `
       )
       .eq('driver_id', resolvedDriver.id)
-      .eq('scheduled_date', getTodayKey())
-      .neq('status', 'completed')
+      .lte('scheduled_date', getTodayKey())
+      .not('status', 'in', '("completed","cancelled")')
       .order('route_position', { ascending: true })
       .order('created_at', { ascending: true })
 
@@ -1109,7 +1109,7 @@ export default function DriverPage() {
             (driver?.id && oldOrder?.driver_id === driver.id)
 
           const affectsToday =
-            nextOrderDay === todayKey || oldOrderDay === todayKey
+            (nextOrderDay && nextOrderDay <= todayKey) || (oldOrderDay && oldOrderDay <= todayKey)
 
           if (!affectsThisDriver ||!affectsToday) return
 

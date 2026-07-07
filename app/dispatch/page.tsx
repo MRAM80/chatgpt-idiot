@@ -424,7 +424,7 @@ export default function DispatchBoardPage() {
           (order) =>
             order.driver_id &&
             activeStatuses.includes(order.status || '') &&
-            String(order.scheduled_date || '').slice(0, 10) === todayKey
+            String(order.scheduled_date || '').slice(0, 10) <= todayKey
         )
         .map((order) => order.driver_id as string)
     )
@@ -549,8 +549,15 @@ export default function DispatchBoardPage() {
   }, [orders, selectedOrderId])
 
   const boardOrders = useMemo(() => {
-    return orders.filter((order) => getOrderDayKey(order) === selectedDayKey)
-  }, [orders, selectedDayKey])
+    return orders.filter((order) => {
+      const dayKey = getOrderDayKey(order)
+      if (dayKey === selectedDayKey) return true
+      // Unfinished orders from previous days carry over onto today's board
+      // until completed or cancelled — they must never silently disappear.
+      if (selectedDayKey === todayKey && dayKey && dayKey < todayKey) return true
+      return false
+    })
+  }, [orders, selectedDayKey, todayKey])
 
   const boardColumns = useMemo<BoardColumn[]>(() => {
     return [
@@ -575,10 +582,11 @@ export default function DispatchBoardPage() {
     }
 
     const activeStatuses = ['assigned', 'in_progress']
+    // Overdue orders (scheduled before today, still active) keep the driver busy
     const hasActiveOrdersToday = (orderData || []).some(
       (order) =>
         activeStatuses.includes(order.status || '') &&
-        String(order.scheduled_date || '').slice(0, 10) === todayKey
+        String(order.scheduled_date || '').slice(0, 10) <= todayKey
     )
 
     const { data: driver, error: driverError } = await supabase
@@ -1196,6 +1204,11 @@ export default function DispatchBoardPage() {
                             {(order.service_time || order.service_window) && (
                               <span>{formatServiceTime(order.service_time || order.service_window)}</span>
                             )}
+                            {getOrderDayKey(order) && getOrderDayKey(order) < todayKey && (
+                              <span className="rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">
+                                Overdue · {formatBoardDayLabel(getOrderDayKey(order))}
+                              </span>
+                            )}
                           </div>
 
                           <div className="mt-2" onClick={(e) => e.stopPropagation()}>
@@ -1350,6 +1363,9 @@ export default function DispatchBoardPage() {
                                       </div>
                                       {order.order_type && (
                                         <div className="text-[9px] font-semibold text-slate-400 mt-0.5">{order.order_type}{order.bin_size ? ` · ${order.bin_size}yd` : ''}</div>
+                                      )}
+                                      {getOrderDayKey(order) && getOrderDayKey(order) < todayKey && (
+                                        <div className="text-[9px] font-bold text-rose-600 mt-0.5">Overdue · {formatBoardDayLabel(getOrderDayKey(order))}</div>
                                       )}
                                     </div>
                                     <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${statusStyles[order.status || 'assigned'] || statusStyles.assigned}`}>

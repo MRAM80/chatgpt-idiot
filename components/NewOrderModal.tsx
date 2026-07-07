@@ -271,9 +271,11 @@ export default function NewOrderModal({
   }
 
   async function syncDriverStatuses(driverId: string) {
-    const { data } = await supabase.from('order').select('status').eq('driver_id', driverId)
-    const hasActive = (data || []).some((o: { status?: string | null }) =>
-      ['assigned', 'in_progress'].includes(o.status || '')
+    const { data } = await supabase.from('order').select('status,scheduled_date').eq('driver_id', driverId)
+    const todayKey = new Date().toLocaleDateString('en-CA')
+    const hasActive = (data || []).some((o: { status?: string | null; scheduled_date?: string | null }) =>
+      ['assigned', 'in_progress'].includes(o.status || '') &&
+      String(o.scheduled_date || '').slice(0, 10) <= todayKey
     )
     const { data: driverRow } = await supabase.from('drivers').select('status').eq('id', driverId).single()
     if ((driverRow as { status?: string | null } | null)?.status === 'offline') return

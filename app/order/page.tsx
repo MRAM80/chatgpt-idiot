@@ -956,7 +956,7 @@ function OrdersPageContent() {
   async function syncDriverStatuses(driverId: string) {
     const { data: orderData, error: ordersError } = await supabase
       .from(TABLE_NAME)
-      .select('status')
+      .select('status,scheduled_date')
       .eq('driver_id', driverId)
 
     if (ordersError) {
@@ -964,10 +964,16 @@ function OrdersPageContent() {
       return
     }
 
+    // Active orders scheduled today or earlier (overdue) keep the driver busy
     const activeStatuses = ['assigned', 'in_progress']
-    const hasActiveOrders = (orderData || []).some((order) =>
-      activeStatuses.includes((order as { status?: string | null }).status || '')
-    )
+    const todayKey = new Date().toLocaleDateString('en-CA')
+    const hasActiveOrders = (orderData || []).some((order) => {
+      const o = order as { status?: string | null; scheduled_date?: string | null }
+      return (
+        activeStatuses.includes(o.status || '') &&
+        String(o.scheduled_date || '').slice(0, 10) <= todayKey
+      )
+    })
 
     const { data: driver, error: driverError } = await supabase
       .from('drivers')
