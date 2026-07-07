@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 52">
-  <!-- hoist arm -->
-  <polygon points="24,42 41,26 45,42" fill="#f3b04a"/>
-  <!-- tilted roll-off bin -->
-  <g transform="rotate(26 36 38)">
-    <rect x="-2" y="21" width="38" height="17" rx="2.5" fill="#5aab5a"/>
-    <rect x="-4" y="17.5" width="42" height="5.5" rx="2.75" fill="#94d794"/>
+  <!-- hoist arm raising the front of the bin -->
+  <polygon points="28,40 40,26 44,40" fill="#f3b04a"/>
+  <!-- roll-off bin: cab end lifted, sliding off the rear -->
+  <g transform="rotate(-26 14 40)">
+    <rect x="10" y="22" width="34" height="17" rx="2.5" fill="#5aab5a"/>
+    <rect x="8" y="18.5" width="38" height="5.5" rx="2.75" fill="#94d794"/>
   </g>
   <!-- flatbed -->
   <rect x="12" y="40" width="50" height="6" rx="2" fill="#dcedf4"/>
