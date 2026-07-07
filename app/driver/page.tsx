@@ -1801,39 +1801,37 @@ export default function DriverPage() {
                               <span className="text-xs font-black tracking-wide">LOAD BIN</span>
                               <span className="text-[10px] font-medium opacity-80">Enter bin number above</span>
                             </button>
+                          ) : order.status !== 'in_progress' ? (
+                            /* Route not started — Complete hidden until Start is pressed */
+                            <button
+                              type="button"
+                              onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                              disabled={isSaving}
+                              className="flex flex-[2] flex-col items-center justify-center gap-1 py-3.5 bg-amber-500 text-white transition disabled:opacity-40 active:bg-amber-600"
+                            >
+                              <span className="text-base leading-none">▶</span>
+                              <span className="text-xs font-semibold">Start</span>
+                            </button>
                           ) : (
-                            <>
-                              {order.status !== 'in_progress' && (
-                                <button
-                                  type="button"
-                                  onClick={() => void updateOrderStatus(order.id, 'in_progress')}
-                                  disabled={isSaving}
-                                  className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-amber-500 text-white transition disabled:opacity-40 active:bg-amber-600"
-                                >
-                                  <span className="text-base leading-none">▶</span>
-                                  <span className="text-xs font-semibold">Start</span>
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (hasOpenPreviousOrder(order, orders)) {
-                                    setPageError('Finish the previous stop first.')
-                                    return
-                                  }
-                                  void updateOrderStatus(order.id, 'completed')
-                                }}
-                                disabled={completeBlocked}
-                                className={`flex flex-1 flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
-                                  completeBlocked ? 'bg-orange-400' : 'bg-emerald-600 active:bg-emerald-700'
-                                }`}
-                              >
-                                <span className="text-base leading-none">✓</span>
-                                <span className="text-xs font-semibold">
-                                  {hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
-                                </span>
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (hasOpenPreviousOrder(order, orders)) {
+                                  setPageError('Finish the previous stop first.')
+                                  return
+                                }
+                                void updateOrderStatus(order.id, 'completed')
+                              }}
+                              disabled={completeBlocked}
+                              className={`flex flex-[2] flex-col items-center justify-center gap-1 py-3.5 text-white transition disabled:opacity-40 ${
+                                completeBlocked ? 'bg-orange-400' : 'bg-emerald-600 active:bg-emerald-700'
+                              }`}
+                            >
+                              <span className="text-base leading-none">✓</span>
+                              <span className="text-xs font-semibold">
+                                {hasOpenPreviousOrder(order, orders) ? 'Blocked' : 'Complete'}
+                              </span>
+                            </button>
                           )}
                           <button
                             type="button"
