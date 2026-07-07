@@ -1642,25 +1642,25 @@ function OrdersPageContent() {
           ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{counts.total}</div>
+            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Total</div>
+              <div className="mt-2 text-2xl font-bold text-white">{counts.total}</div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Unassigned</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">{counts.unassigned}</div>
+            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Unassigned</div>
+              <div className="mt-2 text-2xl font-bold text-white">{counts.unassigned}</div>
             </div>
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Assigned</div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">{counts.assigned}</div>
+            <div className="rounded-2xl border border-blue-700 bg-blue-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-400">Assigned</div>
+              <div className="mt-2 text-2xl font-bold text-blue-300">{counts.assigned}</div>
             </div>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">In Progress</div>
-              <div className="mt-2 text-2xl font-bold text-amber-900">{counts.in_progress}</div>
+            <div className="rounded-2xl border border-amber-700 bg-amber-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-400">In Progress</div>
+              <div className="mt-2 text-2xl font-bold text-amber-300">{counts.in_progress}</div>
             </div>
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Completed</div>
-              <div className="mt-2 text-2xl font-bold text-emerald-900">{counts.completed}</div>
+            <div className="rounded-2xl border border-emerald-700 bg-emerald-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-400">Completed</div>
+              <div className="mt-2 text-2xl font-bold text-emerald-300">{counts.completed}</div>
             </div>
           </div>
 
@@ -1669,13 +1669,13 @@ function OrdersPageContent() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search ticket, customer, job site address, driver, notes"
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-400"
             />
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
             >
               <option value="all">All Statuses</option>
               {ORDER_STATUSES.map((status) => (
@@ -1688,7 +1688,7 @@ function OrdersPageContent() {
             <select
               value={orderTypeFilter}
               onChange={(e) => setOrderTypeFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
             >
               <option value="all">All Order Types</option>
               {ORDER_TYPES.map((type) => (
@@ -1701,7 +1701,7 @@ function OrdersPageContent() {
             <select
               value={driverFilter}
               onChange={(e) => setDriverFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
             >
               <option value="all">All Drivers</option>
               {drivers.map((driver) => (
@@ -1714,30 +1714,30 @@ function OrdersPageContent() {
 
         </div>
 
-        <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+        <div className="overflow-hidden rounded-3xl bg-slate-900 shadow-sm ring-1 ring-slate-700">
           {loading ? (
-            <div className="p-10 text-center text-sm text-slate-500">Loading orders...</div>
+            <div className="p-10 text-center text-sm text-slate-400">Loading orders...</div>
           ) : filteredOrders.length === 0 ? (
-            <div className="p-10 text-center text-sm text-slate-500">No orders found.</div>
+            <div className="p-10 text-center text-sm text-slate-400">No orders found.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+              <table className="w-full min-w-[1180px] divide-y divide-slate-700">
+                <thead className="bg-slate-800">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Ticket</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Order Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Customer</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Job Site Address</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Bin Size</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Material</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Driver</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Ticket</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Order Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Customer</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Job Site Address</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Bin Size</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Material</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Driver</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Status</th>
                   </tr>
                 </thead>
 
-                <tbody className="bg-white">
+                <tbody className="bg-slate-900">
                   {prioritizedFilteredOrders.map((order) => {
                     const driverRelation = firstRelation(order.drivers)
                     const customerRelation = firstRelation(order.customers)
@@ -1759,43 +1759,43 @@ function OrdersPageContent() {
                     return (
                       <tr
                         key={order.id}
-                        className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/80"
+                        className="cursor-pointer border-b border-slate-700 hover:bg-slate-700/60"
                         onClick={() => openEditModal(order)}
                       >
                         <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">{order.ticket_number || 'Pending'}</div>
+                          <div className="font-semibold text-white">{order.ticket_number || 'Pending'}</div>
                           <div className="mt-1 text-xs text-slate-500">#{order.id.slice(0, 8)}</div>
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                        <td className="px-4 py-4 align-top text-sm text-slate-300">
                           <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}>
                             {formatOrderType(order.order_type)}
                           </span>
                         </td>
 
                         <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-slate-900">{customer}</div>
+                          <div className="font-semibold text-white">{customer}</div>
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                        <td className="px-4 py-4 align-top text-sm text-slate-300">
                           {order.service_address || order.pickup_address || '—'}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top text-sm text-slate-300 whitespace-nowrap">
                           {formatServiceTime(order.service_time)}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm font-semibold text-slate-700 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top text-sm font-semibold text-slate-200 whitespace-nowrap">
                           {formatDate(order.scheduled_date)}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top text-sm text-slate-300 whitespace-nowrap">
                           {order.bin_size ? `${order.bin_size}Y` : '—'}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">{order.bin_type || '—'}</td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-300">{order.bin_type || '—'}</td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-300">{driver}</td>
 
                         <td className="px-4 py-4 align-top">
                           <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>
