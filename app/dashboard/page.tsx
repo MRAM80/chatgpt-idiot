@@ -433,7 +433,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Link
             href="/order"
             className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
