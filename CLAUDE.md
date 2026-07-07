@@ -67,6 +67,20 @@ ALTER TABLE job_sites ADD COLUMN IF NOT EXISTS postal_code text;
 UPDATE customers SET status = 'active' WHERE status IS NULL;
 ```
 
+RLS policies for `dump_sites` (INSERT was blocked, found 2026-07-07 — run in both projects):
+
+```sql
+alter table dump_sites enable row level security;
+drop policy if exists "dump_sites_select" on dump_sites;
+drop policy if exists "dump_sites_insert" on dump_sites;
+drop policy if exists "dump_sites_update" on dump_sites;
+drop policy if exists "dump_sites_delete" on dump_sites;
+create policy "dump_sites_select" on dump_sites for select to authenticated using (true);
+create policy "dump_sites_insert" on dump_sites for insert to authenticated with check (true);
+create policy "dump_sites_update" on dump_sites for update to authenticated using (true) with check (true);
+create policy "dump_sites_delete" on dump_sites for delete to authenticated using (true);
+```
+
 Storage bucket `delivery-photos`: needs INSERT/SELECT policies for authenticated users in both projects.
 
 BR Garden Center: Rodrigo driver needs Supabase Auth account created and `auth_user_id` linked in `drivers` table.
