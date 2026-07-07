@@ -1766,6 +1766,21 @@ export default function DriverPage() {
                       {isMultiStep ? (
                         <>
                           {/* Multi-step workflow: LOAD BIN → DUMP BIN → (RETURN/COMPLETE) */}
+                          {/* After an emergency the order sits in issue status — the driver
+                              must explicitly RESTART before the workflow buttons return */}
+                          {order.status === 'issue' ? (
+                            <button
+                              type="button"
+                              onClick={() => void updateOrderStatus(order.id, 'in_progress')}
+                              disabled={isSaving}
+                              className="flex flex-[2] flex-col items-center justify-center gap-0.5 py-3.5 bg-amber-500 text-white transition disabled:opacity-40 active:bg-amber-600"
+                            >
+                              <span className="text-lg leading-none">▶</span>
+                              <span className="text-xs font-black tracking-wide">RESTART</span>
+                              <span className="text-[10px] font-medium opacity-80">Continue the job</span>
+                            </button>
+                          ) : (
+                          <>
                           {isLoadStep && (
                             <button
                               type="button"
@@ -1810,6 +1825,8 @@ export default function DriverPage() {
                               <span className="text-[10px] font-medium opacity-80">Bin returned — complete</span>
                             </button>
                           )}
+                          </>
+                          )}
                           <button
                             type="button"
                             onClick={() => void updateOrderStatus(order.id, 'issue')}
@@ -1842,7 +1859,7 @@ export default function DriverPage() {
                               className="flex flex-[2] flex-col items-center justify-center gap-1 py-3.5 bg-amber-500 text-white transition disabled:opacity-40 active:bg-amber-600"
                             >
                               <span className="text-base leading-none">▶</span>
-                              <span className="text-xs font-semibold">Start</span>
+                              <span className="text-xs font-semibold">{order.status === 'issue' ? 'Restart' : 'Start'}</span>
                             </button>
                           ) : (
                             <button
