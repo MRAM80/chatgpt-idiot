@@ -283,41 +283,41 @@ function StatementTab({ customers, drivers, driverMap }: {
   return (
     <div className="space-y-6">
       {/* Filters */}
-      <div className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
-        <h2 className="mb-5 text-base font-bold text-white">Filters</h2>
+      <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 className="mb-5 text-base font-bold text-slate-900">Filters</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Customer *</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Customer *</label>
             <select value={customerId} onChange={e=>setCustomerId(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Select a customer...</option>
               {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">From *</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">From *</label>
             <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">To *</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">To *</label>
             <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Order Type</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Order Type</label>
             <select value={orderTypeFilter} onChange={e=>setOrderTypeFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none">
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none">
               <option value="all">All Types</option>
               {['DELIVERY','REMOVAL','EXCHANGE','DUMP RETURN'].map(t=><option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Status</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Status</label>
             <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none">
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none">
               <option value="all">All Statuses</option>
               {['completed','assigned','in_progress','unassigned','issue','cancelled'].map(s=>(
                 <option key={s} value={s}>{formatStatus(s)}</option>
@@ -325,9 +325,9 @@ function StatementTab({ customers, drivers, driverMap }: {
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Driver</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Driver</label>
             <select value={driverFilter} onChange={e=>setDriverFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none">
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none">
               <option value="all">All Drivers</option>
               {drivers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
@@ -339,7 +339,7 @@ function StatementTab({ customers, drivers, driverMap }: {
             {loading ? 'Generating...' : 'Generate Statement'}
           </button>
           {hasRun && <button onClick={()=>{setRows([]);setHasRun(false);setShowCharts(false)}}
-            className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-700 transition">Clear</button>}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Clear</button>}
         </div>
       </div>
 
@@ -347,31 +347,31 @@ function StatementTab({ customers, drivers, driverMap }: {
         <>
           {/* KPI strip */}
           <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-            <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-white">{filteredRows.length}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Total</div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 text-center">
+              <div className="text-2xl font-black text-slate-900">{filteredRows.length}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">Total</div>
             </div>
-            <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-emerald-400">{filteredRows.filter(o=>o.status==='completed').length}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Completed</div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 text-center">
+              <div className="text-2xl font-black text-emerald-600">{filteredRows.filter(o=>o.status==='completed').length}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">Completed</div>
             </div>
             {Object.entries(summary.byType).map(([type,count])=>(
-              <div key={type} className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
+              <div key={type} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 text-center">
                 <div className="text-2xl font-black" style={{color:ORDER_TYPE_COLORS[type]||'#94a3b8'}}>{count}</div>
-                <div className="mt-1 text-xs font-semibold text-slate-400">{type}</div>
+                <div className="mt-1 text-xs font-semibold text-slate-500">{type}</div>
               </div>
             ))}
           </div>
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-slate-400">
-              <span className="font-bold text-white">{filteredRows.length}</span> orders · <span className="text-white">{customerName}</span> · {dateFrom} → {dateTo}
+            <span className="text-sm text-slate-500">
+              <span className="font-bold text-slate-900">{filteredRows.length}</span> orders · <span className="text-slate-900">{customerName}</span> · {dateFrom} → {dateTo}
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
               {!showCharts
-                ? <button onClick={()=>setShowCharts(true)} className="rounded-xl border border-blue-600 bg-blue-600/10 px-4 py-2 text-sm font-semibold text-blue-400 hover:bg-blue-600 hover:text-white transition">Generate Charts</button>
-                : <button onClick={()=>setShowCharts(false)} className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700 transition">Hide Charts</button>
+                ? <button onClick={()=>setShowCharts(true)} className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-600 hover:text-white transition">Generate Charts</button>
+                : <button onClick={()=>setShowCharts(false)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Hide Charts</button>
               }
               {filteredRows.length > 0 && <>
                 <button onClick={()=>exportStatementCSV(filteredRows,driverMap,`statement-${customerName}-${dateFrom}-${dateTo}.csv`)}
@@ -388,38 +388,38 @@ function StatementTab({ customers, drivers, driverMap }: {
               {[
                 { title:'Orders by Type', data:typeChartData, type:'pie' as const },
               ].map(()=>null)}
-              <div className="rounded-3xl bg-slate-900 p-5 ring-1 ring-slate-700">
-                <h3 className="mb-4 text-sm font-bold text-white">Orders by Type</h3>
+              <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                <h3 className="mb-4 text-sm font-bold text-slate-900">Orders by Type</h3>
                 <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
                     <Pie data={typeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} labelLine={false} label={({name,value})=>`${name}: ${value}`}>
                       {typeChartData.map((entry,i)=><Cell key={i} fill={ORDER_TYPE_COLORS[entry.name]||'#64748b'} />)}
                     </Pie>
-                    <Tooltip contentStyle={{background:'#1e293b',border:'1px solid #334155',borderRadius:8,color:'#f1f5f9',fontSize:12}} />
+                    <Tooltip contentStyle={{background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,color:'#0f172a',fontSize:12}} />
                     <Legend wrapperStyle={{color:'#94a3b8',fontSize:11}} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="rounded-3xl bg-slate-900 p-5 ring-1 ring-slate-700">
-                <h3 className="mb-4 text-sm font-bold text-white">Orders by Status</h3>
+              <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                <h3 className="mb-4 text-sm font-bold text-slate-900">Orders by Status</h3>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={statusChartData} margin={{top:5,right:10,left:-20,bottom:5}}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" tick={{fill:'#94a3b8',fontSize:10}} />
                     <YAxis tick={{fill:'#94a3b8',fontSize:11}} allowDecimals={false} />
-                    <Tooltip contentStyle={{background:'#1e293b',border:'1px solid #334155',borderRadius:8,color:'#f1f5f9',fontSize:12}} />
+                    <Tooltip contentStyle={{background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,color:'#0f172a',fontSize:12}} />
                     <Bar dataKey="value" radius={[4,4,0,0]}>{statusChartData.map((e,i)=><Cell key={i} fill={e.fill} />)}</Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="rounded-3xl bg-slate-900 p-5 ring-1 ring-slate-700">
-                <h3 className="mb-4 text-sm font-bold text-white">Orders by Driver</h3>
+              <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                <h3 className="mb-4 text-sm font-bold text-slate-900">Orders by Driver</h3>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={driverChartData} margin={{top:5,right:10,left:-20,bottom:5}}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis dataKey="name" tick={{fill:'#94a3b8',fontSize:10}} />
                     <YAxis tick={{fill:'#94a3b8',fontSize:11}} allowDecimals={false} />
-                    <Tooltip contentStyle={{background:'#1e293b',border:'1px solid #334155',borderRadius:8,color:'#f1f5f9',fontSize:12}} />
+                    <Tooltip contentStyle={{background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,color:'#0f172a',fontSize:12}} />
                     <Bar dataKey="value" fill="#3b82f6" radius={[4,4,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -429,39 +429,39 @@ function StatementTab({ customers, drivers, driverMap }: {
 
           {/* Table */}
           {filteredRows.length === 0
-            ? <div className="rounded-3xl bg-slate-900 p-10 text-center text-sm text-slate-400 ring-1 ring-slate-700">No orders match the selected filters.</div>
-            : <div className="overflow-hidden rounded-3xl bg-slate-900 ring-1 ring-slate-700">
+            ? <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">No orders match the selected filters.</div>
+            : <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] divide-y divide-slate-800">
-                    <thead className="bg-slate-800">
+                  <table className="w-full min-w-[900px] divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
                       <tr>{cols.map(col=>(
                         <th key={col.key} onClick={()=>toggleSort(col.key)}
-                          className="cursor-pointer px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400 hover:text-white select-none transition">
+                          className="cursor-pointer px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500 hover:text-slate-900 select-none transition">
                           {col.label}{sortField===col.key&&<span className="ml-1 text-blue-400">{sortDir==='asc'?'↑':'↓'}</span>}
                         </th>
                       ))}</tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800">
+                    <tbody className="divide-y divide-slate-200">
                       {filteredRows.map(o=>(
-                        <tr key={o.id} className="hover:bg-slate-800/60 transition-colors">
-                          <td className="px-4 py-3 text-xs font-semibold text-white whitespace-nowrap">{o.ticket_number||'—'}</td>
-                          <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{o.scheduled_date||'—'}</td>
+                        <tr key={o.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-4 py-3 text-xs font-semibold text-slate-900 whitespace-nowrap">{o.ticket_number||'—'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">{o.scheduled_date||'—'}</td>
                           <td className="px-4 py-3 text-xs whitespace-nowrap">
                             <span className="rounded-full px-2.5 py-0.5 text-xs font-bold"
                               style={{background:(ORDER_TYPE_COLORS[o.order_type||'']||'#334155')+'30',color:ORDER_TYPE_COLORS[o.order_type||'']||'#94a3b8'}}>
                               {o.order_type||'—'}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{o.bin_size?`${o.bin_size}Y`:'—'}</td>
-                          <td className="px-4 py-3 text-xs text-slate-300">{o.bin_type||'—'}</td>
-                          <td className="px-4 py-3 text-xs text-slate-300 max-w-[200px] truncate">{o.service_address||o.pickup_address||'—'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">{o.bin_size?`${o.bin_size}Y`:'—'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-700">{o.bin_type||'—'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-700 max-w-[200px] truncate">{o.service_address||o.pickup_address||'—'}</td>
                           <td className="px-4 py-3 text-xs whitespace-nowrap">
                             <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
                               style={{background:(STATUS_COLORS[o.status||'unassigned']||'#334155')+'30',color:STATUS_COLORS[o.status||'unassigned']||'#94a3b8'}}>
                               {formatStatus(o.status)}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{driverMap[o.driver_id||'']||'—'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">{driverMap[o.driver_id||'']||'—'}</td>
                           <td className="px-4 py-3 text-xs text-slate-500 max-w-[160px] truncate">{o.driver_notes||'—'}</td>
                         </tr>
                       ))}
@@ -668,39 +668,39 @@ function InvoiceTab({ customers, drivers, driverMap }: {
     <div className="space-y-6">
 
       {/* Info banner */}
-      <div className="rounded-2xl border border-amber-700/50 bg-amber-900/20 px-5 py-4">
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 text-lg">💡</span>
           <div>
-            <p className="text-sm font-semibold text-amber-300">How Invoice Reports work</p>
-            <p className="mt-1 text-xs text-amber-400/80 leading-relaxed">
-              Shows <strong className="text-amber-300">Removal, Exchange, and Dump Return</strong> orders — each is one chargeable event. <strong className="text-amber-300">Days on site</strong> is calculated from the previous event at that address (delivery or last dump) to this completion date. Cancelled orders are excluded.
+            <p className="text-sm font-semibold text-amber-900">How Invoice Reports work</p>
+            <p className="mt-1 text-xs text-amber-700 leading-relaxed">
+              Shows <strong className="text-amber-900">Removal, Exchange, and Dump Return</strong> orders — each is one chargeable event. <strong className="text-amber-900">Days on site</strong> is calculated from the previous event at that address (delivery or last dump) to this completion date. Cancelled orders are excluded.
             </p>
           </div>
         </div>
       </div>
 
       {/* Filters — customer + date only */}
-      <div className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
-        <h2 className="mb-5 text-base font-bold text-white">Filters</h2>
+      <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 className="mb-5 text-base font-bold text-slate-900">Filters</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Customer *</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">Customer *</label>
             <select value={customerId} onChange={e=>setCustomerId(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500">
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500">
               <option value="">Select a customer...</option>
               {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">From *</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">From *</label>
             <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500" />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">To *</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">To *</label>
             <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500" />
           </div>
         </div>
         <div className="mt-5 flex flex-wrap gap-3">
@@ -709,7 +709,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
             {loading ? 'Generating...' : 'Generate Invoice Report'}
           </button>
           {hasRun && <button onClick={()=>{setCycles([]);setHasRun(false)}}
-            className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-700 transition">Clear</button>}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Clear</button>}
         </div>
       </div>
 
@@ -717,21 +717,21 @@ function InvoiceTab({ customers, drivers, driverMap }: {
         <>
           {/* KPI strip */}
           <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-            <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-white">{sortedCycles.length}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Billable Events</div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 text-center">
+              <div className="text-2xl font-black text-slate-900">{sortedCycles.length}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">Billable Events</div>
             </div>
-            <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-amber-800/40 text-center">
-              <div className="text-2xl font-black text-amber-400">{avgDays != null ? `${avgDays}d` : '—'}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Avg Days on Site</div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-amber-300 text-center">
+              <div className="text-2xl font-black text-amber-600">{avgDays != null ? `${avgDays}d` : '—'}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">Avg Days on Site</div>
             </div>
-            <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-slate-200">{maxDays != null ? `${maxDays}d` : '—'}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Max Days on Site</div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 text-center">
+              <div className="text-2xl font-black text-slate-800">{maxDays != null ? `${maxDays}d` : '—'}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">Max Days on Site</div>
             </div>
-            <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 text-center">
               <div className="text-2xl font-black text-slate-500">{sortedCycles.filter(c=>c.cycle_start_date==null).length}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">No Prior Event Found</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">No Prior Event Found</div>
             </div>
           </div>
 
@@ -742,7 +742,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                 <div key={type} className="flex items-center gap-2 rounded-xl px-4 py-2 ring-1"
                   style={{background:(ORDER_TYPE_COLORS[type]||'#334155')+'15',borderColor:(ORDER_TYPE_COLORS[type]||'#334155')+'50'}}>
                   <span className="text-sm font-black" style={{color:ORDER_TYPE_COLORS[type]||'#94a3b8'}}>{count}</span>
-                  <span className="text-xs font-semibold text-slate-400">{type}</span>
+                  <span className="text-xs font-semibold text-slate-600">{type}</span>
                 </div>
               ))}
             </div>
@@ -750,8 +750,8 @@ function InvoiceTab({ customers, drivers, driverMap }: {
 
           {/* Action bar */}
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-slate-400">
-              <span className="font-bold text-white">{sortedCycles.length}</span> billing events · <span className="text-white">{customerName}</span> · {dateFrom} → {dateTo}
+            <span className="text-sm text-slate-500">
+              <span className="font-bold text-slate-900">{sortedCycles.length}</span> billing events · <span className="text-slate-900">{customerName}</span> · {dateFrom} → {dateTo}
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
               {sortedCycles.length > 0 && <>
@@ -767,29 +767,29 @@ function InvoiceTab({ customers, drivers, driverMap }: {
 
           {/* Table */}
           {sortedCycles.length === 0
-            ? <div className="rounded-3xl bg-slate-900 p-10 text-center text-sm text-slate-400 ring-1 ring-slate-700">No billable events found for the selected period.</div>
-            : <div className="overflow-hidden rounded-3xl bg-slate-900 ring-1 ring-slate-700">
-                <div className="border-b border-slate-700 px-6 py-4">
-                  <h3 className="text-sm font-bold text-white">Billable Events</h3>
+            ? <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">No billable events found for the selected period.</div>
+            : <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+                <div className="border-b border-slate-200 px-6 py-4">
+                  <h3 className="text-sm font-bold text-slate-900">Billable Events</h3>
                   <p className="mt-0.5 text-xs text-slate-500">Each row = one chargeable service. "Prev. Event Date" = delivery or last dump at this address.</p>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1000px] divide-y divide-slate-800">
-                    <thead className="bg-slate-800">
+                  <table className="w-full min-w-[1000px] divide-y divide-slate-200">
+                    <thead className="bg-slate-50">
                       <tr>{cols.map(col=>(
                         <th key={col.key} onClick={()=>toggleSort(col.key)}
-                          className="cursor-pointer px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400 hover:text-white select-none transition">
+                          className="cursor-pointer px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500 hover:text-slate-900 select-none transition">
                           {col.label}{sortField===col.key&&<span className="ml-1 text-amber-400">{sortDir==='asc'?'↑':'↓'}</span>}
                         </th>
                       ))}</tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800">
+                    <tbody className="divide-y divide-slate-200">
                       {sortedCycles.map(c => {
                         const hasDays = c.days_on_site != null
                         const isLong = hasDays && (c.days_on_site||0) > 30
                         return (
-                          <tr key={c.id} className="hover:bg-slate-800/60 transition-colors">
-                            <td className="px-4 py-3 text-xs font-semibold text-white whitespace-nowrap">
+                          <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="px-4 py-3 text-xs font-semibold text-slate-900 whitespace-nowrap">
                               {c.ticket_number||'—'}
                               {c.parent_ticket && <div className="text-[10px] text-slate-500 mt-0.5">↳ {c.parent_ticket}</div>}
                             </td>
@@ -801,28 +801,28 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                             </td>
                             <td className="px-4 py-3 text-xs whitespace-nowrap">
                               {c.cycle_start_date
-                                ? <span className="text-slate-300">{fmtDate(c.cycle_start_date)}</span>
-                                : <span className="text-slate-600 italic">Not found</span>
+                                ? <span className="text-slate-700">{fmtDate(c.cycle_start_date)}</span>
+                                : <span className="text-slate-400 italic">Not found</span>
                               }
                             </td>
-                            <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{fmtDate(c.cycle_end_date)}</td>
+                            <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">{fmtDate(c.cycle_end_date)}</td>
                             <td className="px-4 py-3 text-xs whitespace-nowrap">
                               {hasDays
-                                ? <span className={`font-bold ${isLong ? 'text-rose-400' : 'text-amber-400'}`}>{c.days_on_site} days{isLong&&' ⚠'}</span>
-                                : <span className="text-slate-600">—</span>
+                                ? <span className={`font-bold ${isLong ? 'text-rose-600' : 'text-amber-600'}`}>{c.days_on_site} days{isLong&&' ⚠'}</span>
+                                : <span className="text-slate-400">—</span>
                               }
                             </td>
-                            <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{c.bin_size?`${c.bin_size}Y`:'—'}</td>
-                            <td className="px-4 py-3 text-xs text-slate-300">{c.bin_type||'—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">{c.bin_size?`${c.bin_size}Y`:'—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-700">{c.bin_type||'—'}</td>
                             <td className="px-4 py-3 text-xs text-slate-400">{c.bin_number||'—'}</td>
-                            <td className="px-4 py-3 text-xs text-slate-300 max-w-[180px] truncate">{c.address||'—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-700 max-w-[180px] truncate">{c.address||'—'}</td>
                             <td className="px-4 py-3 text-xs whitespace-nowrap">
                               <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
                                 style={{background:(STATUS_COLORS[c.status||'unassigned']||'#334155')+'30',color:STATUS_COLORS[c.status||'unassigned']||'#94a3b8'}}>
                                 {formatStatus(c.status)}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{driverMap[c.driver_id||'']||'—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">{driverMap[c.driver_id||'']||'—'}</td>
                           </tr>
                         )
                       })}
@@ -876,11 +876,11 @@ export default function StatementsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-7xl p-4 md:p-6">
 
         {/* Header */}
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm ring-1 ring-slate-700">
+        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <AppLogo className="h-9 w-auto" />
@@ -901,19 +901,19 @@ export default function StatementsPage() {
         </div>
 
         {/* Tabs */}
-        <div className="mb-6 flex gap-2 rounded-2xl bg-slate-900 p-1.5 ring-1 ring-slate-700 w-fit">
+        <div className="mb-6 flex gap-2 rounded-2xl bg-white p-1.5 shadow-sm ring-1 ring-slate-200 w-fit">
           <button onClick={()=>setTab('statement')}
-            className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${tab==='statement'?'bg-blue-600 text-white shadow':'text-slate-400 hover:text-white'}`}>
+            className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${tab==='statement'?'bg-blue-600 text-white shadow':'text-slate-500 hover:text-slate-900'}`}>
             Account Statement
           </button>
           <button onClick={()=>setTab('invoice')}
-            className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${tab==='invoice'?'bg-amber-600 text-white shadow':'text-slate-400 hover:text-white'}`}>
+            className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${tab==='invoice'?'bg-amber-600 text-white shadow':'text-slate-500 hover:text-slate-900'}`}>
             Invoice Report
           </button>
         </div>
 
         {pageLoading
-          ? <div className="rounded-3xl bg-slate-800 p-10 text-center text-sm text-slate-400">Loading...</div>
+          ? <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">Loading...</div>
           : tab === 'statement'
             ? <StatementTab customers={customers} drivers={drivers} driverMap={driverMap} />
             : <InvoiceTab customers={customers} drivers={drivers} driverMap={driverMap} />

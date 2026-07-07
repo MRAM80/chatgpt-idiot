@@ -1716,30 +1716,30 @@ function OrdersPageContent() {
 
         </div>
 
-        <div className="overflow-hidden rounded-3xl bg-slate-900 shadow-sm ring-1 ring-slate-700">
+        <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
           {loading ? (
-            <div className="p-10 text-center text-sm text-slate-400">Loading orders...</div>
+            <div className="p-10 text-center text-sm text-slate-500">Loading orders...</div>
           ) : filteredOrders.length === 0 ? (
-            <div className="p-10 text-center text-sm text-slate-400">No orders found.</div>
+            <div className="p-10 text-center text-sm text-slate-500">No orders found.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] divide-y divide-slate-700">
-                <thead className="bg-slate-800">
+              <table className="w-full min-w-[1180px] divide-y divide-slate-200">
+                <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Ticket</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Order Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Customer</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Job Site Address</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Bin Size</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Material</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Driver</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Ticket</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Order Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Customer</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Job Site Address</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Bin Size</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Material</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Driver</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Status</th>
                   </tr>
                 </thead>
 
-                <tbody className="bg-slate-900">
+                <tbody className="bg-white">
                   {prioritizedFilteredOrders.map((order) => {
                     const driverRelation = firstRelation(order.drivers)
                     const customerRelation = firstRelation(order.customers)
@@ -1761,42 +1761,42 @@ function OrdersPageContent() {
                     return (
                       <tr
                         key={order.id}
-                        className="cursor-pointer border-b border-slate-700 hover:bg-slate-700/60"
+                        className="cursor-pointer border-b border-slate-100 hover:bg-slate-50/80"
                         onClick={() => openEditModal(order)}
                       >
                         <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-white">{order.ticket_number || 'Pending'}</div>
+                          <div className="font-semibold text-slate-900">{order.ticket_number || 'Pending'}</div>
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-300">
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
                           <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${orderTypeClass}`}>
                             {formatOrderType(order.order_type)}
                           </span>
                         </td>
 
                         <td className="px-4 py-4 align-top">
-                          <div className="font-semibold text-white">{customer}</div>
+                          <div className="font-semibold text-slate-900">{customer}</div>
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-300">
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">
                           {order.service_address || order.pickup_address || '—'}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-300 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
                           {formatServiceTime(order.service_time)}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm font-semibold text-slate-200 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top text-sm font-semibold text-slate-800 whitespace-nowrap">
                           {formatDate(order.scheduled_date)}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-300 whitespace-nowrap">
+                        <td className="px-4 py-4 align-top text-sm text-slate-700 whitespace-nowrap">
                           {order.bin_size ? `${order.bin_size}Y` : '—'}
                         </td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-300">{order.bin_type || '—'}</td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">{order.bin_type || '—'}</td>
 
-                        <td className="px-4 py-4 align-top text-sm text-slate-300">{driver}</td>
+                        <td className="px-4 py-4 align-top text-sm text-slate-700">{driver}</td>
 
                         <td className="px-4 py-4 align-top">
                           <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}>
