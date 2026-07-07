@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
 // ── Shared types (must match dispatch page types) ─────────────────────────────
 
@@ -65,7 +66,8 @@ function normalizeAddress(v: string | null | undefined) {
 }
 
 function generateTicketNumber() {
-  return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
+  const digits = Math.floor(1000000 + Math.random() * 9000000)
+  return `${CLIENT_CONFIG.shortName}-${digits}`
 }
 
 function emptyForm(defaultDate?: string, defaultDriverId?: string): FormState {

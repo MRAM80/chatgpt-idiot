@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AppLogo from '@/components/AppLogo'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 
 type Driver = {
   id: string
@@ -247,7 +248,8 @@ function includesText(value: unknown, query: string) {
 }
 
 function generateTicketNumber() {
-  return `ST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`
+  const digits = Math.floor(1000000 + Math.random() * 9000000)
+  return `${CLIENT_CONFIG.shortName}-${digits}`
 }
 
 
