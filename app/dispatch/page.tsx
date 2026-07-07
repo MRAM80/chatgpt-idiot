@@ -340,7 +340,7 @@ export default function DispatchBoardPage() {
   const todayKey = useMemo(() => getTodayKey(), [])
   const tomorrowKey = useMemo(() => getTomorrowKey(), [])
 
-  async function loadDrivers() {
+  async function loadDrivers(): Promise<Driver[]> {
     const { data, error } = await supabase
       .from('drivers')
       .select('id,name,phone,status')
@@ -349,13 +349,15 @@ export default function DispatchBoardPage() {
 
     if (error) {
       setPageError(error.message)
-      return
+      return []
     }
 
-    setDrivers((data as Driver[]) || [])
+    const list = (data as Driver[]) || []
+    setDrivers(list)
+    return list
   }
 
-  async function loadOrders() {
+  async function loadOrders(): Promise<Order[]> {
     setLoading(true)
 
     const { data, error } = await supabase
@@ -368,11 +370,13 @@ export default function DispatchBoardPage() {
     if (error) {
       setPageError(error.message)
       setLoading(false)
-      return
+      return []
     }
 
-    setOrders((data as Order[]) || [])
+    const list = (data as Order[]) || []
+    setOrders(list)
     setLoading(false)
+    return list
   }
 
   async function loadCustomers() {
@@ -409,9 +413,53 @@ export default function DispatchBoardPage() {
     setDumpSites((data as DumpSite[]) || [])
   }
 
+  // Self-heal stale driver statuses: a driver holding assigned/in_progress orders
+  // scheduled today must be 'busy'; one with none must be 'available'. Catches
+  // day rollover (order assigned yesterday for today) and driver-app drift.
+  async function reconcileDriverStatuses(driverList: Driver[], orderList: Order[]) {
+    const activeStatuses = ['assigned', 'in_progress']
+    const busyDriverIds = new Set(
+      orderList
+        .filter(
+          (order) =>
+            order.driver_id &&
+            activeStatuses.includes(order.status || '') &&
+            String(order.scheduled_date || '').slice(0, 10) === todayKey
+        )
+        .map((order) => order.driver_id as string)
+    )
+
+    const stale = driverList.filter((driver) => {
+      if (driver.status !== 'available' && driver.status !== 'busy') return false
+      const correct = busyDriverIds.has(driver.id) ? 'busy' : 'available'
+      return driver.status !== correct
+    })
+
+    if (stale.length === 0) return
+
+    await Promise.all(
+      stale.map((driver) =>
+        supabase
+          .from('drivers')
+          .update({ status: busyDriverIds.has(driver.id) ? 'busy' : 'available' })
+          .eq('id', driver.id)
+      )
+    )
+
+    setDrivers((current) =>
+      current.map((driver) =>
+        stale.some((s) => s.id === driver.id)
+          ? { ...driver, status: busyDriverIds.has(driver.id) ? 'busy' : 'available' }
+          : driver
+      )
+    )
+  }
+
   async function refreshAll() {
     setPageError('')
-    await Promise.all([loadDrivers(), loadOrders(), loadCustomers(), loadJobSites(), loadBins(), loadDumpSites()])
+    const [driverList, orderList] = await Promise.all([loadDrivers(), loadOrders()])
+    await Promise.all([loadCustomers(), loadJobSites(), loadBins(), loadDumpSites()])
+    await reconcileDriverStatuses(driverList, orderList)
   }
 
   useEffect(() => {
@@ -580,6 +628,11 @@ export default function DispatchBoardPage() {
     setDrivers((current) =>
       current.map((driver) => (driver.id === driverId ? { ...driver, status: nextStatus } : driver))
     )
+
+    // Returning to duty: recompute — driver with active orders today must show busy
+    if (nextStatus === 'available') {
+      await syncDriverStatuses(driverId)
+    }
 
     await Promise.all([loadDrivers(), loadOrders()])
   }
