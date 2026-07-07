@@ -993,20 +993,20 @@ export default function DispatchBoardPage() {
               </div>
 
               {/* Stats inline */}
-              <div className="hidden md:flex items-center gap-2">
-                <div className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-center">
+              <div className="hidden md:flex items-center gap-2.5 pl-1">
+                <div className="shrink-0 rounded-xl border-2 border-slate-600 bg-slate-800 px-3 py-1.5 text-center">
                   <div className="text-[10px] font-semibold uppercase text-slate-400">Unassigned</div>
                   <div className="text-base font-bold text-white">{stats.unassigned}</div>
                 </div>
-                <div className="rounded-xl border border-emerald-700 bg-emerald-900/40 px-3 py-1.5 text-center">
+                <div className="shrink-0 rounded-xl border-2 border-emerald-700 bg-emerald-900/40 px-3 py-1.5 text-center">
                   <div className="text-[10px] font-semibold uppercase text-emerald-400">Available</div>
                   <div className="text-base font-bold text-emerald-300">{stats.available}</div>
                 </div>
-                <div className="rounded-xl border border-blue-700 bg-blue-900/40 px-3 py-1.5 text-center">
+                <div className="shrink-0 rounded-xl border-2 border-blue-700 bg-blue-900/40 px-3 py-1.5 text-center">
                   <div className="text-[10px] font-semibold uppercase text-blue-400">Active</div>
                   <div className="text-base font-bold text-blue-300">{stats.activeDrivers}</div>
                 </div>
-                <div className="rounded-xl border border-amber-700 bg-amber-900/40 px-3 py-1.5 text-center">
+                <div className="shrink-0 rounded-xl border-2 border-amber-700 bg-amber-900/40 px-3 py-1.5 text-center">
                   <div className="text-[10px] font-semibold uppercase text-amber-400">In Progress</div>
                   <div className="text-base font-bold text-amber-300">{stats.inProgress}</div>
                 </div>

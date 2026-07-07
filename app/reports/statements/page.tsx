@@ -41,6 +41,8 @@ type Order = {
   service_time?: string | null
   parent_order_id?: string | null
   bin_number?: string | null
+  bin_id?: string | null
+  old_bin_id?: string | null
 }
 
 type BillingCycle = {
@@ -509,7 +511,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
     // 1. Fetch billing trigger orders in range (exclude cancelled)
     const { data: billingOrders } = await supabase
       .from('order')
-      .select('id,ticket_number,order_type,service_address,pickup_address,bin_size,bin_type,bin_number,status,scheduled_date,driver_id,driver_notes,parent_order_id')
+      .select('id,ticket_number,order_type,service_address,pickup_address,bin_size,bin_type,bin_number,bin_id,old_bin_id,status,scheduled_date,driver_id,driver_notes,parent_order_id')
       .eq('customer_id', customerId)
       .in('order_type', BILLING_TYPES)
       .neq('status', 'cancelled')
@@ -528,6 +530,19 @@ function InvoiceTab({ customers, drivers, driverMap }: {
       .order('scheduled_date', { ascending: true })
 
     const history = (allOrders as Order[]) || []
+
+    // Resolve bin numbers via bins table for orders that don't carry bin_number text
+    const binIds = [...new Set(orders.flatMap(o => [o.bin_id, o.old_bin_id]).filter((id): id is string => Boolean(id)))]
+    const binNumberById = new Map<string, string>()
+    if (binIds.length > 0) {
+      const { data: binRows } = await supabase
+        .from('bins')
+        .select('id,bin_number')
+        .in('id', binIds)
+      for (const b of (binRows as { id: string; bin_number: string | null }[]) || []) {
+        if (b.bin_number) binNumberById.set(b.id, b.bin_number)
+      }
+    }
 
     function normAddr(o: Order) {
       return (o.service_address || o.pickup_address || '').toLowerCase().trim()
@@ -593,7 +608,10 @@ function InvoiceTab({ customers, drivers, driverMap }: {
         address: o.service_address || o.pickup_address,
         bin_size: o.bin_size,
         bin_type: o.bin_type,
-        bin_number: o.bin_number || null,
+        bin_number: o.bin_number
+          || (o.old_bin_id && binNumberById.get(o.old_bin_id))
+          || (o.bin_id && binNumberById.get(o.bin_id))
+          || null,
         status: o.status,
         cycle_end_date: endDate,
         cycle_start_date: startDate,
