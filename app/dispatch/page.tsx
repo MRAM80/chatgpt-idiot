@@ -106,6 +106,7 @@ const driverStatusStyles: Record<string, string> = {
   busy: 'border-amber-200 bg-amber-50 text-amber-700',
   heading_back: 'border-blue-200 bg-blue-50 text-blue-700',
   parked: 'border-slate-300 bg-slate-100 text-slate-700',
+  stopped: 'border-rose-300 bg-rose-50 text-rose-700',
 }
 
 function getDriverColumnStyle(status?: string | null) {
@@ -118,6 +119,8 @@ function getDriverColumnStyle(status?: string | null) {
       return 'bg-slate-100 ring-slate-300'
     case 'busy':
       return 'bg-amber-50 ring-amber-200'
+    case 'stopped':
+      return 'bg-rose-50 ring-rose-300'
     default:
       return 'bg-white ring-slate-200'
   }
@@ -136,6 +139,7 @@ function formatDriverStatus(status: string | null | undefined) {
   if (!status) return 'Available'
   if (status === 'heading_back') return 'HB'
   if (status === 'parked') return 'Parked'
+  if (status === 'stopped') return 'STOPPED'
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
@@ -538,7 +542,8 @@ export default function DispatchBoardPage() {
         driver.status === 'available' ||
         driver.status === 'busy' ||
         driver.status === 'heading_back' ||
-        driver.status === 'parked'
+        driver.status === 'parked' ||
+        driver.status === 'stopped'
       )
     })
   }, [drivers, selectedDayKey, todayKey])
@@ -601,7 +606,7 @@ export default function DispatchBoardPage() {
     }
 
     if (driver?.status === 'offline') return
-    if (driver?.status === 'heading_back' || driver?.status === 'parked') return
+    if (driver?.status === 'heading_back' || driver?.status === 'parked' || driver?.status === 'stopped') return
 
     const { error: updateError } = await supabase
       .from('drivers')
@@ -613,8 +618,21 @@ export default function DispatchBoardPage() {
     }
   }
 
-  async function setDriverOperationalStatus(driverId: string, nextStatus: 'available' | 'heading_back' | 'parked') {
+  async function setDriverOperationalStatus(driverId: string, nextStatus: 'available' | 'heading_back' | 'parked' | 'stopped') {
     setPageError('')
+
+    // Park = end of day. Blocked while the driver still has open orders —
+    // everything must be completed (or cancelled) before parking.
+    if (nextStatus === 'parked') {
+      const openOrders = (driverOrdersMap[driverId] || []).filter(
+        (order) => order.status === 'assigned' || order.status === 'in_progress'
+      )
+      if (openOrders.length > 0) {
+        const driverName = driverMap[driverId]?.name || 'Driver'
+        setPageError(`Cannot park ${driverName}: ${openOrders.length} open order(s) on the board. Complete or cancel them first.`)
+        return
+      }
+    }
 
     const { error } = await supabase
       .from('drivers')
@@ -1303,7 +1321,8 @@ export default function DispatchBoardPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void setDriverOperationalStatus(driver.id, 'parked')}
+                              title="End of day — all orders must be closed first. Cleared when the driver logs in again."
+                              onClick={() => void setDriverOperationalStatus(driver.id, driver.status === 'parked' ? 'available' : 'parked')}
                               className={`rounded-lg py-1 text-[10px] font-bold transition ${
                                 driver.status === 'parked'
                                   ? 'bg-slate-600 text-white'
@@ -1314,11 +1333,12 @@ export default function DispatchBoardPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void setDriverOperationalStatus(driver.id, 'available')}
+                              title="Emergency stop — halts the driver's route while you reorganize. Press again to release."
+                              onClick={() => void setDriverOperationalStatus(driver.id, driver.status === 'stopped' ? 'available' : 'stopped')}
                               className={`rounded-lg py-1 text-[10px] font-bold transition ${
-                                driver.status === 'available'
-                                  ? 'bg-emerald-600 text-white'
-                                  : 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                driver.status === 'stopped'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
                               }`}
                             >
                               STOP

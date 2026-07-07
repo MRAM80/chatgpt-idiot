@@ -306,7 +306,12 @@ export default function DriverPage() {
   const previousOrderIdsRef = useRef<string[]>([])
   const hadActiveOrdersRef = useRef(false)
   const hasActiveOrders = orders.length > 0
-  const showAvailableButton = !hasActiveOrders && driver?.status !== 'available'
+  // Parked clears only via next login; stopped only by dispatch — no self-release
+  const showAvailableButton =
+    !hasActiveOrders &&
+    driver?.status !== 'available' &&
+    driver?.status !== 'parked' &&
+    driver?.status !== 'stopped'
 
   // Auto-mark available when all orders are done
   useEffect(() => {
@@ -315,7 +320,8 @@ export default function DriverPage() {
       return
     }
     if (!hadActiveOrdersRef.current) return
-    if (!driver?.id || driver.status === 'available' || driver.status === 'heading_back') return
+    // Parked/stopped are sticky: parked clears on next login, stopped only by dispatch
+    if (!driver?.id || driver.status === 'available' || driver.status === 'heading_back' || driver.status === 'parked' || driver.status === 'stopped') return
     void markDriverAvailable(driver.id).then((ok) => {
       if (ok) setDriver((d) => d ? { ...d, status: 'available' } : d)
     })
@@ -1083,6 +1089,8 @@ export default function DriverPage() {
                 notifyInApp(CLIENT_CONFIG.name, 'HEAD BACK')
               } else if (nextStatus === 'parked') {
                 notifyInApp(CLIENT_CONFIG.name, 'Park and finish today')
+              } else if (nextStatus === 'stopped') {
+                notifyInApp(CLIENT_CONFIG.name, '🛑 STOP — dispatch stopped your route. Contact your dispatcher.')
               } else if (nextStatus === 'available') {
                 notifyInApp(CLIENT_CONFIG.name, 'Available')
               }
@@ -1401,6 +1409,9 @@ export default function DriverPage() {
             {driver?.status === 'parked' && (
               <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Parked</span>
             )}
+            {driver?.status === 'stopped' && (
+              <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">STOPPED</span>
+            )}
             {(isOffline || usingCachedOrders) && (
               <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Offline</span>
             )}
@@ -1451,6 +1462,17 @@ export default function DriverPage() {
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">Park and finish today</div>
           </div>
         )}
+        {driver?.status === 'stopped' && (
+          <div className="mx-auto max-w-lg px-4 pb-3">
+            <div className="flex items-center gap-3 rounded-2xl bg-rose-600 px-4 py-3 shadow-sm">
+              <span className="text-2xl leading-none">🛑</span>
+              <div>
+                <p className="text-sm font-black uppercase tracking-wide text-white">Route stopped by dispatch</p>
+                <p className="text-xs font-medium text-rose-200">Do not continue — contact your dispatcher</p>
+              </div>
+            </div>
+          </div>
+        )}
         {syncingQueue && (
           <div className="mx-auto max-w-lg px-4 pb-2">
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">Syncing offline changes…</div>
@@ -1463,6 +1485,16 @@ export default function DriverPage() {
         {loading ? (
           <div className="h-full flex items-center justify-center px-4">
             <p className="text-sm font-medium text-slate-500">Loading route…</p>
+          </div>
+        ) : driver?.status === 'stopped' ? (
+          <div className="h-full flex items-center justify-center px-4">
+            <div className="max-w-sm text-center">
+              <div className="text-5xl mb-4">🛑</div>
+              <p className="text-lg font-black uppercase tracking-wide text-rose-600">Route stopped</p>
+              <p className="mt-2 text-sm font-medium text-slate-600">
+                Dispatch has stopped your route. Your orders are on hold — do not continue. Contact your dispatcher for instructions.
+              </p>
+            </div>
           </div>
         ) : orders.length === 0 ? (
           <div className="h-full flex items-center justify-center px-4">

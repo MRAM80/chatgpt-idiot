@@ -20,12 +20,17 @@ export default function LoginPage() {
 
     const { data: driver } = await supabase
       .from('drivers').select('id').eq('auth_user_id', user.id).maybeSingle()
-    if (driver?.id) { router.push('/driver'); router.refresh(); return }
+    if (driver?.id) {
+      // Fresh login ends an overnight park — driver is back on duty
+      await supabase.from('drivers').update({ status: 'available' }).eq('id', driver.id).eq('status', 'parked')
+      router.push('/driver'); router.refresh(); return
+    }
 
     const { data: driverByEmail } = await supabase
       .from('drivers').select('id').ilike('email', (user.email || '').toLowerCase()).maybeSingle()
     if (driverByEmail?.id) {
       await supabase.from('drivers').update({ auth_user_id: user.id, last_login_at: new Date().toISOString() }).eq('id', driverByEmail.id)
+      await supabase.from('drivers').update({ status: 'available' }).eq('id', driverByEmail.id).eq('status', 'parked')
       router.push('/driver'); router.refresh(); return
     }
 
