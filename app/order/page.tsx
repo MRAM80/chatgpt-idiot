@@ -1606,29 +1606,29 @@ function OrdersPageContent() {
   return (
     <div className="light min-h-screen bg-slate-100 text-slate-900" style={{ colorScheme: 'light', ...(isEmbedded ? { background: 'transparent', minHeight: 'unset' } : {}) }}>
       <div className={isEmbedded ? 'hidden' : 'mx-auto max-w-[92rem] p-4 md:p-6'}>
-        <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <AppLogo className="h-9 w-auto" />
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Orders</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-white">Orders</h1>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/dashboard"
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Back to Dashboard
               </Link>
               <button
                 onClick={refreshAll}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Refresh
               </button>
               <button
                 onClick={openCreateModal}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:opacity-90"
               >
                 New Order
               </button>
