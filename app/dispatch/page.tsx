@@ -441,12 +441,15 @@ export default function DispatchBoardPage() {
 
     if (stale.length === 0) return
 
+    // Conditional write: only if the driver STILL has the status our snapshot
+    // saw — a Park/STOP click landing mid-refresh must never be overwritten.
     await Promise.all(
       stale.map((driver) =>
         supabase
           .from('drivers')
           .update({ status: busyDriverIds.has(driver.id) ? 'busy' : 'available' })
           .eq('id', driver.id)
+          .eq('status', driver.status as string)
       )
     )
 
@@ -612,6 +615,7 @@ export default function DispatchBoardPage() {
       .from('drivers')
       .update({ status: hasActiveOrdersToday ? 'busy' : 'available' })
       .eq('id', driverId)
+      .in('status', ['available', 'busy'])
 
     if (updateError) {
       setPageError(updateError.message)

@@ -278,8 +278,9 @@ export default function NewOrderModal({
       String(o.scheduled_date || '').slice(0, 10) <= todayKey
     )
     const { data: driverRow } = await supabase.from('drivers').select('status').eq('id', driverId).single()
-    if ((driverRow as { status?: string | null } | null)?.status === 'offline') return
-    await supabase.from('drivers').update({ status: hasActive ? 'busy' : 'available' }).eq('id', driverId)
+    const driverStatus = (driverRow as { status?: string | null } | null)?.status
+    if (driverStatus === 'offline' || driverStatus === 'heading_back' || driverStatus === 'parked' || driverStatus === 'stopped') return
+    await supabase.from('drivers').update({ status: hasActive ? 'busy' : 'available' }).eq('id', driverId).in('status', ['available', 'busy'])
   }
 
   async function handleCreate() {

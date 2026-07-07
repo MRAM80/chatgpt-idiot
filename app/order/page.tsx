@@ -986,12 +986,14 @@ function OrdersPageContent() {
       return
     }
 
-    if ((driver as { status?: string | null })?.status === 'offline') return
+    const driverStatus = (driver as { status?: string | null })?.status
+    if (driverStatus === 'offline' || driverStatus === 'heading_back' || driverStatus === 'parked' || driverStatus === 'stopped') return
 
     const { error: updateError } = await supabase
       .from('drivers')
       .update({ status: hasActiveOrders ? 'busy' : 'available' })
       .eq('id', driverId)
+      .in('status', ['available', 'busy'])
 
     if (updateError) {
       setPageError(updateError.message)

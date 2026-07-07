@@ -480,10 +480,12 @@ export default function DriverPage() {
   }
 
   async function markDriverAvailable(driverId: string) {
+    // Conditional: never releases a parked/stopped/offline driver
     const { error } = await supabase
       .from('drivers')
       .update({ status: 'available' })
       .eq('id', driverId)
+      .in('status', ['busy', 'heading_back'])
 
     if (error) {
       setPageError(error.message)
