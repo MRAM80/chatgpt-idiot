@@ -987,7 +987,7 @@ function OrdersPageContent() {
     }
 
     const driverStatus = (driver as { status?: string | null })?.status
-    if (driverStatus === 'offline' || driverStatus === 'heading_back' || driverStatus === 'parked' || driverStatus === 'stopped') return
+    if (driverStatus === 'offline' || driverStatus === 'heading_back' || driverStatus === 'parked' || driverStatus === 'stopped' || driverStatus === 'emergency') return
 
     const { error: updateError } = await supabase
       .from('drivers')

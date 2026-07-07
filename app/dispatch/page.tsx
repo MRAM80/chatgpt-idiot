@@ -107,6 +107,7 @@ const driverStatusStyles: Record<string, string> = {
   heading_back: 'border-blue-200 bg-blue-50 text-blue-700',
   parked: 'border-slate-300 bg-slate-100 text-slate-700',
   stopped: 'border-rose-300 bg-rose-50 text-rose-700',
+  emergency: 'border-rose-400 bg-rose-100 text-rose-800',
 }
 
 function getDriverColumnStyle(status?: string | null) {
@@ -121,6 +122,8 @@ function getDriverColumnStyle(status?: string | null) {
       return 'bg-amber-50 ring-amber-200'
     case 'stopped':
       return 'bg-rose-50 ring-rose-300'
+    case 'emergency':
+      return 'bg-rose-100 ring-rose-400'
     default:
       return 'bg-white ring-slate-200'
   }
@@ -140,6 +143,7 @@ function formatDriverStatus(status: string | null | undefined) {
   if (status === 'heading_back') return 'HB'
   if (status === 'parked') return 'Parked'
   if (status === 'stopped') return 'STOPPED'
+  if (status === 'emergency') return '🚨 EMERGENCY'
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
@@ -546,7 +550,8 @@ export default function DispatchBoardPage() {
         driver.status === 'busy' ||
         driver.status === 'heading_back' ||
         driver.status === 'parked' ||
-        driver.status === 'stopped'
+        driver.status === 'stopped' ||
+        driver.status === 'emergency'
       )
     })
   }, [drivers, selectedDayKey, todayKey])
@@ -609,7 +614,7 @@ export default function DispatchBoardPage() {
     }
 
     if (driver?.status === 'offline') return
-    if (driver?.status === 'heading_back' || driver?.status === 'parked' || driver?.status === 'stopped') return
+    if (driver?.status === 'heading_back' || driver?.status === 'parked' || driver?.status === 'stopped' || driver?.status === 'emergency') return
 
     const { error: updateError } = await supabase
       .from('drivers')
@@ -1337,17 +1342,17 @@ export default function DispatchBoardPage() {
                             </button>
                             <button
                               type="button"
-                              title={driver.status === 'stopped'
+                              title={driver.status === 'stopped' || driver.status === 'emergency'
                                 ? 'Resume the route — driver goes back on duty'
                                 : 'Emergency stop — halts the driver\'s route while you reorganize'}
-                              onClick={() => void setDriverOperationalStatus(driver.id, driver.status === 'stopped' ? 'available' : 'stopped')}
+                              onClick={() => void setDriverOperationalStatus(driver.id, driver.status === 'stopped' || driver.status === 'emergency' ? 'available' : 'stopped')}
                               className={`rounded-lg py-1 text-[10px] font-bold transition ${
-                                driver.status === 'stopped'
+                                driver.status === 'stopped' || driver.status === 'emergency'
                                   ? 'bg-emerald-600 text-white hover:bg-emerald-500'
                                   : 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
                               }`}
                             >
-                              {driver.status === 'stopped' ? 'RESUME' : 'STOP'}
+                              {driver.status === 'stopped' || driver.status === 'emergency' ? 'RESUME' : 'STOP'}
                             </button>
                           </div>
 

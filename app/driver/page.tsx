@@ -306,12 +306,13 @@ export default function DriverPage() {
   const previousOrderIdsRef = useRef<string[]>([])
   const hadActiveOrdersRef = useRef(false)
   const hasActiveOrders = orders.length > 0
-  // Parked clears only via next login; stopped only by dispatch — no self-release
+  // Parked clears only via next login; stopped/emergency only by dispatch — no self-release
   const showAvailableButton =
     !hasActiveOrders &&
     driver?.status !== 'available' &&
     driver?.status !== 'parked' &&
-    driver?.status !== 'stopped'
+    driver?.status !== 'stopped' &&
+    driver?.status !== 'emergency'
 
   // Auto-mark available when all orders are done
   useEffect(() => {
@@ -320,8 +321,8 @@ export default function DriverPage() {
       return
     }
     if (!hadActiveOrdersRef.current) return
-    // Parked/stopped are sticky: parked clears on next login, stopped only by dispatch
-    if (!driver?.id || driver.status === 'available' || driver.status === 'heading_back' || driver.status === 'parked' || driver.status === 'stopped') return
+    // Parked/stopped/emergency are sticky: parked clears on next login, the others only by dispatch
+    if (!driver?.id || driver.status === 'available' || driver.status === 'heading_back' || driver.status === 'parked' || driver.status === 'stopped' || driver.status === 'emergency') return
     void markDriverAvailable(driver.id).then((ok) => {
       if (ok) setDriver((d) => d ? { ...d, status: 'available' } : d)
     })
@@ -1093,6 +1094,8 @@ export default function DriverPage() {
                 notifyInApp(CLIENT_CONFIG.name, 'Park and finish today')
               } else if (nextStatus === 'stopped') {
                 notifyInApp(CLIENT_CONFIG.name, '🛑 STOP — dispatch stopped your route. Contact your dispatcher.')
+              } else if (nextStatus === 'emergency') {
+                notifyInApp(CLIENT_CONFIG.name, '🚨 EMERGENCY reported — dispatch has been notified.')
               } else if (nextStatus === 'available') {
                 notifyInApp(CLIENT_CONFIG.name, 'Available')
               }
@@ -1244,6 +1247,12 @@ export default function DriverPage() {
     }
 
     const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', orderId)
+
+    // EMERGENCY: flag the order AND halt the driver — sticky until dispatch resumes
+    if (!error && nextStatus === 'issue' && driver?.id) {
+      await supabase.from('drivers').update({ status: 'emergency' }).eq('id', driver.id)
+      setDriver((d) => (d ? { ...d, status: 'emergency' } : d))
+    }
 
     if (!error && nextStatus === 'completed') {
       const stopAddress = getOrderAddress(order)
@@ -1414,6 +1423,9 @@ export default function DriverPage() {
             {driver?.status === 'stopped' && (
               <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">STOPPED</span>
             )}
+            {driver?.status === 'emergency' && (
+              <span className="rounded-md border border-rose-300 bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800">🚨 EMERGENCY</span>
+            )}
             {(isOffline || usingCachedOrders) && (
               <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Offline</span>
             )}
@@ -1475,6 +1487,17 @@ export default function DriverPage() {
             </div>
           </div>
         )}
+        {driver?.status === 'emergency' && (
+          <div className="mx-auto max-w-lg px-4 pb-3">
+            <div className="flex items-center gap-3 rounded-2xl bg-rose-700 px-4 py-3 shadow-sm">
+              <span className="text-2xl leading-none">🚨</span>
+              <div>
+                <p className="text-sm font-black uppercase tracking-wide text-white">Emergency reported</p>
+                <p className="text-xs font-medium text-rose-200">Dispatch has been notified — wait for instructions</p>
+              </div>
+            </div>
+          </div>
+        )}
         {syncingQueue && (
           <div className="mx-auto max-w-lg px-4 pb-2">
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">Syncing offline changes…</div>
@@ -1488,13 +1511,17 @@ export default function DriverPage() {
           <div className="h-full flex items-center justify-center px-4">
             <p className="text-sm font-medium text-slate-500">Loading route…</p>
           </div>
-        ) : driver?.status === 'stopped' ? (
+        ) : driver?.status === 'stopped' || driver?.status === 'emergency' ? (
           <div className="h-full flex items-center justify-center px-4">
             <div className="max-w-sm text-center">
-              <div className="text-5xl mb-4">🛑</div>
-              <p className="text-lg font-black uppercase tracking-wide text-rose-600">Route stopped</p>
+              <div className="text-5xl mb-4">{driver.status === 'emergency' ? '🚨' : '🛑'}</div>
+              <p className="text-lg font-black uppercase tracking-wide text-rose-600">
+                {driver.status === 'emergency' ? 'Emergency reported' : 'Route stopped'}
+              </p>
               <p className="mt-2 text-sm font-medium text-slate-600">
-                Dispatch has stopped your route. Your orders are on hold — do not continue. Contact your dispatcher for instructions.
+                {driver.status === 'emergency'
+                  ? 'Dispatch has been notified. Your route is on hold — wait for instructions from your dispatcher.'
+                  : 'Dispatch has stopped your route. Your orders are on hold — do not continue. Contact your dispatcher for instructions.'}
               </p>
             </div>
           </div>
@@ -1757,8 +1784,8 @@ export default function DriverPage() {
                             disabled={isSaving}
                             className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
                           >
-                            <span className="text-base leading-none">⚠</span>
-                            <span className="text-xs font-semibold">Issue</span>
+                            <span className="text-base leading-none">🚨</span>
+                            <span className="text-xs font-semibold">EMERGENCY</span>
                           </button>
                         </>
                       ) : (
@@ -1814,8 +1841,8 @@ export default function DriverPage() {
                             disabled={isSaving}
                             className="flex flex-1 flex-col items-center justify-center gap-1 py-3.5 bg-rose-600 text-white transition disabled:opacity-40 active:bg-rose-700"
                           >
-                            <span className="text-base leading-none">⚠</span>
-                            <span className="text-xs font-semibold">Issue</span>
+                            <span className="text-base leading-none">🚨</span>
+                            <span className="text-xs font-semibold">EMERGENCY</span>
                           </button>
                         </>
                       )}

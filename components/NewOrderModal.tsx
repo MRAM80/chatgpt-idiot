@@ -279,7 +279,7 @@ export default function NewOrderModal({
     )
     const { data: driverRow } = await supabase.from('drivers').select('status').eq('id', driverId).single()
     const driverStatus = (driverRow as { status?: string | null } | null)?.status
-    if (driverStatus === 'offline' || driverStatus === 'heading_back' || driverStatus === 'parked' || driverStatus === 'stopped') return
+    if (driverStatus === 'offline' || driverStatus === 'heading_back' || driverStatus === 'parked' || driverStatus === 'stopped' || driverStatus === 'emergency') return
     await supabase.from('drivers').update({ status: hasActive ? 'busy' : 'available' }).eq('id', driverId).in('status', ['available', 'busy'])
   }
 
