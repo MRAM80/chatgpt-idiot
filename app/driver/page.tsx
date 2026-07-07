@@ -1626,7 +1626,7 @@ export default function DriverPage() {
                             )}
                             {isDumpStep && (
                               <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                                🗑️ Dump bin at site
+                                <img src="/icons/dump-truck.svg" alt="" className="h-4 w-auto" /> Dump bin at site
                               </span>
                             )}
                             {isReturnStep && (
@@ -1795,7 +1795,7 @@ export default function DriverPage() {
                               disabled={isSaving}
                               className="flex flex-[2] flex-col items-center justify-center gap-0.5 py-3.5 bg-amber-500 text-white transition disabled:opacity-40 active:bg-amber-600"
                             >
-                              <span className="text-lg leading-none">🗑️</span>
+                              <img src="/icons/dump-truck.svg" alt="" className="h-6 w-auto" />
                               <span className="text-xs font-black tracking-wide">BIN DUMPED</span>
                               <span className="text-[10px] font-medium opacity-80">
                                 {order.order_type === 'DUMP RETURN' ? 'Now return to customer' : 'Job complete'}
