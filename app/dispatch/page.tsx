@@ -1239,7 +1239,7 @@ export default function DispatchBoardPage() {
                 </span>
               </div>
 
-              <div className="h-[calc(100vh-160px)] overflow-y-auto">
+              <div className="h-[calc(100vh-160px)] overflow-y-auto px-1 pb-1">
                 <div className="grid gap-2 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                   {orderedDrivers.map((driver) => {
                     const driverOrders = driverOrdersMap[driver.id] || []
