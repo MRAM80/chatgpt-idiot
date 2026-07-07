@@ -484,66 +484,93 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   const [customerId, setCustomerId] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [typeFilter, setTypeFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
 
   const [cycles, setCycles] = useState<BillingCycle[]>([])
   const [loading, setLoading] = useState(false)
   const [customerName, setCustomerName] = useState('')
   const [hasRun, setHasRun] = useState(false)
-  const [showCharts, setShowCharts] = useState(false)
   const [sortField, setSortField] = useState('cycle_end_date')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc')
 
-  const filteredCycles = useMemo(() => {
-    let r = cycles
-    if (typeFilter !== 'all') r = r.filter(c => c.order_type === typeFilter)
-    if (statusFilter !== 'all') r = r.filter(c => c.status === statusFilter)
-    return [...r].sort((a, b) => {
+  const sortedCycles = useMemo(() => {
+    return [...cycles].sort((a, b) => {
       const av = (a as Record<string,unknown>)[sortField] as string || ''
       const bv = (b as Record<string,unknown>)[sortField] as string || ''
       return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
     })
-  }, [cycles, typeFilter, statusFilter, sortField, sortDir])
+  }, [cycles, sortField, sortDir])
 
   async function runReport() {
     if (!customerId || !dateFrom || !dateTo) return
-    setLoading(true); setShowCharts(false)
+    setLoading(true)
     const c = customers.find(c => c.id === customerId)
     setCustomerName(c?.name || '')
 
-    // Fetch billing trigger orders (REMOVAL, EXCHANGE, DUMP RETURN)
+    // 1. Fetch billing trigger orders in range (exclude cancelled)
     const { data: billingOrders } = await supabase
       .from('order')
       .select('id,ticket_number,order_type,service_address,pickup_address,bin_size,bin_type,bin_number,status,scheduled_date,driver_id,driver_notes,parent_order_id')
       .eq('customer_id', customerId)
       .in('order_type', BILLING_TYPES)
+      .neq('status', 'cancelled')
       .gte('scheduled_date', dateFrom)
       .lte('scheduled_date', dateTo)
       .order('scheduled_date', { ascending: false })
 
     const orders = (billingOrders as Order[]) || []
 
-    // Collect parent IDs to fetch delivery dates
-    const parentIds = orders.map(o => o.parent_order_id).filter(Boolean) as string[]
-    let parentMap: Record<string, { scheduled_date: string | null; ticket_number: string | null }> = {}
+    // 2. Fetch ALL orders for this customer ever (to build address timeline)
+    //    We need to find the previous event at the same address regardless of date range.
+    const { data: allOrders } = await supabase
+      .from('order')
+      .select('id,ticket_number,order_type,service_address,pickup_address,scheduled_date,parent_order_id')
+      .eq('customer_id', customerId)
+      .neq('status', 'cancelled')
+      .order('scheduled_date', { ascending: true })
 
-    if (parentIds.length > 0) {
-      const { data: parents } = await supabase
-        .from('order')
-        .select('id,scheduled_date,ticket_number')
-        .in('id', parentIds)
-      if (parents) {
-        parents.forEach((p: { id: string; scheduled_date: string | null; ticket_number: string | null }) => {
-          parentMap[p.id] = { scheduled_date: p.scheduled_date, ticket_number: p.ticket_number }
-        })
-      }
+    const history = (allOrders as Order[]) || []
+
+    // Normalise address for matching
+    function normAddr(o: Order) {
+      return (o.service_address || o.pickup_address || '').toLowerCase().trim()
     }
 
+    // For each billing order, find the most recent prior event at the same address.
+    // Priority: parent_order_id (explicit link) → latest prior DELIVERY/DUMP RETURN at same address
     const result: BillingCycle[] = orders.map(o => {
-      const parent = o.parent_order_id ? parentMap[o.parent_order_id] : null
-      const startDate = parent?.scheduled_date || null
       const endDate = o.scheduled_date
+      let startDate: string | null = null
+      let parentTicket: string | null = null
+
+      // Try explicit parent link first
+      if (o.parent_order_id) {
+        const parent = history.find(h => h.id === o.parent_order_id)
+        if (parent) {
+          startDate = parent.scheduled_date
+          parentTicket = parent.ticket_number
+        }
+      }
+
+      // Fallback: find the most recent prior order at the same address
+      // (DELIVERY or DUMP RETURN that happened before this order)
+      if (!startDate) {
+        const addr = normAddr(o)
+        if (addr) {
+          const candidates = history.filter(h =>
+            h.id !== o.id &&
+            normAddr(h) === addr &&
+            (h.order_type === 'DELIVERY' || h.order_type === 'DUMP RETURN') &&
+            h.scheduled_date != null &&
+            h.scheduled_date < (endDate || '')
+          )
+          if (candidates.length > 0) {
+            const prev = candidates[candidates.length - 1] // most recent before this
+            startDate = prev.scheduled_date
+            parentTicket = prev.ticket_number
+          }
+        }
+      }
+
       return {
         id: o.id,
         ticket_number: o.ticket_number,
@@ -558,7 +585,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
         days_on_site: daysBetween(startDate, endDate),
         driver_id: o.driver_id,
         driver_notes: o.driver_notes || null,
-        parent_ticket: parent?.ticket_number || null,
+        parent_ticket: parentTicket,
       }
     })
 
@@ -575,40 +602,25 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   // Summary stats
   const byType = useMemo(() => {
     const m: Record<string,number> = {}
-    filteredCycles.forEach(c => { const t = c.order_type||'Unknown'; m[t]=(m[t]||0)+1 })
+    sortedCycles.forEach(c => { const t = c.order_type||'Unknown'; m[t]=(m[t]||0)+1 })
     return m
-  }, [filteredCycles])
+  }, [sortedCycles])
 
   const avgDays = useMemo(() => {
-    const withDays = filteredCycles.filter(c => c.days_on_site != null)
+    const withDays = sortedCycles.filter(c => c.days_on_site != null)
     if (!withDays.length) return null
     return Math.round(withDays.reduce((s,c) => s + (c.days_on_site||0), 0) / withDays.length)
-  }, [filteredCycles])
+  }, [sortedCycles])
 
   const maxDays = useMemo(() => {
-    const vals = filteredCycles.map(c => c.days_on_site).filter((v): v is number => v != null)
+    const vals = sortedCycles.map(c => c.days_on_site).filter((v): v is number => v != null)
     return vals.length ? Math.max(...vals) : null
-  }, [filteredCycles])
-
-  const typeChartData = Object.entries(byType).map(([name,value])=>({name,value}))
-  const daysChartData = useMemo(() => {
-    const buckets: Record<string,number> = {'0–7':0,'8–14':0,'15–30':0,'31–60':0,'60+':0}
-    filteredCycles.forEach(c => {
-      const d = c.days_on_site
-      if (d == null) return
-      if (d <= 7) buckets['0–7']++
-      else if (d <= 14) buckets['8–14']++
-      else if (d <= 30) buckets['15–30']++
-      else if (d <= 60) buckets['31–60']++
-      else buckets['60+']++
-    })
-    return Object.entries(buckets).map(([name,value])=>({name,value}))
-  }, [filteredCycles])
+  }, [sortedCycles])
 
   const cols = [
     {key:'ticket_number',label:'Ticket'},
     {key:'order_type',label:'Service'},
-    {key:'cycle_start_date',label:'Delivery Date'},
+    {key:'cycle_start_date',label:'Prev. Event Date'},
     {key:'cycle_end_date',label:'Completion Date'},
     {key:'days_on_site',label:'Days on Site'},
     {key:'bin_size',label:'Bin Size'},
@@ -629,13 +641,13 @@ function InvoiceTab({ customers, drivers, driverMap }: {
           <div>
             <p className="text-sm font-semibold text-amber-300">How Invoice Reports work</p>
             <p className="mt-1 text-xs text-amber-400/80 leading-relaxed">
-              This report shows <strong className="text-amber-300">completed billing cycles</strong> — orders of type <strong className="text-amber-300">Removal</strong>, <strong className="text-amber-300">Exchange</strong>, or <strong className="text-amber-300">Dump Return</strong>. Each row is one chargeable event. Where a linked delivery exists, the bin's time on site is calculated automatically. No dollar amounts — use this to build your invoice.
+              Shows <strong className="text-amber-300">Removal, Exchange, and Dump Return</strong> orders — each is one chargeable event. <strong className="text-amber-300">Days on site</strong> is calculated from the previous event at that address (delivery or last dump) to this completion date. Cancelled orders are excluded.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters — customer + date only */}
       <div className="rounded-3xl bg-slate-900 p-6 ring-1 ring-slate-700">
         <h2 className="mb-5 text-base font-bold text-white">Filters</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -658,32 +670,12 @@ function InvoiceTab({ customers, drivers, driverMap }: {
               className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
           </div>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Service Type</label>
-            <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none">
-              <option value="all">All Billing Types</option>
-              {BILLING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-400">Status</label>
-            <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none">
-              <option value="all">All Statuses</option>
-              {['completed','assigned','in_progress','unassigned','issue'].map(s=>(
-                <option key={s} value={s}>{formatStatus(s)}</option>
-              ))}
-            </select>
-          </div>
-        </div>
         <div className="mt-5 flex flex-wrap gap-3">
           <button onClick={runReport} disabled={!customerId||!dateFrom||!dateTo||loading}
             className="rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-50 transition">
             {loading ? 'Generating...' : 'Generate Invoice Report'}
           </button>
-          {hasRun && <button onClick={()=>{setCycles([]);setHasRun(false);setShowCharts(false)}}
+          {hasRun && <button onClick={()=>{setCycles([]);setHasRun(false)}}
             className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-700 transition">Clear</button>}
         </div>
       </div>
@@ -691,26 +683,22 @@ function InvoiceTab({ customers, drivers, driverMap }: {
       {hasRun && !loading && (
         <>
           {/* KPI strip */}
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
             <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-white">{filteredCycles.length}</div>
+              <div className="text-2xl font-black text-white">{sortedCycles.length}</div>
               <div className="mt-1 text-xs font-semibold text-slate-400">Billable Events</div>
             </div>
-            <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-emerald-400">{filteredCycles.filter(c=>c.status==='completed').length}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Completed</div>
-            </div>
             <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-amber-800/40 text-center">
-              <div className="text-2xl font-black text-amber-400">{avgDays != null ? avgDays : '—'}</div>
+              <div className="text-2xl font-black text-amber-400">{avgDays != null ? `${avgDays}d` : '—'}</div>
               <div className="mt-1 text-xs font-semibold text-slate-400">Avg Days on Site</div>
             </div>
             <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-slate-200">{maxDays != null ? maxDays : '—'}</div>
+              <div className="text-2xl font-black text-slate-200">{maxDays != null ? `${maxDays}d` : '—'}</div>
               <div className="mt-1 text-xs font-semibold text-slate-400">Max Days on Site</div>
             </div>
             <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700 text-center">
-              <div className="text-2xl font-black text-slate-400">{filteredCycles.filter(c=>c.cycle_start_date==null).length}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">No Delivery Linked</div>
+              <div className="text-2xl font-black text-slate-500">{sortedCycles.filter(c=>c.cycle_start_date==null).length}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-400">No Prior Event Found</div>
             </div>
           </div>
 
@@ -730,63 +718,27 @@ function InvoiceTab({ customers, drivers, driverMap }: {
           {/* Action bar */}
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm text-slate-400">
-              <span className="font-bold text-white">{filteredCycles.length}</span> billing events · <span className="text-white">{customerName}</span> · {dateFrom} → {dateTo}
+              <span className="font-bold text-white">{sortedCycles.length}</span> billing events · <span className="text-white">{customerName}</span> · {dateFrom} → {dateTo}
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
-              {!showCharts
-                ? <button onClick={()=>setShowCharts(true)} className="rounded-xl border border-amber-600 bg-amber-600/10 px-4 py-2 text-sm font-semibold text-amber-400 hover:bg-amber-600 hover:text-white transition">Generate Charts</button>
-                : <button onClick={()=>setShowCharts(false)} className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700 transition">Hide Charts</button>
-              }
-              {filteredCycles.length > 0 && <>
-                <button onClick={()=>exportInvoiceCSV(filteredCycles,driverMap,customerName,dateFrom,dateTo)}
+              {sortedCycles.length > 0 && <>
+                <button onClick={()=>exportInvoiceCSV(sortedCycles,driverMap,customerName,dateFrom,dateTo)}
                   className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 transition">Export CSV</button>
-                <button onClick={()=>printInvoice(filteredCycles,driverMap,customerName,dateFrom,dateTo)}
+                <button onClick={()=>printInvoice(sortedCycles,driverMap,customerName,dateFrom,dateTo)}
                   className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition">Print Invoice PDF</button>
               </>}
             </div>
           </div>
 
-          {/* Charts */}
-          {showCharts && filteredCycles.length > 0 && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-3xl bg-slate-900 p-5 ring-1 ring-slate-700">
-                <h3 className="mb-1 text-sm font-bold text-white">Billing Events by Service Type</h3>
-                <p className="mb-4 text-xs text-slate-500">Number of chargeable cycles per type</p>
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={typeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} labelLine={false} label={({name,value})=>`${name}: ${value}`}>
-                      {typeChartData.map((e,i)=><Cell key={i} fill={ORDER_TYPE_COLORS[e.name]||'#64748b'} />)}
-                    </Pie>
-                    <Tooltip contentStyle={{background:'#1e293b',border:'1px solid #334155',borderRadius:8,color:'#f1f5f9',fontSize:12}} />
-                    <Legend wrapperStyle={{color:'#94a3b8',fontSize:11}} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="rounded-3xl bg-slate-900 p-5 ring-1 ring-slate-700">
-                <h3 className="mb-1 text-sm font-bold text-white">Days on Site Distribution</h3>
-                <p className="mb-4 text-xs text-slate-500">How long bins stayed before being picked up</p>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={daysChartData} margin={{top:5,right:10,left:-20,bottom:5}}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="name" tick={{fill:'#94a3b8',fontSize:11}} />
-                    <YAxis tick={{fill:'#94a3b8',fontSize:11}} allowDecimals={false} />
-                    <Tooltip contentStyle={{background:'#1e293b',border:'1px solid #334155',borderRadius:8,color:'#f1f5f9',fontSize:12}} />
-                    <Bar dataKey="value" fill="#f59e0b" radius={[4,4,0,0]} name="Bins" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
+          {/* REMOVED: charts section */}
 
           {/* Table */}
-          {filteredCycles.length === 0
-            ? <div className="rounded-3xl bg-slate-900 p-10 text-center text-sm text-slate-400 ring-1 ring-slate-700">No billing events found for the selected filters.</div>
+          {sortedCycles.length === 0
+            ? <div className="rounded-3xl bg-slate-900 p-10 text-center text-sm text-slate-400 ring-1 ring-slate-700">No billable events found for the selected period.</div>
             : <div className="overflow-hidden rounded-3xl bg-slate-900 ring-1 ring-slate-700">
-                <div className="border-b border-slate-700 px-6 py-4 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-bold text-white">Billable Events</h3>
-                    <p className="mt-0.5 text-xs text-slate-500">Each row = one chargeable service cycle</p>
-                  </div>
+                <div className="border-b border-slate-700 px-6 py-4">
+                  <h3 className="text-sm font-bold text-white">Billable Events</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">Each row = one chargeable service. "Prev. Event Date" = delivery or last dump at this address.</p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[1000px] divide-y divide-slate-800">
@@ -799,7 +751,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                       ))}</tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
-                      {filteredCycles.map(c => {
+                      {sortedCycles.map(c => {
                         const hasDays = c.days_on_site != null
                         const isLong = hasDays && (c.days_on_site||0) > 30
                         return (
@@ -814,17 +766,17 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                                 {c.order_type||'—'}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">
+                            <td className="px-4 py-3 text-xs whitespace-nowrap">
                               {c.cycle_start_date
-                                ? <span>{fmtDate(c.cycle_start_date)}</span>
-                                : <span className="text-slate-600 italic">No delivery linked</span>
+                                ? <span className="text-slate-300">{fmtDate(c.cycle_start_date)}</span>
+                                : <span className="text-slate-600 italic">Not found</span>
                               }
                             </td>
                             <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{fmtDate(c.cycle_end_date)}</td>
                             <td className="px-4 py-3 text-xs whitespace-nowrap">
                               {hasDays
                                 ? <span className={`font-bold ${isLong ? 'text-rose-400' : 'text-amber-400'}`}>{c.days_on_site} days{isLong&&' ⚠'}</span>
-                                : <span className="text-slate-600 italic">—</span>
+                                : <span className="text-slate-600">—</span>
                               }
                             </td>
                             <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">{c.bin_size?`${c.bin_size}Y`:'—'}</td>
