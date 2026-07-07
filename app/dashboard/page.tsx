@@ -466,10 +466,10 @@ export default function DashboardPage() {
 
           <Link
             href="/reports"
-            className="rounded-3xl bg-violet-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            className="rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-0.5 hover:shadow-md"
           >
             <div className="text-lg font-bold text-white">📄 Statements & Performance</div>
-            <div className="mt-2 text-sm text-violet-300">
+            <div className="mt-2 text-sm text-slate-400">
               Generate customer statements and export billing history
             </div>
           </Link>

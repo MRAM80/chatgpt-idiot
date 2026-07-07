@@ -153,16 +153,16 @@ export default function ReportsPage() {
       <div className="mx-auto max-w-5xl p-4 md:p-6">
 
         {/* Header */}
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-violet-950 via-violet-900 to-violet-800 p-6 text-white shadow-sm">
+        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <AppLogo className="h-9 w-auto" />
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">Statements & Performance</h1>
-                <p className="mt-0.5 text-sm text-violet-300">Generate statements and export customer billing history</p>
+                <p className="mt-0.5 text-sm text-slate-400">Generate statements and export customer billing history</p>
               </div>
             </div>
-            <Link href="/dashboard" className="self-start rounded-2xl border border-violet-600 bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 sm:self-auto">
+            <Link href="/dashboard" className="self-start inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:self-auto">
               ← Dashboard
             </Link>
           </div>
