@@ -1462,17 +1462,6 @@ export default function DriverPage() {
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{pageError}</div>
           </div>
         )}
-        {driver?.status === 'heading_back' && (
-          <div className="mx-auto max-w-lg px-4 pb-3">
-            <div className="flex items-center gap-3 rounded-2xl bg-blue-600 px-4 py-3 shadow-sm">
-              <span className="text-2xl leading-none">🏠</span>
-              <div>
-                <p className="text-sm font-black uppercase tracking-wide text-white">Head back to base</p>
-                <p className="text-xs font-medium text-blue-200">All orders done — return to yard</p>
-              </div>
-            </div>
-          </div>
-        )}
         {driver?.status === 'parked' && (
           <div className="mx-auto max-w-lg px-4 pb-2">
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">Park and finish today</div>
