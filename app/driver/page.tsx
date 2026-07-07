@@ -306,13 +306,15 @@ export default function DriverPage() {
   const previousOrderIdsRef = useRef<string[]>([])
   const hadActiveOrdersRef = useRef(false)
   const hasActiveOrders = orders.length > 0
-  // Parked clears only via next login; stopped/emergency only by dispatch — no self-release
+  // Parked clears only via next login; stopped/emergency only by dispatch — no self-release.
+  // Heading back gets its own big centered button instead of the header one.
   const showAvailableButton =
     !hasActiveOrders &&
     driver?.status !== 'available' &&
     driver?.status !== 'parked' &&
     driver?.status !== 'stopped' &&
-    driver?.status !== 'emergency'
+    driver?.status !== 'emergency' &&
+    driver?.status !== 'heading_back'
 
   // Auto-mark available when all orders are done
   useEffect(() => {
@@ -1526,9 +1528,39 @@ export default function DriverPage() {
             </div>
           </div>
         ) : orders.length === 0 ? (
-          <div className="h-full flex items-center justify-center px-4">
-            <p className="text-sm font-medium text-slate-500">No active orders for today.</p>
-          </div>
+          driver?.status === 'heading_back' ? (
+            <div className="h-full flex flex-col items-center justify-center gap-4 px-6">
+              <div className="text-5xl">🏠</div>
+              <p className="text-center text-lg font-black uppercase tracking-wide text-blue-600">Head back to base</p>
+              <p className="text-center text-sm font-medium text-slate-600">All orders done — drive back to the yard.</p>
+              {CLIENT_CONFIG.yardAddress && (
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(CLIENT_CONFIG.yardAddress)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full max-w-xs rounded-2xl bg-blue-600 px-6 py-4 text-center text-base font-black text-white shadow-lg active:bg-blue-700"
+                >
+                  🗺 Open Map to Yard
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!driver?.id) return
+                  const ok = await markDriverAvailable(driver.id)
+                  if (ok) await refreshDriverData()
+                }}
+                className="w-full max-w-xs rounded-2xl bg-emerald-600 px-6 py-4 text-base font-black text-white shadow-lg active:bg-emerald-700"
+              >
+                ✓ Available
+              </button>
+              <p className="text-center text-xs text-slate-400">Tap Available when you arrive at the yard</p>
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center px-4">
+              <p className="text-sm font-medium text-slate-500">No active orders for today.</p>
+            </div>
+          )
         ) : (
           <>
             {orders.map((order, index) => {

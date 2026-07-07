@@ -6,6 +6,7 @@ export const CLIENT_CONFIG = {
   name,
   shortName,
   tagline: process.env.NEXT_PUBLIC_CLIENT_TAGLINE || '',
+  yardAddress: process.env.NEXT_PUBLIC_CLIENT_YARD_ADDRESS || '',
   logoUrl: process.env.NEXT_PUBLIC_CLIENT_LOGO_URL || null,
   iconUrl: process.env.NEXT_PUBLIC_CLIENT_ICON_URL || null,
   primaryColor: process.env.NEXT_PUBLIC_CLIENT_PRIMARY_COLOR || '#0f172a',
