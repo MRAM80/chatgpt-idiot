@@ -314,6 +314,7 @@ export default function DispatchBoardPage() {
   }, [roleLoading, role])
 
   const [orders, setOrders] = useState<Order[]>([])
+  const [recentCompleted, setRecentCompleted] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [jobSites, setJobSites] = useState<JobSite[]>([])
@@ -385,6 +386,20 @@ export default function DispatchBoardPage() {
     setOrders(list)
     setLoading(false)
     return list
+  }
+
+  // The board query excludes completed orders, so the "Last" box on driver
+  // cards needs its own feed of recent completions.
+  async function loadRecentCompleted() {
+    const { data } = await supabase
+      .from(TABLE_NAME)
+      .select('id,ticket_number,customer_name,pickup_address,service_address,dump_site_address,workflow_step,bin_id,old_bin_id,bin_size,bin_type,order_type,scheduled_date,driver_id,status,notes,created_at,updated_at,completed_at')
+      .eq('status', 'completed')
+      .not('driver_id', 'is', null)
+      .order('completed_at', { ascending: false, nullsFirst: false })
+      .order('updated_at', { ascending: false })
+      .limit(100)
+    setRecentCompleted((data as Order[]) || [])
   }
 
   async function loadCustomers() {
@@ -469,7 +484,7 @@ export default function DispatchBoardPage() {
   async function refreshAll() {
     setPageError('')
     const [driverList, orderList] = await Promise.all([loadDrivers(), loadOrders()])
-    await Promise.all([loadCustomers(), loadJobSites(), loadBins(), loadDumpSites()])
+    await Promise.all([loadCustomers(), loadJobSites(), loadBins(), loadDumpSites(), loadRecentCompleted()])
     await reconcileDriverStatuses(driverList, orderList)
   }
 
@@ -483,7 +498,7 @@ export default function DispatchBoardPage() {
     const channel = supabase
       .channel('dispatch-board-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLE_NAME }, async () => {
-        await loadOrders()
+        await Promise.all([loadOrders(), loadRecentCompleted()])
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, async () => {
         await loadDrivers()
@@ -904,6 +919,13 @@ export default function DispatchBoardPage() {
     const map: Record<string, Order | null> = {}
 
     for (const driver of activeDrivers) {
+      // Latest completed order first — that's what "Last" means to a dispatcher
+      const lastCompleted = recentCompleted.find((order) => order.driver_id === driver.id) || null
+      if (lastCompleted) {
+        map[driver.id] = lastCompleted
+        continue
+      }
+
       const driverOrders = boardOrders
         .filter((order) => order.driver_id === driver.id)
         .sort((a, b) => {
@@ -916,7 +938,7 @@ export default function DispatchBoardPage() {
     }
 
     return map
-  }, [activeDrivers, boardOrders])
+  }, [activeDrivers, boardOrders, recentCompleted])
 
   const orderedDrivers = useMemo(() => {
     const rank = (driver: Driver) => {
