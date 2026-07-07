@@ -436,40 +436,40 @@ export default function DashboardPage() {
         <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Link
             href="/order"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-blue-900 hover:ring-blue-600 hover:shadow-lg cursor-pointer"
           >
-            <div className="text-lg font-bold text-slate-900">Orders</div>
-            <div className="mt-2 text-sm text-slate-500">
+            <div className="text-lg font-bold text-white group-hover:text-blue-200">Orders</div>
+            <div className="mt-2 text-sm text-slate-400 group-hover:text-blue-300">
               Create, edit, filter, and manage all operational orders
             </div>
           </Link>
 
           <Link
             href="/dispatch"
-            className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:-translate-y-0.5 hover:shadow-md"
+            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-emerald-900 hover:ring-emerald-600 hover:shadow-lg cursor-pointer"
           >
-            <div className="text-lg font-bold text-slate-900">Dispatch</div>
-            <div className="mt-2 text-sm text-slate-500">
+            <div className="text-lg font-bold text-white group-hover:text-emerald-200">Dispatch</div>
+            <div className="mt-2 text-sm text-slate-400 group-hover:text-emerald-300">
               Assign drivers and manage today's live board
             </div>
           </Link>
 
           <Link
             href="/settings"
-            className="rounded-3xl bg-slate-900 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-violet-900 hover:ring-violet-600 hover:shadow-lg cursor-pointer"
           >
-            <div className="text-lg font-bold text-white">⚙ Settings</div>
-            <div className="mt-2 text-sm text-slate-400">
+            <div className="text-lg font-bold text-white group-hover:text-violet-200">⚙ Settings</div>
+            <div className="mt-2 text-sm text-slate-400 group-hover:text-violet-300">
               Manage drivers, trucks, bins, customers, and team members
             </div>
           </Link>
 
           <Link
             href="/reports"
-            className="rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-0.5 hover:shadow-md"
+            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-amber-900 hover:ring-amber-600 hover:shadow-lg cursor-pointer"
           >
-            <div className="text-lg font-bold text-white">📄 Statements & Performance</div>
-            <div className="mt-2 text-sm text-slate-400">
+            <div className="text-lg font-bold text-white group-hover:text-amber-200">📄 Statements & Performance</div>
+            <div className="mt-2 text-sm text-slate-400 group-hover:text-amber-300">
               Generate customer statements and export billing history
             </div>
           </Link>
