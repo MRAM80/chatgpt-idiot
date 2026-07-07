@@ -1,4 +1,4 @@
-const CACHE_NAME = 'simpliidash-driver-v2'
+const CACHE_NAME = 'simpliidash-driver-v3'
 const APP_SHELL = [
   '/driver',
   '/manifest.webmanifest',
@@ -37,6 +37,30 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== self.location.origin) return
 
+  // Never intercept Next.js build assets — they're content-hashed and a
+  // cached copy from a previous deploy breaks the page (version skew).
+  if (url.pathname.startsWith('/_next/')) return
+
+  // Pages: network-first so every deploy shows up immediately.
+  // Cache is only a fallback for offline use (driver app in the field).
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const copy = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
+          }
+          return response
+        })
+        .catch(() =>
+          caches.match(request).then((cached) => cached || caches.match('/driver'))
+        )
+    )
+    return
+  }
+
+  // Small static assets (icons, manifest): cache-first is safe.
   event.respondWith(
     caches.match(request).then((cached) => {
       const networkFetch = fetch(request)
