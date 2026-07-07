@@ -519,30 +519,29 @@ function InvoiceTab({ customers, drivers, driverMap }: {
 
     const orders = (billingOrders as Order[]) || []
 
-    // 2. Fetch ALL orders for this customer ever (to build address timeline)
-    //    We need to find the previous event at the same address regardless of date range.
+    // 2. Fetch ALL orders for this customer ever (to build address+bin_size chain)
     const { data: allOrders } = await supabase
       .from('order')
-      .select('id,ticket_number,order_type,service_address,pickup_address,scheduled_date,parent_order_id')
+      .select('id,ticket_number,order_type,service_address,pickup_address,bin_size,scheduled_date,parent_order_id')
       .eq('customer_id', customerId)
       .neq('status', 'cancelled')
       .order('scheduled_date', { ascending: true })
 
     const history = (allOrders as Order[]) || []
 
-    // Normalise address for matching
     function normAddr(o: Order) {
       return (o.service_address || o.pickup_address || '').toLowerCase().trim()
     }
 
-    // For each billing order, find the most recent prior event at the same address.
-    // Priority: parent_order_id (explicit link) → latest prior DELIVERY/DUMP RETURN at same address
+    // For each billing event find the root DELIVERY:
+    //   customer + same address + same bin_size, earliest date before this order.
+    // Priority: parent_order_id explicit link → root DELIVERY by address+bin_size → most recent prior event at same address
     const result: BillingCycle[] = orders.map(o => {
       const endDate = o.scheduled_date
       let startDate: string | null = null
       let parentTicket: string | null = null
 
-      // Try explicit parent link first
+      // 1. Explicit parent link
       if (o.parent_order_id) {
         const parent = history.find(h => h.id === o.parent_order_id)
         if (parent) {
@@ -551,20 +550,36 @@ function InvoiceTab({ customers, drivers, driverMap }: {
         }
       }
 
-      // Fallback: find the most recent prior order at the same address
-      // (DELIVERY or DUMP RETURN that happened before this order)
       if (!startDate) {
         const addr = normAddr(o)
-        if (addr) {
-          const candidates = history.filter(h =>
+        const size = o.bin_size
+
+        // 2. Root DELIVERY: same address + same bin_size, earliest ever
+        const deliveries = history.filter(h =>
+          h.id !== o.id &&
+          h.order_type === 'DELIVERY' &&
+          normAddr(h) === addr &&
+          h.bin_size === size &&
+          h.scheduled_date != null &&
+          h.scheduled_date < (endDate || '')
+        )
+        if (deliveries.length > 0) {
+          // earliest delivery = root of this bin's life at this address
+          const root = deliveries[0]
+          startDate = root.scheduled_date
+          parentTicket = root.ticket_number
+        }
+
+        // 3. Fallback: most recent prior event at same address (no bin_size requirement)
+        if (!startDate && addr) {
+          const prior = history.filter(h =>
             h.id !== o.id &&
             normAddr(h) === addr &&
-            (h.order_type === 'DELIVERY' || h.order_type === 'DUMP RETURN') &&
             h.scheduled_date != null &&
             h.scheduled_date < (endDate || '')
           )
-          if (candidates.length > 0) {
-            const prev = candidates[candidates.length - 1] // most recent before this
+          if (prior.length > 0) {
+            const prev = prior[prior.length - 1]
             startDate = prev.scheduled_date
             parentTicket = prev.ticket_number
           }
