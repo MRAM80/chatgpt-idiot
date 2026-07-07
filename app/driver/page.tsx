@@ -893,6 +893,11 @@ export default function DriverPage() {
       setPageError('You must complete all orders before logging out.')
       return
     }
+    // Logged-out driver must never show as Available on the board —
+    // offline hides him until his next login flips it back.
+    if (driver?.id) {
+      await supabase.from('drivers').update({ status: 'offline' }).eq('id', driver.id)
+    }
     await supabase.auth.signOut()
     router.push('/login')
   }

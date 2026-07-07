@@ -21,8 +21,8 @@ export default function LoginPage() {
     const { data: driver } = await supabase
       .from('drivers').select('id').eq('auth_user_id', user.id).maybeSingle()
     if (driver?.id) {
-      // Fresh login ends an overnight park — driver is back on duty
-      await supabase.from('drivers').update({ status: 'available' }).eq('id', driver.id).eq('status', 'parked')
+      // Fresh login ends an overnight park or logout — driver is back on duty
+      await supabase.from('drivers').update({ status: 'available' }).eq('id', driver.id).in('status', ['parked', 'offline'])
       router.push('/driver'); router.refresh(); return
     }
 
@@ -30,7 +30,7 @@ export default function LoginPage() {
       .from('drivers').select('id').ilike('email', (user.email || '').toLowerCase()).maybeSingle()
     if (driverByEmail?.id) {
       await supabase.from('drivers').update({ auth_user_id: user.id, last_login_at: new Date().toISOString() }).eq('id', driverByEmail.id)
-      await supabase.from('drivers').update({ status: 'available' }).eq('id', driverByEmail.id).eq('status', 'parked')
+      await supabase.from('drivers').update({ status: 'available' }).eq('id', driverByEmail.id).in('status', ['parked', 'offline'])
       router.push('/driver'); router.refresh(); return
     }
 
