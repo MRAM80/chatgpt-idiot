@@ -114,6 +114,13 @@ function exportStatementCSV(rows: Order[], driverMap: Record<string, string>, fi
 }
 
 function exportInvoiceCSV(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string) {
+  const summary: (string | number)[][] = [
+    [`INVOICE SUMMARY — ${customerName} — ${dateFrom} to ${dateTo}`],
+    ['Service', 'Bin Size', 'Qty'],
+    ...buildInvoiceLines(cycles).map(l => [l.order_type, fmtBinSize(l.bin_size), l.count] as (string | number)[]),
+    [''],
+    ['DETAIL'],
+  ]
   const headers = ['Ticket', 'Order Type', 'Delivery Date', 'Completion Date', 'Days on Site', 'Bin Size', 'Material', 'Bin #', 'Address', 'Status', 'Driver', 'Notes']
   const data = cycles.map(c => [
     c.ticket_number || '', c.order_type || '',
@@ -123,7 +130,7 @@ function exportInvoiceCSV(cycles: BillingCycle[], driverMap: Record<string, stri
     c.address || '', c.status || '',
     driverMap[c.driver_id || ''] || '', c.driver_notes || '',
   ])
-  downloadCSV([headers, ...data], `invoice-${customerName}-${dateFrom}-${dateTo}.csv`)
+  downloadCSV([...summary, headers, ...data], `invoice-${customerName}-${dateFrom}-${dateTo}.csv`)
 }
 
 function downloadCSV(rows: (string | number)[][], filename: string) {
@@ -157,12 +164,35 @@ function printStatement(rows: Order[], driverMap: Record<string, string>, custom
   win.document.close(); win.print()
 }
 
+// Invoice lines: one row per service type × bin size — each combination has
+// its own price, so this is the granularity an invoice is built from.
+function buildInvoiceLines(cycles: BillingCycle[]) {
+  const map = new Map<string, { order_type: string; bin_size: string; count: number }>()
+  cycles.forEach(c => {
+    const type = c.order_type || 'Unknown'
+    const size = c.bin_size ? String(c.bin_size) : '—'
+    const key = `${type}|${size}`
+    const current = map.get(key)
+    if (current) current.count += 1
+    else map.set(key, { order_type: type, bin_size: size, count: 1 })
+  })
+  return [...map.values()].sort((a, b) =>
+    a.order_type !== b.order_type
+      ? a.order_type.localeCompare(b.order_type)
+      : (Number(b.bin_size) || 0) - (Number(a.bin_size) || 0)
+  )
+}
+
+function fmtBinSize(size: string) {
+  return size === '—' ? '—' : `${size}Y`
+}
+
 function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string) {
   const win = window.open('', '_blank')
   if (!win) return
-  const byType: Record<string, number> = {}
-  cycles.forEach(c => { const t = c.order_type || 'Unknown'; byType[t] = (byType[t] || 0) + 1 })
-  const summaryRows = Object.entries(byType).map(([k, v]) => `<tr><td>${k}</td><td>${v} service(s)</td></tr>`).join('')
+  const summaryRows = buildInvoiceLines(cycles)
+    .map(l => `<tr><td>${l.order_type}</td><td>${fmtBinSize(l.bin_size)}</td><td><strong>× ${l.count}</strong></td></tr>`)
+    .join('')
   const tableRows = cycles.map(c => `<tr>
     <td>${c.ticket_number || '—'}</td>
     <td><strong>${c.order_type || '—'}</strong></td>
@@ -179,8 +209,8 @@ function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>,
     `<div style="background:#fff8ed;border:1px solid #fed7aa;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#92400e">
       <strong>Note:</strong> This report shows completed billing cycles (Removal, Exchange, Dump Return). Each line represents one chargeable service event. Dollar amounts are not included — use this to generate your invoice.
      </div>
-     <h2>Billing Summary</h2>
-     <table style="width:320px"><thead><tr><th>Service Type</th><th>Quantity</th></tr></thead><tbody>${summaryRows}</tbody></table>
+     <h2>Invoice Lines — by Service &amp; Bin Size</h2>
+     <table style="width:380px"><thead><tr><th>Service</th><th>Bin Size</th><th>Qty</th></tr></thead><tbody>${summaryRows}</tbody></table>
      <h2>Billable Events</h2>
      <table><thead><tr><th>Ticket</th><th>Service</th><th>Delivery Date</th><th>Completion Date</th><th>Days on Site</th><th>Bin</th><th>Address</th><th>Status</th><th>Driver</th></tr></thead><tbody>${tableRows}</tbody></table>`
   ))
@@ -632,12 +662,8 @@ function InvoiceTab({ customers, drivers, driverMap }: {
     else { setSortField(field); setSortDir('asc') }
   }
 
-  // Summary stats
-  const byType = useMemo(() => {
-    const m: Record<string,number> = {}
-    sortedCycles.forEach(c => { const t = c.order_type||'Unknown'; m[t]=(m[t]||0)+1 })
-    return m
-  }, [sortedCycles])
+  // Invoice lines: qty per service type × bin size (each combo priced differently)
+  const invoiceLines = useMemo(() => buildInvoiceLines(sortedCycles), [sortedCycles])
 
   const avgDays = useMemo(() => {
     const withDays = sortedCycles.filter(c => c.days_on_site != null)
@@ -735,16 +761,36 @@ function InvoiceTab({ customers, drivers, driverMap }: {
             </div>
           </div>
 
-          {/* By type chips */}
-          {Object.entries(byType).length > 0 && (
-            <div className="flex flex-wrap gap-3">
-              {Object.entries(byType).map(([type,count])=>(
-                <div key={type} className="flex items-center gap-2 rounded-xl px-4 py-2 ring-1"
-                  style={{background:(ORDER_TYPE_COLORS[type]||'#334155')+'15',borderColor:(ORDER_TYPE_COLORS[type]||'#334155')+'50'}}>
-                  <span className="text-sm font-black" style={{color:ORDER_TYPE_COLORS[type]||'#94a3b8'}}>{count}</span>
-                  <span className="text-xs font-semibold text-slate-600">{type}</span>
-                </div>
-              ))}
+          {/* Invoice lines — service × bin size */}
+          {invoiceLines.length > 0 && (
+            <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+              <div className="border-b border-slate-200 px-6 py-4">
+                <h3 className="text-sm font-bold text-slate-900">Invoice Lines — by Service & Bin Size</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Each line has its own price — multiply Qty by your rate for that service and size.</p>
+              </div>
+              <table className="w-full max-w-xl divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Service</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Bin Size</th>
+                    <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Qty</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {invoiceLines.map(line => (
+                    <tr key={`${line.order_type}|${line.bin_size}`}>
+                      <td className="px-6 py-3 text-sm whitespace-nowrap">
+                        <span className="rounded-full px-2.5 py-0.5 text-xs font-bold"
+                          style={{background:(ORDER_TYPE_COLORS[line.order_type]||'#334155')+'20',color:ORDER_TYPE_COLORS[line.order_type]||'#64748b'}}>
+                          {line.order_type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-sm font-semibold text-slate-800 whitespace-nowrap">{fmtBinSize(line.bin_size)}</td>
+                      <td className="px-6 py-3 text-right text-sm font-black text-slate-900 whitespace-nowrap">× {line.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
