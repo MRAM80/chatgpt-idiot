@@ -50,8 +50,10 @@ Multi-tenant dispatch SaaS. Same codebase, different Supabase projects per tenan
 | `lib/roles.ts` | RBAC helpers |
 | `hooks/useRole.ts` | Role hook |
 
-## Pending SQL Migrations
-Must be run in **both** Supabase projects (SimpliiTrash + BR Garden Center):
+## Tenant Setup SQL
+**All applied and verified on both current projects (SimpliiTrash + BR Garden Center) as of 2026-07-08.** Keep for onboarding any NEW tenant — run everything below in its Supabase project.
+
+⚠ RLS note: every NEW table starts publicly exposed. Enable RLS + create the four `to authenticated` policies (select/insert/update/delete), same pattern as dump_sites below. Old projects may carry permissive "allow everyone" template policies that override new ones — drop all policies first (loop over pg_policies) when locking down an existing table.
 
 ```sql
 ALTER TABLE "order" ADD COLUMN IF NOT EXISTS bin_number text;
