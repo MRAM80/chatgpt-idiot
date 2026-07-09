@@ -763,12 +763,12 @@ function InvoiceTab({ customers, drivers, driverMap }: {
 
           {/* Invoice lines — service × bin size */}
           {invoiceLines.length > 0 && (
-            <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+            <div className="max-w-2xl overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
               <div className="border-b border-slate-200 px-6 py-4">
                 <h3 className="text-sm font-bold text-slate-900">Invoice Lines — by Service & Bin Size</h3>
                 <p className="mt-0.5 text-xs text-slate-500">Each line has its own price — multiply Qty by your rate for that service and size.</p>
               </div>
-              <table className="w-full max-w-xl divide-y divide-slate-200">
+              <table className="w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Service</th>
@@ -790,6 +790,12 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                  <tr>
+                    <td colSpan={2} className="px-6 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">Total billable events</td>
+                    <td className="px-6 py-3.5 text-right text-base font-black text-slate-900 whitespace-nowrap">× {sortedCycles.length}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
