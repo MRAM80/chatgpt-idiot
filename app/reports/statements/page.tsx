@@ -947,13 +947,27 @@ export default function StatementsPage() {
         </div>
 
         {/* Tabs */}
-        <div className="mb-6 flex gap-2 rounded-2xl bg-white p-1.5 shadow-sm ring-1 ring-slate-200 w-fit">
+        <div className="mb-6 flex flex-wrap gap-3">
           <button onClick={()=>setTab('statement')}
-            className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${tab==='statement'?'bg-blue-600 text-white shadow':'text-slate-500 hover:text-slate-900'}`}>
+            className={`inline-flex items-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-bold transition ${
+              tab==='statement'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25'
+                : 'bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 hover:-translate-y-0.5 hover:text-blue-700 hover:ring-blue-300 hover:shadow-md'
+            }`}>
+            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6M6.75 3h6.879a1.5 1.5 0 0 1 1.06.44l4.372 4.371a1.5 1.5 0 0 1 .439 1.061V19.5a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5v-15a1.5 1.5 0 0 1 1.5-1.5Z" />
+            </svg>
             Account Statement
           </button>
           <button onClick={()=>setTab('invoice')}
-            className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${tab==='invoice'?'bg-amber-600 text-white shadow':'text-slate-500 hover:text-slate-900'}`}>
+            className={`inline-flex items-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-bold transition ${
+              tab==='invoice'
+                ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/25'
+                : 'bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 hover:-translate-y-0.5 hover:text-amber-700 hover:ring-amber-300 hover:shadow-md'
+            }`}>
+            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25h6M9 11.75h6M9 15.25h3.5M6 3.75h12a.75.75 0 0 1 .75.75v15.75l-2.625-1.75-2.062 1.75L12 18.5l-2.063 1.75-2.062-1.75L5.25 20.25V4.5A.75.75 0 0 1 6 3.75Z" />
+            </svg>
             Invoice Report
           </button>
         </div>
