@@ -53,11 +53,6 @@ export default function ReportsPage() {
             <p className="mt-2 text-sm text-slate-600 leading-relaxed">
               Generate detailed customer statements by order type, date range, and status. Export to Excel or print a professional PDF invoice.
             </p>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {['Customer Statements','PDF Invoice','CSV Export','Order Breakdown'].map(tag => (
-                <span key={tag} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 group-hover:bg-blue-50 group-hover:text-blue-700">{tag}</span>
-              ))}
-            </div>
             <div className="mt-6 flex items-center text-sm font-semibold text-blue-600 group-hover:text-blue-700">
               Open →
             </div>
@@ -74,11 +69,6 @@ export default function ReportsPage() {
             <p className="mt-2 text-sm text-slate-600 leading-relaxed">
               Analyze driver output, completion rates, order type breakdown, and daily volume trends. Generate visual charts and export reports.
             </p>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {['Completion Rate','Daily Volume','Order Types','Charts & Graphs'].map(tag => (
-                <span key={tag} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 group-hover:bg-emerald-50 group-hover:text-emerald-700">{tag}</span>
-              ))}
-            </div>
             <div className="mt-6 flex items-center text-sm font-semibold text-emerald-600 group-hover:text-emerald-700">
               Open →
             </div>
