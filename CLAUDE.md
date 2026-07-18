@@ -30,6 +30,7 @@ Multi-tenant dispatch SaaS. Same codebase, different Supabase projects per tenan
 - **Card style**: `rounded-3xl` with `ring-1` border, Tailwind classes only, no inline styles.
 - **New order form**: use `NewOrderModal` component (`components/NewOrderModal.tsx`) — identical to the order page form. Do NOT build custom quick-create forms.
 - **DUMP RETURN / EXCHANGE / REMOVAL**: require `old_bin_id` (FK to bins table) + `dump_site_id`. Single order with `workflow_step` cycling PICKUP → DUMP → complete. Never create two separate orders for a two-step job.
+- **Bin tracking is per-tenant**: `CLIENT_CONFIG.requireBin` (env `NEXT_PUBLIC_CLIENT_REQUIRE_BIN`, default true). SimpliiTrash requires bins; BR Garden Center sets `false` → all bin requirements (old_bin_id validation, driver bin gates) become optional. Any new bin validation must respect this flag.
 - **Dispatch board**: excludes cancelled and completed orders (`.not('status', 'in', '("cancelled","completed")')`).
 - **Material auto-fill**: derive `bin_type` from order history linked to the selected bin (`bin_id` or `old_bin_id`), not just from the bin record.
 - **Bin lookup for existing-bin orders**: filter bins by `location === address && status === 'in_use'`.
