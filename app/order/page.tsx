@@ -1139,7 +1139,7 @@ function OrdersPageContent() {
     }
 
     if (orderType === 'EXCHANGE') {
-      if (!form.old_bin_id) throw new Error('Exchange requires the current bin from this Job Site.')
+      if (CLIENT_CONFIG.requireBin && !form.old_bin_id) throw new Error('Exchange requires the current bin from this Job Site.')
 
       if (isEditing && form.bin_id) {
         const selectedBin = await validateSelectedAvailableBin(form.bin_id, form.bin_size, form.old_bin_id)
@@ -1151,25 +1151,25 @@ function OrdersPageContent() {
       }
 
       return {
-        payload: { ...basePayload, bin_id: editingOrder?.bin_id || null, old_bin_id: form.old_bin_id },
+        payload: { ...basePayload, bin_id: editingOrder?.bin_id || null, old_bin_id: form.old_bin_id || null },
         assignedBinId: null,
         releasedBinId: null,
       }
     }
 
     if (orderType === 'REMOVAL') {
-      if (!form.old_bin_id) throw new Error('Removal requires the current bin from this Job Site.')
+      if (CLIENT_CONFIG.requireBin && !form.old_bin_id) throw new Error('Removal requires the current bin from this Job Site.')
 
       return {
-        payload: { ...basePayload, bin_id: null, old_bin_id: form.old_bin_id },
+        payload: { ...basePayload, bin_id: null, old_bin_id: form.old_bin_id || null },
         assignedBinId: null,
-        releasedBinId: form.old_bin_id,
+        releasedBinId: form.old_bin_id || null,
       }
     }
 
     if (orderType === 'DUMP RETURN') {
       const sameBinId = form.old_bin_id || editingOrder?.bin_id || null
-      if (!sameBinId) throw new Error('Dump return requires the existing bin from this Job Site.')
+      if (CLIENT_CONFIG.requireBin && !sameBinId) throw new Error('Dump return requires the existing bin from this Job Site.')
 
       return {
         payload: { ...basePayload, bin_id: sameBinId, old_bin_id: sameBinId },

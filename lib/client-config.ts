@@ -7,6 +7,9 @@ export const CLIENT_CONFIG = {
   shortName,
   tagline: process.env.NEXT_PUBLIC_CLIENT_TAGLINE || '',
   yardAddress: process.env.NEXT_PUBLIC_CLIENT_YARD_ADDRESS || '',
+  // Bin tracking per tenant: SimpliiTrash requires bin numbers on orders,
+  // BR Garden Center doesn't care — set NEXT_PUBLIC_CLIENT_REQUIRE_BIN=false there.
+  requireBin: process.env.NEXT_PUBLIC_CLIENT_REQUIRE_BIN !== 'false',
   logoUrl: process.env.NEXT_PUBLIC_CLIENT_LOGO_URL || null,
   iconUrl: process.env.NEXT_PUBLIC_CLIENT_ICON_URL || null,
   primaryColor: process.env.NEXT_PUBLIC_CLIENT_PRIMARY_COLOR || '#0f172a',

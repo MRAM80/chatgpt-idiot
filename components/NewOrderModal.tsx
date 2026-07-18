@@ -288,7 +288,7 @@ export default function NewOrderModal({
     if (!form.customer_name.trim()) { setError('Customer is required.'); return }
     if (!form.pickup_address.trim()) { setError('Job Site Address is required.'); return }
     if (!form.scheduled_date) { setError('Date is required.'); return }
-    if (isMultiStep && !form.old_bin_id) { setError(`${form.order_type} requires selecting the bin at this job site.`); return }
+    if (CLIENT_CONFIG.requireBin && isMultiStep && !form.old_bin_id) { setError(`${form.order_type} requires selecting the bin at this job site.`); return }
     if (isMultiStep && !form.dump_site_id) { setError('Please select a dump site.'); return }
 
     setSaving(true)
