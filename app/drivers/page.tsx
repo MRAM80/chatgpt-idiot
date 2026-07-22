@@ -646,15 +646,15 @@ export default function DriversPage() {
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-7xl p-4 md:p-6">
-        <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <AppLogo className="h-9 w-auto" />
               <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              <h1 className="text-2xl font-bold tracking-tight text-white">
                 Drivers
               </h1>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-400">
                 Manage drivers, truck alignment, and dispatch readiness
               </p>
               </div>
@@ -663,19 +663,19 @@ export default function DriversPage() {
             <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 onClick={refreshAll}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Refresh
               </button>
               <button
                 onClick={openCreateTruckModal}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 New Truck
               </button>
               <button
                 onClick={openCreateDriverModal}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:opacity-90"
               >
                 New Driver
               </button>
@@ -689,56 +689,56 @@ export default function DriversPage() {
           ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-6">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Total Drivers
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">
+              <div className="mt-2 text-2xl font-bold text-white">
                 {dashboardCounts.totalDrivers}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <div className="rounded-2xl border border-emerald-700 bg-emerald-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
                 Available Drivers
               </div>
-              <div className="mt-2 text-2xl font-bold text-emerald-900">
+              <div className="mt-2 text-2xl font-bold text-emerald-300">
                 {dashboardCounts.availableDrivers}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            <div className="rounded-2xl border border-amber-700 bg-amber-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-400">
                 Busy Drivers
               </div>
-              <div className="mt-2 text-2xl font-bold text-amber-900">
+              <div className="mt-2 text-2xl font-bold text-amber-300">
                 {dashboardCounts.busyDrivers}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+            <div className="rounded-2xl border border-blue-700 bg-blue-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-400">
                 Linked Logins
               </div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">
+              <div className="mt-2 text-2xl font-bold text-blue-300">
                 {dashboardCounts.linkedDrivers}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Total Trucks
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">
+              <div className="mt-2 text-2xl font-bold text-white">
                 {dashboardCounts.totalTrucks}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+            <div className="rounded-2xl border border-blue-700 bg-blue-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-400">
                 Available Trucks
               </div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">
+              <div className="mt-2 text-2xl font-bold text-blue-300">
                 {dashboardCounts.availableTrucks}
               </div>
             </div>
@@ -749,13 +749,13 @@ export default function DriversPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search driver, email, phone, truck number, plate, or linked"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+              className="w-full rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-400"
             />
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
             >
               <option value="all">All Statuses</option>
               {DRIVER_STATUSES.map((status) => (

@@ -767,15 +767,15 @@ export default function BinsPage() {
     <div className="min-h-screen bg-slate-100">
       <div ref={topAnchorRef} />
       <div className="mx-auto max-w-[92rem] p-4 md:p-6">
-        <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <AppLogo className="h-9 w-auto" />
               <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              <h1 className="text-2xl font-bold tracking-tight text-white">
                 Bin Inventory
               </h1>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-400">
                 Track yard stock, live bin availability, and client site location from service orders
               </p>
               </div>
@@ -784,7 +784,7 @@ export default function BinsPage() {
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/settings"
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                 Settings
@@ -792,14 +792,14 @@ export default function BinsPage() {
 
               <Link
                 href="/dispatch"
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Dispatch Board
               </Link>
 
               <button
                 onClick={refreshAll}
-                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
               >
                 Refresh
               </button>
@@ -807,7 +807,7 @@ export default function BinsPage() {
               {isAdmin && (
                 <button
                   onClick={openCreateModal}
-                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+                  className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:opacity-90"
                 >
                   New Bin
                 </button>
@@ -822,38 +822,38 @@ export default function BinsPage() {
           ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Total Bins
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">
+              <div className="mt-2 text-2xl font-bold text-white">
                 {dashboardCounts.total}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <div className="rounded-2xl border border-emerald-700 bg-emerald-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
                 Available
               </div>
-              <div className="mt-2 text-2xl font-bold text-emerald-900">
+              <div className="mt-2 text-2xl font-bold text-emerald-300">
                 {dashboardCounts.available}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+            <div className="rounded-2xl border border-blue-700 bg-blue-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-400">
                 In Use
               </div>
-              <div className="mt-2 text-2xl font-bold text-blue-900">
+              <div className="mt-2 text-2xl font-bold text-blue-300">
                 {dashboardCounts.in_use}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            <div className="rounded-2xl border border-amber-700 bg-amber-900/40 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-400">
                 Maintenance
               </div>
-              <div className="mt-2 text-2xl font-bold text-amber-900">
+              <div className="mt-2 text-2xl font-bold text-amber-300">
                 {dashboardCounts.maintenance}
               </div>
             </div>
@@ -864,13 +864,13 @@ export default function BinsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search bin number, size, location, or company"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+              className="w-full rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-400"
             />
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
             >
               <option value="all">All Statuses</option>
               {BIN_STATUSES.map((status) => (
@@ -883,7 +883,7 @@ export default function BinsPage() {
             <select
               value={sizeFilter}
               onChange={(e) => setSizeFilter(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
             >
               <option value="all">All Sizes</option>
               {BIN_SIZES.map((size) => (
