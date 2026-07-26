@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import AppLogo from '@/components/AppLogo'
+import Icon from '@/components/Icon'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -353,198 +354,134 @@ export default function DashboardPage() {
   }, [orders])
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <AppLogo className="h-12 w-auto" />
-              <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/dispatch"
-                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
-              >
-                Dispatch Board
-              </Link>
-
-              <button
-                onClick={loadDashboard}
-                className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
-              >
-                Refresh
-              </button>
-              
-              <button
-                onClick={handleLogOff}
-                className="rounded-2xl border border-rose-400 bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
-              >
-                Log Off
-              </button>
+    <div className="min-h-screen bg-slate-50">
+      {/* Top bar */}
+      <header className="bg-[var(--ink)] text-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center md:justify-between md:px-6">
+          <div className="flex items-center gap-4">
+            <AppLogo className="h-9 w-auto" />
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+              <p className="text-sm text-white/55">{CLIENT_CONFIG.name}</p>
             </div>
           </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={loadDashboard}
+              className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white/80 ring-1 ring-white/15 transition hover:bg-white/10 hover:text-white"
+            >
+              <Icon name="refresh" className="h-4 w-4" />
+              Refresh
+            </button>
+            <Link
+              href="/dispatch"
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-slate-900 transition hover:bg-white/90"
+            >
+              <Icon name="dispatch" className="h-4 w-4" />
+              Dispatch Board
+            </Link>
+            <button
+              onClick={handleLogOff}
+              className="rounded-lg px-3.5 py-2 text-sm font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
+            >
+              Log Off
+            </button>
+          </div>
         </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
 
         {pageError ? (
-          <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {pageError}
           </div>
         ) : null}
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Orders Today
+        {/* Today at a glance */}
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Today</h2>
+        <div className="mb-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 dark:bg-slate-700 lg:grid-cols-4">
+          {[
+            { label: 'Orders Today', value: metrics.ordersToday, hint: 'Scheduled for today' },
+            { label: 'Completed', value: metrics.completedToday, hint: 'Finished successfully' },
+            { label: 'Active Drivers', value: metrics.activeDrivers, hint: 'Available or busy' },
+            { label: 'Pending', value: metrics.pendingOrders, hint: 'Open workload' },
+          ].map(m => (
+            <div key={m.label} className="bg-white px-5 py-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{m.label}</div>
+              <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">{m.value}</div>
+              <div className="mt-1 text-xs text-slate-400">{m.hint}</div>
             </div>
-            <div className="mt-3 text-3xl font-bold text-slate-900">{metrics.ordersToday}</div>
-            <div className="mt-2 text-sm text-slate-500">Scheduled for today</div>
-          </div>
-
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Completed Today
-            </div>
-            <div className="mt-3 text-3xl font-bold text-emerald-600">
-              {metrics.completedToday}
-            </div>
-            <div className="mt-2 text-sm text-slate-500">Finished successfully</div>
-          </div>
-
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Active Drivers
-            </div>
-            <div className="mt-3 text-3xl font-bold text-blue-600">
-              {metrics.activeDrivers}
-            </div>
-            <div className="mt-2 text-sm text-slate-500">Available or busy</div>
-          </div>
-
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Pending Orders
-            </div>
-            <div className="mt-3 text-3xl font-bold text-amber-600">
-              {metrics.pendingOrders}
-            </div>
-            <div className="mt-2 text-sm text-slate-500">Open operational workload</div>
-          </div>
+          ))}
         </div>
 
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Link
-            href="/order"
-            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-blue-900 hover:ring-blue-600 hover:shadow-lg cursor-pointer"
-          >
-            <div className="text-lg font-bold text-white group-hover:text-blue-200">Orders</div>
-            <div className="mt-2 text-sm text-slate-400 group-hover:text-blue-300">
-              Create, edit, filter, and manage all operational orders
-            </div>
-          </Link>
-
-          <Link
-            href="/dispatch"
-            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-emerald-900 hover:ring-emerald-600 hover:shadow-lg cursor-pointer"
-          >
-            <div className="text-lg font-bold text-white group-hover:text-emerald-200">Dispatch</div>
-            <div className="mt-2 text-sm text-slate-400 group-hover:text-emerald-300">
-              Assign drivers and manage today's live board
-            </div>
-          </Link>
-
-          <Link
-            href="/sale"
-            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-teal-900 hover:ring-teal-600 hover:shadow-lg cursor-pointer"
-          >
-            <div className="text-lg font-bold text-white group-hover:text-teal-200">🧾 Quick Sale</div>
-            <div className="mt-2 text-sm text-slate-400 group-hover:text-teal-300">
-              Counter sales for walk-in customers with printed receipt
-            </div>
-          </Link>
-
-          <Link
-            href="/invoices"
-            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-sky-900 hover:ring-sky-600 hover:shadow-lg cursor-pointer"
-          >
-            <div className="text-lg font-bold text-white group-hover:text-sky-200">💵 Invoices</div>
-            <div className="mt-2 text-sm text-slate-400 group-hover:text-sky-300">
-              Who paid, who owes — all counter and account invoices
-            </div>
-          </Link>
-
-          <Link
-            href="/settings"
-            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-violet-900 hover:ring-violet-600 hover:shadow-lg cursor-pointer"
-          >
-            <div className="text-lg font-bold text-white group-hover:text-violet-200">⚙ Settings</div>
-            <div className="mt-2 text-sm text-slate-400 group-hover:text-violet-300">
-              Manage drivers, trucks, bins, customers, and team members
-            </div>
-          </Link>
-
-          <Link
-            href="/reports"
-            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-amber-900 hover:ring-amber-600 hover:shadow-lg cursor-pointer"
-          >
-            <div className="text-lg font-bold text-white group-hover:text-amber-200">📄 Statements & Performance</div>
-            <div className="mt-2 text-sm text-slate-400 group-hover:text-amber-300">
-              Generate customer statements and export billing history
-            </div>
-          </Link>
+        {/* Workspace */}
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Workspace</h2>
+        <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {([
+            { href: '/order', icon: 'orders', title: 'Orders', desc: 'Create, edit, and manage every operational order' },
+            { href: '/dispatch', icon: 'dispatch', title: 'Dispatch', desc: "Assign drivers and run today's live board" },
+            { href: '/sale', icon: 'sale', title: 'Quick Sale', desc: 'Counter sales with a printed receipt' },
+            { href: '/invoices', icon: 'invoice', title: 'Invoices', desc: 'Who paid, who owes, and outstanding balances' },
+            { href: '/reports', icon: 'reports', title: 'Reports', desc: 'Customer statements and driver performance' },
+            { href: '/settings', icon: 'settings', title: 'Settings', desc: 'Drivers, bins, customers, team, and prices' },
+          ] as const).map(card => (
+            <Link
+              key={card.href}
+              href={card.href}
+              className="group flex items-start gap-4 rounded-xl bg-white p-5 ring-1 ring-slate-200 transition hover:ring-[var(--accent-ring)] hover:shadow-sm"
+            >
+              <span
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--accent)] transition group-hover:scale-105"
+                style={{ background: 'var(--accent-soft)' }}
+              >
+                <Icon name={card.icon} className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-base font-semibold text-slate-900">{card.title}</span>
+                <span className="mt-1 block text-sm leading-relaxed text-slate-500">{card.desc}</span>
+              </span>
+              <Icon
+                name="arrowRight"
+                className="mt-1 h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]"
+              />
+            </Link>
+          ))}
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-              Delivery
+        {/* Order mix */}
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Order Mix</h2>
+        <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[
+            { label: 'Delivery', value: orderTypeSummary.delivery, dot: '#059669' },
+            { label: 'Exchange', value: orderTypeSummary.exchange, dot: '#d97706' },
+            { label: 'Removal', value: orderTypeSummary.removal, dot: '#e11d48' },
+            { label: 'Dump Return', value: orderTypeSummary.dumpReturn, dot: '#0284c7' },
+          ].map(t => (
+            <div key={t.label} className="rounded-xl bg-white px-5 py-4 ring-1 ring-slate-200">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full" style={{ background: t.dot }} />
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{t.label}</span>
+              </div>
+              <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{t.value}</div>
             </div>
-            <div className="mt-2 text-2xl font-bold text-emerald-900">
-              {orderTypeSummary.delivery}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-              Exchange
-            </div>
-            <div className="mt-2 text-2xl font-bold text-amber-900">
-              {orderTypeSummary.exchange}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-rose-700">
-              Removal
-            </div>
-            <div className="mt-2 text-2xl font-bold text-rose-900">
-              {orderTypeSummary.removal}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-sky-700">
-              Dump Return
-            </div>
-            <div className="mt-2 text-2xl font-bold text-sky-900">
-              {orderTypeSummary.dumpReturn}
-            </div>
-          </div>
+          ))}
         </div>
 
         <div className="grid gap-6">
-          <div className="rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+          <div className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">Recent Orders</h2>
-                <p className="mt-1 text-sm text-slate-500">Latest activity across your operation</p>
+                <h2 className="text-base font-semibold text-slate-900">Recent Orders</h2>
+                <p className="mt-0.5 text-sm text-slate-500">Latest activity across your operation</p>
               </div>
               <Link
                 href="/order"
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
               >
                 View All
+                <Icon name="arrowRight" className="h-3.5 w-3.5" />
               </Link>
             </div>
 
@@ -633,7 +570,7 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
-      </div>
+      </main>
 
       {/* Report Modal */}
       {reportOpen && (

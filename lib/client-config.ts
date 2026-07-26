@@ -15,7 +15,11 @@ export const CLIENT_CONFIG = {
   taxRate: Number(process.env.NEXT_PUBLIC_CLIENT_TAX_RATE ?? '13'),
   logoUrl: process.env.NEXT_PUBLIC_CLIENT_LOGO_URL || null,
   iconUrl: process.env.NEXT_PUBLIC_CLIENT_ICON_URL || null,
-  primaryColor: process.env.NEXT_PUBLIC_CLIENT_PRIMARY_COLOR || '#0f172a',
+  // The single UI accent — icon tiles, active states, primary actions.
+  // Set per tenant to that client's brand colour (SimpliiTrash green, BR red).
+  // Pick a shade dark enough for white text; the tinted variants are derived
+  // from it in globals.css (--accent-soft / --accent-ring / --accent-hover).
+  primaryColor: process.env.NEXT_PUBLIC_CLIENT_PRIMARY_COLOR || '#0f766e',
   secondaryColor: process.env.NEXT_PUBLIC_CLIENT_SECONDARY_COLOR || '#0f172a',
   themeStorageKey: `${shortName.toLowerCase()}-theme`,
   swCacheName: `${shortName.toLowerCase()}-driver-v2`,

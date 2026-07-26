@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AppLogo from '@/components/AppLogo'
+import Icon, { type IconName } from '@/components/Icon'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 
 type Counts = {
@@ -18,105 +19,61 @@ type Counts = {
   prices: number
 }
 
-const sections = [
+type Section = {
+  href: string
+  title: string
+  description: string
+  icon: IconName
+  countKey?: keyof Counts
+  countLabel?: string
+}
+
+const sections: Section[] = [
   {
     href: '/drivers',
     title: 'Drivers & Fleet',
-    description: 'Add, edit, or remove drivers and trucks. Assign trucks and manage fleet status.',
-    color: 'bg-blue-50 ring-blue-200',
-    titleColor: 'text-blue-900',
-    descColor: 'text-blue-700',
-    iconBg: 'bg-blue-100',
-    icon: (
-      <svg className="h-7 w-7 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
-      </svg>
-    ),
-    countKey: 'drivers' as keyof Counts,
+    description: 'Drivers, trucks, assignments, and dispatch readiness.',
+    icon: 'drivers',
+    countKey: 'drivers',
     countLabel: 'drivers',
   },
   {
     href: '/bins',
-    title: 'Bin Inventory',
-    description: 'Manage bin inventory, sizes, statuses, and yard availability for all active locations.',
-    color: 'bg-amber-50 ring-amber-200',
-    titleColor: 'text-amber-900',
-    descColor: 'text-amber-700',
-    iconBg: 'bg-amber-100',
-    icon: (
-      <svg className="h-7 w-7 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-      </svg>
-    ),
-    countKey: 'bins' as keyof Counts,
+    title: 'Bins',
+    description: 'Yard stock, live availability, and where each bin is placed.',
+    icon: 'bins',
+    countKey: 'bins',
     countLabel: 'bins',
   },
   {
     href: '/customers',
     title: 'Customers',
-    description: 'Keep customer records up to date. Add, edit, or remove customers from the system.',
-    color: 'bg-emerald-50 ring-emerald-200',
-    titleColor: 'text-emerald-900',
-    descColor: 'text-emerald-700',
-    iconBg: 'bg-emerald-100',
-    icon: (
-      <svg className="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
-      </svg>
-    ),
-    countKey: 'customers' as keyof Counts,
+    description: 'Company records and contacts, separate from job site addresses.',
+    icon: 'customers',
+    countKey: 'customers',
     countLabel: 'customers',
   },
   {
     href: '/users',
-    title: 'Personnel',
-    description: 'Add staff, assign roles (owner, manager, dispatcher, driver), and control system access.',
-    color: 'bg-violet-50 ring-violet-200',
-    titleColor: 'text-violet-900',
-    descColor: 'text-violet-700',
-    iconBg: 'bg-violet-100',
-    icon: (
-      <svg className="h-7 w-7 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
-      </svg>
-    ),
-    countKey: 'users' as keyof Counts,
+    title: 'Team',
+    description: 'Staff accounts, roles, and who can access what.',
+    icon: 'team',
+    countKey: 'users',
     countLabel: 'members',
   },
   {
     href: '/prices',
     title: 'Price Book',
-    description: 'Set rates for bin services and products — the base for every invoice.',
-    color: 'bg-sky-50 ring-sky-200',
-    titleColor: 'text-sky-900',
-    descColor: 'text-sky-700',
-    iconBg: 'bg-sky-100',
-    icon: (
-      <svg className="h-7 w-7 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
-      </svg>
-    ),
-    countKey: 'prices' as keyof Counts,
+    description: 'Rates for services and products — the base for every invoice.',
+    icon: 'price',
+    countKey: 'prices',
     countLabel: 'prices',
   },
   {
     href: '/dump-sites',
-    title: 'Dump Sites',
-    description: 'Add and manage dump locations used in DUMP RETURN, EXCHANGE, and REMOVAL orders.',
-    color: 'bg-orange-50 ring-orange-200',
-    titleColor: 'text-orange-900',
-    descColor: 'text-orange-700',
-    iconBg: 'bg-orange-100',
-    icon: (
-      <svg className="h-7 w-7 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-      </svg>
-    ),
-    countKey: 'users' as keyof Counts,
-    countLabel: '',
-    noCount: true,
+    title: 'Disposal Sites',
+    description: 'Dump locations used by removal, exchange, and dump return jobs.',
+    icon: 'location',
   },
 ]
 
@@ -153,85 +110,83 @@ export default function SettingsPage() {
     void load()
   }, [])
 
+  const summary: { label: string; value: number }[] = [
+    { label: 'Drivers', value: counts.drivers },
+    { label: 'Trucks', value: counts.trucks },
+    { label: 'Bins', value: counts.bins },
+    { label: 'Customers', value: counts.customers },
+  ]
+
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-4xl p-4 md:p-6">
-
-        {/* Header */}
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <AppLogo className="h-9 w-auto" />
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-                <p className="mt-0.5 text-sm text-slate-400">
-                  System management for {CLIENT_CONFIG.name}
-                </p>
-              </div>
+    <div className="min-h-screen bg-slate-50">
+      {/* Top bar */}
+      <header className="bg-[var(--ink)] text-white">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-5 md:px-6">
+          <div className="flex items-center gap-4">
+            <AppLogo className="h-8 w-auto" />
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
+              <p className="text-sm text-white/55">{CLIENT_CONFIG.name}</p>
             </div>
-            <Link
-              href="/dashboard"
-              className="self-start inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:self-auto"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-              </svg>
-              Dashboard
-            </Link>
           </div>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white/80 ring-1 ring-white/15 transition hover:bg-white/10 hover:text-white"
+          >
+            <Icon name="arrowLeft" className="h-4 w-4" />
+            Dashboard
+          </Link>
         </div>
+      </header>
 
-        {/* Counts summary bar */}
-        {!loading && (
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200 text-center">
-              <div className="text-2xl font-bold text-slate-900">{counts.drivers}</div>
-              <div className="mt-0.5 text-xs font-medium text-slate-500">Drivers</div>
-            </div>
-            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200 text-center">
-              <div className="text-2xl font-bold text-slate-900">{counts.trucks}</div>
-              <div className="mt-0.5 text-xs font-medium text-slate-500">Trucks</div>
-            </div>
-            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200 text-center">
-              <div className="text-2xl font-bold text-slate-900">{counts.bins}</div>
-              <div className="mt-0.5 text-xs font-medium text-slate-500">Bins</div>
-            </div>
-            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200 text-center">
-              <div className="text-2xl font-bold text-slate-900">{counts.customers}</div>
-              <div className="mt-0.5 text-xs font-medium text-slate-500">Customers</div>
-            </div>
-          </div>
-        )}
+      <main className="mx-auto max-w-5xl px-4 py-8 md:px-6">
 
-        {/* Management sections */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {sections.map((s) => (
-            <Link
-              key={s.href}
-              href={s.href}
-              className={`group rounded-3xl p-6 shadow-sm ring-1 transition hover:-translate-y-0.5 hover:shadow-md ${s.color}`}
-            >
-              <div className="flex items-start gap-4">
-                <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${s.iconBg}`}>
-                  {s.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`text-lg font-bold ${s.titleColor}`}>{s.title}</span>
-                    {!loading && !s.noCount && (
-                      <span className={`text-sm font-semibold ${s.titleColor} opacity-60`}>
-                        {counts[s.countKey]} {s.countLabel}
-                      </span>
-                    )}
-                  </div>
-                  <p className={`mt-1 text-sm ${s.descColor} opacity-80`}>{s.description}</p>
-                </div>
+        {/* Summary */}
+        <div className="mb-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 dark:bg-slate-700 sm:grid-cols-4">
+          {summary.map(s => (
+            <div key={s.label} className="bg-white px-5 py-4">
+              <div className="text-2xl font-semibold tracking-tight text-slate-900">
+                {loading ? <span className="text-slate-300">—</span> : s.value}
               </div>
-            </Link>
+              <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-slate-500">{s.label}</div>
+            </div>
           ))}
         </div>
 
-      </div>
+        {/* Management sections */}
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Manage</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {sections.map(s => (
+            <Link
+              key={s.href}
+              href={s.href}
+              className="group flex items-start gap-4 rounded-xl bg-white p-5 ring-1 ring-slate-200 transition hover:ring-[var(--accent-ring)] hover:shadow-sm"
+            >
+              <span
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--accent)] transition group-hover:scale-105"
+                style={{ background: 'var(--accent-soft)' }}
+              >
+                <Icon name={s.icon} className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="text-base font-semibold text-slate-900">{s.title}</span>
+                  {!loading && s.countKey && (
+                    <span className="shrink-0 text-xs font-medium text-slate-400">
+                      {counts[s.countKey]} {s.countLabel}
+                    </span>
+                  )}
+                </span>
+                <span className="mt-1 block text-sm leading-relaxed text-slate-500">{s.description}</span>
+              </span>
+              <Icon
+                name="arrowRight"
+                className="mt-1 h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]"
+              />
+            </Link>
+          ))}
+        </div>
+      </main>
     </div>
   )
 }

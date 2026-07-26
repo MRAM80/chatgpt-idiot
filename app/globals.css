@@ -7,6 +7,30 @@
   color-scheme: light;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+   One accent per tenant (from NEXT_PUBLIC_CLIENT_PRIMARY_COLOR, applied to
+   <body> as --brand-primary), plus derived tints so every surface that needs
+   the accent stays in the same family instead of inventing a new colour.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body {
+  --accent: var(--brand-primary, #0f172a);
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, white);
+  --accent-ring: color-mix(in srgb, var(--accent) 22%, white);
+  --accent-hover: color-mix(in srgb, var(--accent) 85%, black);
+
+  /* Warm near-black for dark bars — reads richer than blue-slate */
+  --ink: #14181a;
+  --ink-2: #1e2426;
+  --ink-line: #313a3d;
+}
+
+.dark body,
+.dark {
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, #0f172a);
+  --accent-ring: color-mix(in srgb, var(--accent) 40%, #0f172a);
+}
+
 .dark {
   color-scheme: dark;
 }
