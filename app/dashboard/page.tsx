@@ -433,7 +433,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Link
             href="/order"
             className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-blue-900 hover:ring-blue-600 hover:shadow-lg cursor-pointer"
@@ -461,6 +461,16 @@ export default function DashboardPage() {
             <div className="text-lg font-bold text-white group-hover:text-teal-200">🧾 Quick Sale</div>
             <div className="mt-2 text-sm text-slate-400 group-hover:text-teal-300">
               Counter sales for walk-in customers with printed receipt
+            </div>
+          </Link>
+
+          <Link
+            href="/invoices"
+            className="group rounded-3xl bg-slate-900 p-5 shadow-sm ring-1 ring-slate-700 transition hover:-translate-y-1 hover:bg-sky-900 hover:ring-sky-600 hover:shadow-lg cursor-pointer"
+          >
+            <div className="text-lg font-bold text-white group-hover:text-sky-200">💵 Invoices</div>
+            <div className="mt-2 text-sm text-slate-400 group-hover:text-sky-300">
+              Who paid, who owes — all counter and account invoices
             </div>
           </Link>
 

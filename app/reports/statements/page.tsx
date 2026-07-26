@@ -586,6 +586,9 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   const [customerName, setCustomerName] = useState('')
   const [hasRun, setHasRun] = useState(false)
   const [prices, setPrices] = useState<PriceMap>({})
+  const [creatingInvoice, setCreatingInvoice] = useState(false)
+  const [createdInvoiceNumber, setCreatedInvoiceNumber] = useState('')
+  const [invoiceError, setInvoiceError] = useState('')
   const [sortField, setSortField] = useState('cycle_end_date')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc')
 
@@ -600,6 +603,8 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   async function runReport() {
     if (!customerId || !dateFrom || !dateTo) return
     setLoading(true)
+    setCreatedInvoiceNumber('')
+    setInvoiceError('')
     const c = customers.find(c => c.id === customerId)
     setCustomerName(c?.name || '')
 
@@ -744,6 +749,64 @@ function InvoiceTab({ customers, drivers, driverMap }: {
     else { setSortField(field); setSortDir('asc') }
   }
 
+  // Turn the priced report into a real account invoice in the register.
+  // Only priced lines are billed — unpriced ones would silently bill $0.
+  async function createAccountInvoice() {
+    setInvoiceError('')
+    const billable = invoiceLines.filter(l => l.rate != null && l.amount != null)
+    if (billable.length === 0) {
+      setInvoiceError('No priced lines to invoice — set rates in the Price Book first.')
+      return
+    }
+
+    setCreatingInvoice(true)
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const { data: invoice, error } = await supabase
+      .from('invoices')
+      .insert([{
+        kind: 'account',
+        customer_id: customerId || null,
+        customer_name: customerName,
+        subtotal: Number(totals.subtotal.toFixed(2)),
+        tax_rate: CLIENT_CONFIG.taxRate,
+        tax_amount: Number(totals.tax.toFixed(2)),
+        total: Number(totals.total.toFixed(2)),
+        status: 'sent',
+        notes: `Billing period ${dateFrom} to ${dateTo} · ${sortedCycles.length} completed job(s)`,
+        created_by: user?.id || null,
+      }])
+      .select('id,invoice_number')
+      .single()
+
+    if (error || !invoice) {
+      setInvoiceError(error?.message || 'Could not create the invoice.')
+      setCreatingInvoice(false)
+      return
+    }
+
+    const inv = invoice as { id: string; invoice_number: string }
+    const { error: itemsError } = await supabase.from('invoice_items').insert(
+      billable.map(l => ({
+        invoice_id: inv.id,
+        description: `${l.order_type} — ${fmtBinSize(l.bin_size)}`,
+        unit: null,
+        quantity: l.count,
+        rate: Number((l.rate as number).toFixed(2)),
+        amount: Number((l.amount as number).toFixed(2)),
+      }))
+    )
+
+    if (itemsError) {
+      setInvoiceError(`Invoice ${inv.invoice_number} created, but line items failed: ${itemsError.message}`)
+      setCreatingInvoice(false)
+      return
+    }
+
+    setCreatedInvoiceNumber(inv.invoice_number)
+    setCreatingInvoice(false)
+  }
+
   // Invoice lines: qty per service type × bin size (each combo priced differently)
   const invoiceLines = useMemo(() => buildInvoiceLines(sortedCycles, prices), [sortedCycles, prices])
   const totals = useMemo(() => computeInvoiceTotals(invoiceLines), [invoiceLines])
@@ -817,7 +880,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
             className="rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-50 transition">
             {loading ? 'Generating...' : 'Generate Invoice Report'}
           </button>
-          {hasRun && <button onClick={()=>{setCycles([]);setHasRun(false)}}
+          {hasRun && <button onClick={()=>{setCycles([]);setHasRun(false);setCreatedInvoiceNumber('');setInvoiceError('')}}
             className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Clear</button>}
         </div>
       </div>
@@ -909,6 +972,17 @@ function InvoiceTab({ customers, drivers, driverMap }: {
             </div>
           )}
 
+          {/* Invoice created / error banner */}
+          {createdInvoiceNumber && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+              ✓ Invoice <strong>{createdInvoiceNumber}</strong> created for {customerName} — {fmtMoney(totals.total)} including {CLIENT_CONFIG.taxLabel}.{' '}
+              <Link href="/invoices" className="font-bold underline hover:text-emerald-900">Open the invoice register →</Link>
+            </div>
+          )}
+          {invoiceError && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{invoiceError}</div>
+          )}
+
           {/* Action bar */}
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm text-slate-500">
@@ -920,6 +994,12 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                   className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 transition">Export CSV</button>
                 <button onClick={()=>printInvoice(sortedCycles,driverMap,customerName,dateFrom,dateTo,prices)}
                   className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition">Print Invoice PDF</button>
+                {!createdInvoiceNumber && (
+                  <button onClick={()=>void createAccountInvoice()} disabled={creatingInvoice || totals.subtotal <= 0}
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-40 transition">
+                    {creatingInvoice ? 'Creating…' : 'Create Invoice'}
+                  </button>
+                )}
               </>}
             </div>
           </div>
