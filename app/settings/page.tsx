@@ -15,6 +15,7 @@ type Counts = {
   bins: number
   customers: number
   users: number
+  prices: number
 }
 
 const sections = [
@@ -83,6 +84,23 @@ const sections = [
     countLabel: 'members',
   },
   {
+    href: '/prices',
+    title: 'Price Book',
+    description: 'Set rates for bin services and products — the base for every invoice.',
+    color: 'bg-sky-50 ring-sky-200',
+    titleColor: 'text-sky-900',
+    descColor: 'text-sky-700',
+    iconBg: 'bg-sky-100',
+    icon: (
+      <svg className="h-7 w-7 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
+      </svg>
+    ),
+    countKey: 'prices' as keyof Counts,
+    countLabel: 'prices',
+  },
+  {
     href: '/dump-sites',
     title: 'Dump Sites',
     description: 'Add and manage dump locations used in DUMP RETURN, EXCHANGE, and REMOVAL orders.',
@@ -104,7 +122,7 @@ const sections = [
 
 export default function SettingsPage() {
   const router = useRouter()
-  const [counts, setCounts] = useState<Counts>({ drivers: 0, trucks: 0, bins: 0, customers: 0, users: 0 })
+  const [counts, setCounts] = useState<Counts>({ drivers: 0, trucks: 0, bins: 0, customers: 0, users: 0, prices: 0 })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -113,12 +131,13 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      const [driversRes, trucksRes, binsRes, customersRes, usersRes] = await Promise.all([
+      const [driversRes, trucksRes, binsRes, customersRes, usersRes, pricesRes] = await Promise.all([
         supabase.from('drivers').select('id', { count: 'exact', head: true }),
         supabase.from('trucks').select('id', { count: 'exact', head: true }),
         supabase.from('bins').select('id', { count: 'exact', head: true }),
         supabase.from('customers').select('id', { count: 'exact', head: true }),
         supabase.from('user_profiles').select('id', { count: 'exact', head: true }),
+        supabase.from('price_book').select('id', { count: 'exact', head: true }),
       ])
 
       setCounts({
@@ -127,6 +146,7 @@ export default function SettingsPage() {
         bins: binsRes.count ?? 0,
         customers: customersRes.count ?? 0,
         users: usersRes.count ?? 0,
+        prices: pricesRes.count ?? 0,
       })
       setLoading(false)
     }
