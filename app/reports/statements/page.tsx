@@ -113,11 +113,22 @@ function exportStatementCSV(rows: Order[], driverMap: Record<string, string>, fi
   downloadCSV([headers, ...data], filename)
 }
 
-function exportInvoiceCSV(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string) {
+function exportInvoiceCSV(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string, prices: PriceMap = {}) {
+  const lines = buildInvoiceLines(cycles, prices)
+  const totals = computeInvoiceTotals(lines)
   const summary: (string | number)[][] = [
     [`INVOICE SUMMARY — ${customerName} — ${dateFrom} to ${dateTo}`],
-    ['Service', 'Bin Size', 'Qty'],
-    ...buildInvoiceLines(cycles).map(l => [l.order_type, fmtBinSize(l.bin_size), l.count] as (string | number)[]),
+    ['Service', 'Bin Size', 'Qty', 'Rate', 'Amount'],
+    ...lines.map(l => [
+      l.order_type,
+      fmtBinSize(l.bin_size),
+      l.count,
+      l.rate != null ? l.rate.toFixed(2) : 'NO PRICE SET',
+      l.amount != null ? l.amount.toFixed(2) : 'NO PRICE SET',
+    ] as (string | number)[]),
+    ['', '', '', 'Subtotal', totals.subtotal.toFixed(2)],
+    ['', '', '', `${CLIENT_CONFIG.taxLabel} (${CLIENT_CONFIG.taxRate}%)`, totals.tax.toFixed(2)],
+    ['', '', '', 'TOTAL', totals.total.toFixed(2)],
     [''],
     ['DETAIL'],
   ]
@@ -166,7 +177,19 @@ function printStatement(rows: Order[], driverMap: Record<string, string>, custom
 
 // Invoice lines: one row per service type × bin size — each combination has
 // its own price, so this is the granularity an invoice is built from.
-function buildInvoiceLines(cycles: BillingCycle[]) {
+// `prices` maps "SERVICE|SIZE" → rate from the price book; a missing entry
+// leaves rate/amount null so the UI can flag it instead of silently billing $0.
+export type PriceMap = Record<string, number>
+
+export type InvoiceLine = {
+  order_type: string
+  bin_size: string
+  count: number
+  rate: number | null
+  amount: number | null
+}
+
+function buildInvoiceLines(cycles: BillingCycle[], prices: PriceMap = {}): InvoiceLine[] {
   const map = new Map<string, { order_type: string; bin_size: string; count: number }>()
   cycles.forEach(c => {
     const type = c.order_type || 'Unknown'
@@ -176,23 +199,64 @@ function buildInvoiceLines(cycles: BillingCycle[]) {
     if (current) current.count += 1
     else map.set(key, { order_type: type, bin_size: size, count: 1 })
   })
-  return [...map.values()].sort((a, b) =>
-    a.order_type !== b.order_type
-      ? a.order_type.localeCompare(b.order_type)
-      : (Number(b.bin_size) || 0) - (Number(a.bin_size) || 0)
-  )
+  return [...map.values()]
+    .sort((a, b) =>
+      a.order_type !== b.order_type
+        ? a.order_type.localeCompare(b.order_type)
+        : (Number(b.bin_size) || 0) - (Number(a.bin_size) || 0)
+    )
+    .map(l => {
+      const rate = prices[`${l.order_type}|${l.bin_size}`]
+      const hasRate = typeof rate === 'number'
+      return {
+        ...l,
+        rate: hasRate ? rate : null,
+        amount: hasRate ? rate * l.count : null,
+      }
+    })
+}
+
+function computeInvoiceTotals(lines: InvoiceLine[]) {
+  const subtotal = lines.reduce((sum, l) => sum + (l.amount ?? 0), 0)
+  const tax = subtotal * (CLIENT_CONFIG.taxRate / 100)
+  return {
+    subtotal,
+    tax,
+    total: subtotal + tax,
+    missingCount: lines.filter(l => l.rate == null).length,
+  }
 }
 
 function fmtBinSize(size: string) {
   return size === '—' ? '—' : `${size}Y`
 }
 
-function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string) {
+function fmtMoney(value: number | null) {
+  if (value == null) return '—'
+  return `$${value.toFixed(2)}`
+}
+
+function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string, prices: PriceMap = {}) {
   const win = window.open('', '_blank')
   if (!win) return
-  const summaryRows = buildInvoiceLines(cycles)
-    .map(l => `<tr><td>${l.order_type}</td><td>${fmtBinSize(l.bin_size)}</td><td><strong>× ${l.count}</strong></td></tr>`)
+  const lines = buildInvoiceLines(cycles, prices)
+  const totals = computeInvoiceTotals(lines)
+  const summaryRows = lines
+    .map(l => `<tr>
+      <td>${l.order_type}</td>
+      <td>${fmtBinSize(l.bin_size)}</td>
+      <td style="text-align:right"><strong>${l.count}</strong></td>
+      <td style="text-align:right">${l.rate != null ? fmtMoney(l.rate) : '<em style="color:#dc2626">no price</em>'}</td>
+      <td style="text-align:right"><strong>${l.amount != null ? fmtMoney(l.amount) : '—'}</strong></td>
+    </tr>`)
     .join('')
+  const totalsRows = `
+    <tr><td colspan="4" style="text-align:right;border-top:2px solid #e2e8f0">Subtotal</td>
+        <td style="text-align:right;border-top:2px solid #e2e8f0"><strong>${fmtMoney(totals.subtotal)}</strong></td></tr>
+    <tr><td colspan="4" style="text-align:right">${CLIENT_CONFIG.taxLabel} (${CLIENT_CONFIG.taxRate}%)</td>
+        <td style="text-align:right"><strong>${fmtMoney(totals.tax)}</strong></td></tr>
+    <tr><td colspan="4" style="text-align:right;font-size:13px"><strong>TOTAL DUE</strong></td>
+        <td style="text-align:right;font-size:13px"><strong>${fmtMoney(totals.total)}</strong></td></tr>`
   const tableRows = cycles.map(c => `<tr>
     <td>${c.ticket_number || '—'}</td>
     <td><strong>${c.order_type || '—'}</strong></td>
@@ -206,11 +270,11 @@ function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>,
   </tr>`).join('')
   win.document.write(printLayout(`${CLIENT_CONFIG.name} — Invoice Report`,
     `Customer: <strong>${customerName}</strong> &nbsp;|&nbsp; Period: ${dateFrom} to ${dateTo} &nbsp;|&nbsp; Billable Events: ${cycles.length}`,
-    `<div style="background:#fff8ed;border:1px solid #fed7aa;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#92400e">
-      <strong>Note:</strong> This report shows completed billing cycles (Removal, Exchange, Dump Return). Each line represents one chargeable service event. Dollar amounts are not included — use this to generate your invoice.
-     </div>
+    `${totals.missingCount > 0 ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#991b1b">
+      <strong>Warning:</strong> ${totals.missingCount} line(s) have no price in the Price Book and are excluded from the total. Add the missing rates in Settings → Price Book, then reprint.
+     </div>` : ''}
      <h2>Invoice Lines — by Service &amp; Bin Size</h2>
-     <table style="width:380px"><thead><tr><th>Service</th><th>Bin Size</th><th>Qty</th></tr></thead><tbody>${summaryRows}</tbody></table>
+     <table style="width:520px"><thead><tr><th>Service</th><th>Bin Size</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead><tbody>${summaryRows}${totalsRows}</tbody></table>
      <h2>Billable Events</h2>
      <table><thead><tr><th>Ticket</th><th>Service</th><th>Delivery Date</th><th>Completion Date</th><th>Days on Site</th><th>Bin</th><th>Address</th><th>Status</th><th>Driver</th></tr></thead><tbody>${tableRows}</tbody></table>`
   ))
@@ -521,6 +585,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   const [loading, setLoading] = useState(false)
   const [customerName, setCustomerName] = useState('')
   const [hasRun, setHasRun] = useState(false)
+  const [prices, setPrices] = useState<PriceMap>({})
   const [sortField, setSortField] = useState('cycle_end_date')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc')
 
@@ -537,6 +602,23 @@ function InvoiceTab({ customers, drivers, driverMap }: {
     setLoading(true)
     const c = customers.find(c => c.id === customerId)
     setCustomerName(c?.name || '')
+
+    // 0. Price book — customer-specific rate wins over the base rate
+    const { data: priceRows } = await supabase
+      .from('price_book')
+      .select('service_type,bin_size,price,customer_id')
+      .eq('kind', 'service')
+      .or(`customer_id.is.null,customer_id.eq.${customerId}`)
+
+    const basePrices: PriceMap = {}
+    const customerPrices: PriceMap = {}
+    for (const row of (priceRows as { service_type: string | null; bin_size: string | null; price: number; customer_id: string | null }[]) || []) {
+      if (!row.service_type || !row.bin_size) continue
+      const key = `${row.service_type}|${row.bin_size}`
+      if (row.customer_id) customerPrices[key] = Number(row.price)
+      else basePrices[key] = Number(row.price)
+    }
+    setPrices({ ...basePrices, ...customerPrices })
 
     // 1. Fetch billing trigger orders in range (exclude cancelled)
     const { data: billingOrders } = await supabase
@@ -663,7 +745,8 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   }
 
   // Invoice lines: qty per service type × bin size (each combo priced differently)
-  const invoiceLines = useMemo(() => buildInvoiceLines(sortedCycles), [sortedCycles])
+  const invoiceLines = useMemo(() => buildInvoiceLines(sortedCycles, prices), [sortedCycles, prices])
+  const totals = useMemo(() => computeInvoiceTotals(invoiceLines), [invoiceLines])
 
   const avgDays = useMemo(() => {
     const withDays = sortedCycles.filter(c => c.days_on_site != null)
@@ -755,25 +838,35 @@ function InvoiceTab({ customers, drivers, driverMap }: {
               <div className="text-2xl font-black text-slate-800">{maxDays != null ? `${maxDays}d` : '—'}</div>
               <div className="mt-1 text-xs font-semibold text-slate-500">Max Days on Site</div>
             </div>
-            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 text-center">
-              <div className="text-2xl font-black text-slate-500">{sortedCycles.filter(c=>c.cycle_start_date==null).length}</div>
-              <div className="mt-1 text-xs font-semibold text-slate-500">No Prior Event Found</div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-emerald-300 text-center">
+              <div className="text-2xl font-black text-emerald-700">{fmtMoney(totals.total)}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">Total Due (incl. {CLIENT_CONFIG.taxLabel})</div>
             </div>
           </div>
 
-          {/* Invoice lines — service × bin size */}
+          {/* Invoice lines — service × bin size, priced from the Price Book */}
           {invoiceLines.length > 0 && (
-            <div className="max-w-2xl overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+            <div className="max-w-3xl overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
               <div className="border-b border-slate-200 px-6 py-4">
                 <h3 className="text-sm font-bold text-slate-900">Invoice Lines — by Service & Bin Size</h3>
-                <p className="mt-0.5 text-xs text-slate-500">Each line has its own price — multiply Qty by your rate for that service and size.</p>
+                <p className="mt-0.5 text-xs text-slate-500">Rates come from Settings → Price Book</p>
               </div>
+
+              {totals.missingCount > 0 && (
+                <div className="border-b border-rose-200 bg-rose-50 px-6 py-3 text-xs text-rose-700">
+                  <strong>{totals.missingCount} line(s) have no price set</strong> and are excluded from the total.{' '}
+                  <Link href="/prices" className="font-bold underline hover:text-rose-900">Add the missing rates →</Link>
+                </div>
+              )}
+
               <table className="w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Service</th>
                     <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Bin Size</th>
                     <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Qty</th>
+                    <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Rate</th>
+                    <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -786,14 +879,30 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                         </span>
                       </td>
                       <td className="px-6 py-3 text-sm font-semibold text-slate-800 whitespace-nowrap">{fmtBinSize(line.bin_size)}</td>
-                      <td className="px-6 py-3 text-right text-sm font-black text-slate-900 whitespace-nowrap">× {line.count}</td>
+                      <td className="px-6 py-3 text-right text-sm font-semibold text-slate-700 whitespace-nowrap">{line.count}</td>
+                      <td className="px-6 py-3 text-right text-sm whitespace-nowrap">
+                        {line.rate != null
+                          ? <span className="text-slate-700">{fmtMoney(line.rate)}</span>
+                          : <span className="text-xs font-bold text-rose-600">no price</span>}
+                      </td>
+                      <td className="px-6 py-3 text-right text-sm font-black text-slate-900 whitespace-nowrap">{fmtMoney(line.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                   <tr>
-                    <td colSpan={2} className="px-6 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">Total billable events</td>
-                    <td className="px-6 py-3.5 text-right text-base font-black text-slate-900 whitespace-nowrap">× {sortedCycles.length}</td>
+                    <td colSpan={4} className="px-6 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Subtotal</td>
+                    <td className="px-6 py-2.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap">{fmtMoney(totals.subtotal)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={4} className="px-6 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {CLIENT_CONFIG.taxLabel} ({CLIENT_CONFIG.taxRate}%)
+                    </td>
+                    <td className="px-6 py-2.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap">{fmtMoney(totals.tax)}</td>
+                  </tr>
+                  <tr className="border-t border-slate-300">
+                    <td colSpan={4} className="px-6 py-3.5 text-right text-sm font-black uppercase tracking-wide text-slate-900">Total Due</td>
+                    <td className="px-6 py-3.5 text-right text-lg font-black text-emerald-700 whitespace-nowrap">{fmtMoney(totals.total)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -807,9 +916,9 @@ function InvoiceTab({ customers, drivers, driverMap }: {
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
               {sortedCycles.length > 0 && <>
-                <button onClick={()=>exportInvoiceCSV(sortedCycles,driverMap,customerName,dateFrom,dateTo)}
+                <button onClick={()=>exportInvoiceCSV(sortedCycles,driverMap,customerName,dateFrom,dateTo,prices)}
                   className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 transition">Export CSV</button>
-                <button onClick={()=>printInvoice(sortedCycles,driverMap,customerName,dateFrom,dateTo)}
+                <button onClick={()=>printInvoice(sortedCycles,driverMap,customerName,dateFrom,dateTo,prices)}
                   className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition">Print Invoice PDF</button>
               </>}
             </div>

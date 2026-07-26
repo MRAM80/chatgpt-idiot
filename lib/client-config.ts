@@ -10,6 +10,9 @@ export const CLIENT_CONFIG = {
   // Bin tracking per tenant: SimpliiTrash requires bin numbers on orders,
   // BR Garden Center doesn't care — set NEXT_PUBLIC_CLIENT_REQUIRE_BIN=false there.
   requireBin: process.env.NEXT_PUBLIC_CLIENT_REQUIRE_BIN !== 'false',
+  // Sales tax on invoices. Ontario HST 13% by default; override per tenant/province.
+  taxLabel: process.env.NEXT_PUBLIC_CLIENT_TAX_LABEL || 'HST',
+  taxRate: Number(process.env.NEXT_PUBLIC_CLIENT_TAX_RATE ?? '13'),
   logoUrl: process.env.NEXT_PUBLIC_CLIENT_LOGO_URL || null,
   iconUrl: process.env.NEXT_PUBLIC_CLIENT_ICON_URL || null,
   primaryColor: process.env.NEXT_PUBLIC_CLIENT_PRIMARY_COLOR || '#0f172a',
