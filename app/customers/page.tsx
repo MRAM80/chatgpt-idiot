@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
+import Icon from '@/components/Icon'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -290,94 +291,62 @@ export default function CustomersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <AppLogo className="h-9 w-auto" />
-              <div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">
-                Customers
-              </h1>
-              <p className="mt-1 text-sm text-slate-400">
-                Manage customer companies and contacts separately from Job Site / bin placement addresses
-              </p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                onClick={refreshAll}
-                className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-700"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={openCreateModal}
-                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:opacity-90"
-              >
-                New Customer
-              </button>
-            </div>
-          </div>
-
+    <AppShell
+      title="Customers"
+      subtitle="Company records and contacts, separate from job site addresses"
+      actions={
+        <>
+          <button
+            onClick={refreshAll}
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
+          >
+            <Icon name="refresh" className="h-4 w-4" />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            style={{ background: 'var(--accent)' }}
+          >
+            <Icon name="plus" className="h-4 w-4" />
+            <span className="hidden sm:inline">New Customer</span>
+          </button>
+        </>
+      }
+    >
+      <>
           {pageError ? (
-            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {pageError}
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Total Customers
+          <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 dark:bg-slate-700 lg:grid-cols-4">
+            {[
+              { label: 'Total', value: dashboardCounts.total, tone: 'text-slate-900' },
+              { label: 'Active', value: dashboardCounts.active, tone: 'text-emerald-600' },
+              { label: 'Inactive', value: dashboardCounts.inactive, tone: 'text-slate-900' },
+              { label: 'With Open Orders', value: dashboardCounts.withOpenOrders, tone: 'text-blue-600' },
+            ].map(k => (
+              <div key={k.label} className="bg-white px-5 py-4">
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{k.label}</div>
+                <div className={`mt-2 text-2xl font-semibold tracking-tight ${k.tone}`}>{k.value}</div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-white">
-                {dashboardCounts.total}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-emerald-700 bg-emerald-900/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
-                Active Customers
-              </div>
-              <div className="mt-2 text-2xl font-bold text-emerald-300">
-                {dashboardCounts.active}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Inactive Customers
-              </div>
-              <div className="mt-2 text-2xl font-bold text-white">
-                {dashboardCounts.inactive}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-blue-700 bg-blue-900/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-400">
-                Customers With Open Orders
-              </div>
-              <div className="mt-2 text-2xl font-bold text-blue-300">
-                {dashboardCounts.withOpenOrders}
-              </div>
-            </div>
+            ))}
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
+          <div className="mb-6 grid gap-3 md:grid-cols-2">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search customer name, phone, email, or company address"
-              className="w-full rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-400"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
             />
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
             >
               <option value="all">All Statuses</option>
               {CUSTOMER_STATUSES.map((status) => (
@@ -387,9 +356,8 @@ export default function CustomersPage() {
               ))}
             </select>
           </div>
-        </div>
 
-        <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+        <div className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
           {loading ? (
             <div className="p-10 text-center text-sm text-slate-500">
               Loading customers...
@@ -492,18 +460,7 @@ export default function CustomersPage() {
           )}
         </div>
 
-        <div className="mt-6 flex justify-center">
-          <Link
-            href="/settings"
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-            Settings
-          </Link>
-        </div>
-      </div>
-
-      {(showCreateModal || editingCustomer) && (
+        {(showCreateModal || editingCustomer) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
             <div className="mb-6 flex items-start justify-between gap-4">
@@ -634,6 +591,7 @@ export default function CustomersPage() {
           </div>
         </div>
       )}
-    </div>
+      </>
+    </AppShell>
   )
 }

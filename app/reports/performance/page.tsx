@@ -7,7 +7,8 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic_ from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
+import Icon from '@/components/Icon'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -217,32 +218,22 @@ export default function PerformancePage() {
   const driverNames = useMemo(() => driverStats.map(d => d.name), [driverStats])
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
-
-        {/* Header */}
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <AppLogo className="h-9 w-auto" />
-              <div>
-                <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
-                  <Link href="/reports" className="hover:text-white transition">Statements & Performance</Link>
-                  <span>/</span>
-                  <span className="text-white">Driver Performance</span>
-                </div>
-                <h1 className="text-2xl font-bold tracking-tight">Driver Performance</h1>
-                <p className="mt-0.5 text-sm text-slate-400">Analyze driver output, completion rates, and order trends</p>
-              </div>
-            </div>
-            <Link href="/reports" className="self-start inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:self-auto">
-              ← Back
-            </Link>
-          </div>
-        </div>
-
+    <AppShell
+      title="Driver Performance"
+      subtitle="Driver output, completion rates, and order trends"
+      actions={
+        <Link
+          href="/reports"
+          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
+        >
+          <Icon name="arrowLeft" className="h-4 w-4" />
+          <span className="hidden sm:inline">Reports</span>
+        </Link>
+      }
+    >
+      <>
         {pageLoading ? (
-          <div className="rounded-3xl bg-white p-10 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">Loading...</div>
+          <div className="rounded-xl bg-white p-10 text-center text-sm text-slate-500 ring-1 ring-slate-200">Loading...</div>
         ) : (
           <div className="space-y-6">
 
@@ -569,7 +560,7 @@ export default function PerformancePage() {
             )}
           </div>
         )}
-      </div>
-    </div>
+      </>
+    </AppShell>
   )
 }

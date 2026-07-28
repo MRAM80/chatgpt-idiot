@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
+import Icon from '@/components/Icon'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -1089,102 +1090,82 @@ export default function DispatchBoardPage() {
 
 
   return (
-    <>
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-[1920px] p-3 md:p-4">
-        {/* Header */}
-        <div className="mb-4 rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 px-4 py-3 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <AppLogo className="h-9 w-auto" />
-              <div>
-                <h1 className="text-lg font-bold tracking-tight text-white">Dispatch Board</h1>
-                <p className="text-xs text-slate-400">Planning: {formatBoardDayLabel(selectedDayKey)}</p>
-              </div>
-
-              {/* Stats inline */}
-              <div className="hidden md:flex items-center gap-2.5 pl-1">
-                <div className="shrink-0 rounded-xl border-2 border-slate-600 bg-slate-800 px-3 py-1.5 text-center">
-                  <div className="text-[10px] font-semibold uppercase text-slate-400">Unassigned</div>
-                  <div className="text-base font-bold text-white">{stats.unassigned}</div>
-                </div>
-                <div className="shrink-0 rounded-xl border-2 border-emerald-700 bg-emerald-900/40 px-3 py-1.5 text-center">
-                  <div className="text-[10px] font-semibold uppercase text-emerald-400">Available</div>
-                  <div className="text-base font-bold text-emerald-300">{stats.available}</div>
-                </div>
-                <div className="shrink-0 rounded-xl border-2 border-blue-700 bg-blue-900/40 px-3 py-1.5 text-center">
-                  <div className="text-[10px] font-semibold uppercase text-blue-400">Active</div>
-                  <div className="text-base font-bold text-blue-300">{stats.activeDrivers}</div>
-                </div>
-                <div className="shrink-0 rounded-xl border-2 border-amber-700 bg-amber-900/40 px-3 py-1.5 text-center">
-                  <div className="text-[10px] font-semibold uppercase text-amber-400">In Progress</div>
-                  <div className="text-base font-bold text-amber-300">{stats.inProgress}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search ticket, customer, address…"
-                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-400 w-56"
-              />
-
-              <button
-                type="button"
-                onClick={() => setSelectedDayKey(todayKey)}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
-                  selectedDayKey === todayKey
-                    ? 'border-white bg-white text-slate-900'
-                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedDayKey(tomorrowKey)}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
-                  selectedDayKey === tomorrowKey
-                    ? 'border-white bg-white text-slate-900'
-                    : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                Tomorrow
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setNewOrderOpen(true)}
-                className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-slate-900 transition hover:opacity-90"
-              >
-                + New Order
-              </button>
-
-              <button
-                onClick={refreshAll}
-                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300 transition hover:bg-slate-700"
-              >
-                Refresh
-              </button>
-
-              <Link
-                href="/dashboard"
-                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-700"
-              >
-                Dashboard
-              </Link>
-
-            </div>
+    <AppShell
+      title="Dispatch Board"
+      subtitle={`Planning: ${formatBoardDayLabel(selectedDayKey)}`}
+      maxWidth="max-w-[1920px]"
+      actions={
+        <>
+          <div className="flex overflow-hidden rounded-lg ring-1 ring-slate-200">
+            <button
+              type="button"
+              onClick={() => setSelectedDayKey(todayKey)}
+              className={`px-3 py-2 text-sm font-medium transition ${
+                selectedDayKey === todayKey ? 'text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+              style={selectedDayKey === todayKey ? { background: 'var(--accent)' } : undefined}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDayKey(tomorrowKey)}
+              className={`border-l border-slate-200 px-3 py-2 text-sm font-medium transition ${
+                selectedDayKey === tomorrowKey ? 'text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+              style={selectedDayKey === tomorrowKey ? { background: 'var(--accent)' } : undefined}
+            >
+              Tomorrow
+            </button>
           </div>
+          <button
+            onClick={refreshAll}
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
+          >
+            <Icon name="refresh" className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setNewOrderOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            style={{ background: 'var(--accent)' }}
+          >
+            <Icon name="plus" className="h-4 w-4" />
+            <span className="hidden sm:inline">New Order</span>
+          </button>
+        </>
+      }
+    >
+      <>
+        {/* Board stats */}
+        <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 dark:bg-slate-700 lg:grid-cols-4">
+          {[
+            { label: 'Unassigned', value: stats.unassigned, tone: 'text-slate-900' },
+            { label: 'Available', value: stats.available, tone: 'text-emerald-600' },
+            { label: 'Active', value: stats.activeDrivers, tone: 'text-blue-600' },
+            { label: 'In Progress', value: stats.inProgress, tone: 'text-amber-600' },
+          ].map(k => (
+            <div key={k.label} className="bg-white px-4 py-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{k.label}</div>
+              <div className={`mt-1 text-xl font-semibold tracking-tight ${k.tone}`}>{k.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mb-4">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter this board by ticket, customer, address…"
+            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+          />
+        </div>
 
           {pageError ? (
-            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
               {pageError}
             </div>
           ) : null}
-        </div>
 
         {/* Board */}
         {loading ? (
@@ -1611,9 +1592,6 @@ export default function DispatchBoardPage() {
           </div>
         ) : null}
 
-      </div>
-    </div>
-
       {newOrderOpen && (
         <div className="fixed inset-0 z-50">
           <iframe
@@ -1624,6 +1602,7 @@ export default function DispatchBoardPage() {
           />
         </div>
       )}
-    </>
+      </>
+    </AppShell>
   )
 }

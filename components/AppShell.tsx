@@ -57,12 +57,15 @@ export default function AppShell({
   actions,
   children,
   maxWidth = 'max-w-7xl',
+  embedded = false,
 }: {
   title: string
   subtitle?: string
   actions?: React.ReactNode
   children: React.ReactNode
   maxWidth?: string
+  /** Rendered inside an iframe (dispatch embeds the order form) — no chrome. */
+  embedded?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -136,6 +139,14 @@ export default function AppShell({
       </div>
     </div>
   )
+
+  if (embedded) {
+    return (
+      <div className="light text-slate-900" style={{ colorScheme: 'light', background: 'transparent' }}>
+        {children}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">

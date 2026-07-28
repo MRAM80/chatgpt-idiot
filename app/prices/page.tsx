@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -200,33 +200,12 @@ export default function PricesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-5xl p-4 md:p-6">
-
-        {/* Header */}
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <AppLogo className="h-9 w-auto" />
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">Price Book</h1>
-                <p className="mt-0.5 text-sm text-slate-400">
-                  Rates for bin services and products — the base for every invoice
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/settings"
-              className="self-start inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:self-auto"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-              </svg>
-              Settings
-            </Link>
-          </div>
-        </div>
-
+    <AppShell
+      title="Price Book"
+      subtitle="Rates for services and products — the base for every invoice"
+      maxWidth="max-w-5xl"
+    >
+      <>
         {pageError ? (
           <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {pageError}
@@ -417,8 +396,7 @@ export default function PricesPage() {
             </table>
           )}
         </div>
-
-      </div>
-    </div>
+      </>
+    </AppShell>
   )
 }

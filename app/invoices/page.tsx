@@ -6,7 +6,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
+import Icon from '@/components/Icon'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
@@ -240,95 +241,78 @@ export default function InvoicesPage() {
   }, [filtered])
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
+    <AppShell
+      title="Invoices"
+      subtitle="Every counter sale and account invoice — who paid, who owes"
+      actions={
+        <Link
+          href="/sale"
+          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+          style={{ background: 'var(--accent)' }}
+        >
+          <Icon name="plus" className="h-4 w-4" />
+          <span className="hidden sm:inline">Quick Sale</span>
+        </Link>
+      }
+    >
+      <>
+        {/* KPI strip */}
+        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 dark:bg-slate-700 lg:grid-cols-5">
+          {[
+            { label: 'Invoiced', value: fmtMoney(stats.invoiced), tone: 'text-slate-900' },
+            { label: 'Paid', value: fmtMoney(stats.paid), tone: 'text-emerald-600' },
+            { label: 'Outstanding', value: fmtMoney(stats.outstanding), tone: 'text-amber-600' },
+            { label: `Overdue (${OVERDUE_DAYS}d+)`, value: String(stats.overdueCount), tone: 'text-rose-600' },
+            { label: `${CLIENT_CONFIG.taxLabel} Collected`, value: fmtMoney(stats.taxCollected), tone: 'text-slate-900' },
+          ].map(k => (
+            <div key={k.label} className="bg-white px-5 py-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{k.label}</div>
+              <div className={`mt-2 text-xl font-semibold tracking-tight ${k.tone}`}>{k.value}</div>
+            </div>
+          ))}
+        </div>
 
-        {/* Header */}
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <AppLogo className="h-9 w-auto" />
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
-                <p className="mt-0.5 text-sm text-slate-400">Every counter sale and account invoice — who paid, who owes</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link href="/sale" className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700">
-                + Quick Sale
-              </Link>
-              <Link href="/dashboard" className="rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:opacity-90">
-                Dashboard
-              </Link>
-            </div>
-          </div>
-
-          {/* KPI strip */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <div className="rounded-2xl border border-slate-700 bg-slate-800 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Invoiced</div>
-              <div className="mt-2 text-2xl font-bold text-white">{fmtMoney(stats.invoiced)}</div>
-            </div>
-            <div className="rounded-2xl border border-emerald-700 bg-emerald-900/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-400">Paid</div>
-              <div className="mt-2 text-2xl font-bold text-emerald-300">{fmtMoney(stats.paid)}</div>
-            </div>
-            <div className="rounded-2xl border border-amber-700 bg-amber-900/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-amber-400">Outstanding</div>
-              <div className="mt-2 text-2xl font-bold text-amber-300">{fmtMoney(stats.outstanding)}</div>
-            </div>
-            <div className="rounded-2xl border border-rose-700 bg-rose-900/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-rose-400">Overdue ({OVERDUE_DAYS}d+)</div>
-              <div className="mt-2 text-2xl font-bold text-rose-300">{stats.overdueCount}</div>
-            </div>
-            <div className="rounded-2xl border border-blue-700 bg-blue-900/40 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-400">{CLIENT_CONFIG.taxLabel} Collected</div>
-              <div className="mt-2 text-2xl font-bold text-blue-300">{fmtMoney(stats.taxCollected)}</div>
-            </div>
-          </div>
-
-          {/* Filters */}
-          <div className="mt-6 grid gap-3 md:grid-cols-5">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search invoice # or customer"
-              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-400"
-            />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
-            >
-              <option value="all">All Statuses</option>
-              <option value="outstanding">Outstanding (unpaid)</option>
-              <option value="paid">Paid</option>
-              <option value="sent">Sent</option>
-              <option value="draft">Draft</option>
-              <option value="void">Void</option>
-            </select>
-            <select
-              value={kindFilter}
-              onChange={(e) => setKindFilter(e.target.value)}
-              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
-            >
-              <option value="all">Counter & Account</option>
-              <option value="counter">Counter sales</option>
-              <option value="account">Account invoices</option>
-            </select>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
-            />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-white outline-none focus:border-slate-400"
-            />
-          </div>
+        {/* Filters */}
+        <div className="mb-6 grid gap-3 md:grid-cols-5">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search invoice # or customer"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+          >
+            <option value="all">All Statuses</option>
+            <option value="outstanding">Outstanding (unpaid)</option>
+            <option value="paid">Paid</option>
+            <option value="sent">Sent</option>
+            <option value="draft">Draft</option>
+            <option value="void">Void</option>
+          </select>
+          <select
+            value={kindFilter}
+            onChange={(e) => setKindFilter(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+          >
+            <option value="all">Counter & Account</option>
+            <option value="counter">Counter sales</option>
+            <option value="account">Account invoices</option>
+          </select>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+          />
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+          />
         </div>
 
         {pageError ? (
@@ -489,8 +473,7 @@ export default function InvoicesPage() {
             </div>
           )}
         </div>
-
-      </div>
-    </div>
+      </>
+    </AppShell>
   )
 }

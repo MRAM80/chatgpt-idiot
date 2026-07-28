@@ -8,7 +8,8 @@ import Link from 'next/link'
 import dynamic_ from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
+import Icon from '@/components/Icon'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -1117,30 +1118,20 @@ export default function StatementsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
-
-        {/* Header */}
-        <div className="mb-6 rounded-3xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <AppLogo className="h-9 w-auto" />
-              <div>
-                <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
-                  <Link href="/reports" className="hover:text-white transition">Statements & Performance</Link>
-                  <span>/</span>
-                  <span className="text-white">Statements & Invoices</span>
-                </div>
-                <h1 className="text-2xl font-bold tracking-tight">Statements & Invoices</h1>
-                <p className="mt-0.5 text-sm text-slate-400">Full activity statements and billing cycle invoices</p>
-              </div>
-            </div>
-            <Link href="/reports" className="self-start inline-flex items-center gap-2 rounded-2xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 sm:self-auto">
-              ← Back
-            </Link>
-          </div>
-        </div>
-
+    <AppShell
+      title="Statements & Invoices"
+      subtitle="Full activity statements and billing cycle invoices"
+      actions={
+        <Link
+          href="/reports"
+          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
+        >
+          <Icon name="arrowLeft" className="h-4 w-4" />
+          <span className="hidden sm:inline">Reports</span>
+        </Link>
+      }
+    >
+      <>
         {/* Tabs */}
         <div className="mb-6 flex flex-wrap gap-3">
           <button onClick={()=>setTab('statement')}
@@ -1173,7 +1164,7 @@ export default function StatementsPage() {
             ? <StatementTab customers={customers} drivers={drivers} driverMap={driverMap} />
             : <InvoiceTab customers={customers} drivers={drivers} driverMap={driverMap} />
         }
-      </div>
-    </div>
+      </>
+    </AppShell>
   )
 }
