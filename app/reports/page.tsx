@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import AppShell from '@/components/AppShell'
 import Icon, { type IconName } from '@/components/Icon'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -22,6 +23,12 @@ const CARDS: { href: string; title: string; description: string; icon: IconName 
     title: 'Driver Performance',
     description: 'Driver output, completion rates, order type breakdown, and daily volume trends.',
     icon: 'chart',
+  },
+  {
+    href: '/reports/tax',
+    title: `${CLIENT_CONFIG.taxLabel} Return`,
+    description: `Sales, ${CLIENT_CONFIG.taxLabel} collected, and input tax credits — the figures CRA asks for, plus a profit summary.`,
+    icon: 'invoice',
   },
 ]
 
