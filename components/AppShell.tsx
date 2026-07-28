@@ -38,6 +38,7 @@ const NAV: NavGroup[] = [
       { href: '/drivers', label: 'Drivers & Fleet', icon: 'truck' },
       { href: '/dump-sites', label: 'Disposal Sites', icon: 'location' },
       { href: '/users', label: 'Team', icon: 'team' },
+      { href: '/import', label: 'Import Data', icon: 'arrowRight' },
     ],
   },
 ]
