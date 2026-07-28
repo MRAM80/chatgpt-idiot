@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_CONFIG } from '@/lib/client-config'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
 import Icon from '@/components/Icon'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
@@ -354,45 +354,30 @@ export default function DashboardPage() {
   }, [orders])
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Top bar */}
-      <header className="bg-[var(--ink)] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center md:justify-between md:px-6">
-          <div className="flex items-center gap-4">
-            <AppLogo className="h-9 w-auto" />
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-              <p className="text-sm text-white/55">{CLIENT_CONFIG.name}</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={loadDashboard}
-              className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white/80 ring-1 ring-white/15 transition hover:bg-white/10 hover:text-white"
-            >
-              <Icon name="refresh" className="h-4 w-4" />
-              Refresh
-            </button>
-            <Link
-              href="/dispatch"
-              className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-slate-900 transition hover:bg-white/90"
-            >
-              <Icon name="dispatch" className="h-4 w-4" />
-              Dispatch Board
-            </Link>
-            <button
-              onClick={handleLogOff}
-              className="rounded-lg px-3.5 py-2 text-sm font-medium text-white/60 transition hover:bg-white/10 hover:text-white"
-            >
-              Log Off
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
-
+    <AppShell
+      title="Dashboard"
+      subtitle={`Today's operation at a glance — ${CLIENT_CONFIG.name}`}
+      actions={
+        <>
+          <button
+            onClick={loadDashboard}
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
+          >
+            <Icon name="refresh" className="h-4 w-4" />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+          <Link
+            href="/dispatch"
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            style={{ background: 'var(--accent)' }}
+          >
+            <Icon name="dispatch" className="h-4 w-4" />
+            <span className="hidden sm:inline">Dispatch Board</span>
+          </Link>
+        </>
+      }
+    >
+      <>
         {pageError ? (
           <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {pageError}
@@ -413,40 +398,6 @@ export default function DashboardPage() {
               <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">{m.value}</div>
               <div className="mt-1 text-xs text-slate-400">{m.hint}</div>
             </div>
-          ))}
-        </div>
-
-        {/* Workspace */}
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Workspace</h2>
-        <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {([
-            { href: '/order', icon: 'orders', title: 'Orders', desc: 'Create, edit, and manage every operational order' },
-            { href: '/dispatch', icon: 'dispatch', title: 'Dispatch', desc: "Assign drivers and run today's live board" },
-            { href: '/sale', icon: 'sale', title: 'Quick Sale', desc: 'Counter sales with a printed receipt' },
-            { href: '/invoices', icon: 'invoice', title: 'Invoices', desc: 'Who paid, who owes, and outstanding balances' },
-            { href: '/reports', icon: 'reports', title: 'Reports', desc: 'Customer statements and driver performance' },
-            { href: '/settings', icon: 'settings', title: 'Settings', desc: 'Drivers, bins, customers, team, and prices' },
-          ] as const).map(card => (
-            <Link
-              key={card.href}
-              href={card.href}
-              className="group flex items-start gap-4 rounded-xl bg-white p-5 ring-1 ring-slate-200 transition hover:ring-[var(--accent-ring)] hover:shadow-sm"
-            >
-              <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--accent)] transition group-hover:scale-105"
-                style={{ background: 'var(--accent-soft)' }}
-              >
-                <Icon name={card.icon} className="h-5 w-5" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-base font-semibold text-slate-900">{card.title}</span>
-                <span className="mt-1 block text-sm leading-relaxed text-slate-500">{card.desc}</span>
-              </span>
-              <Icon
-                name="arrowRight"
-                className="mt-1 h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[var(--accent)]"
-              />
-            </Link>
           ))}
         </div>
 
@@ -570,7 +521,6 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
-      </main>
 
       {/* Report Modal */}
       {reportOpen && (
@@ -689,6 +639,7 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
-    </div>
+      </>
+    </AppShell>
   )
 }

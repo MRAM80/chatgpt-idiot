@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import AppLogo from '@/components/AppLogo'
+import AppShell from '@/components/AppShell'
 import Icon, { type IconName } from '@/components/Icon'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 
@@ -118,29 +118,12 @@ export default function SettingsPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Top bar */}
-      <header className="bg-[var(--ink)] text-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-5 md:px-6">
-          <div className="flex items-center gap-4">
-            <AppLogo className="h-8 w-auto" />
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-              <p className="text-sm text-white/55">{CLIENT_CONFIG.name}</p>
-            </div>
-          </div>
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white/80 ring-1 ring-white/15 transition hover:bg-white/10 hover:text-white"
-          >
-            <Icon name="arrowLeft" className="h-4 w-4" />
-            Dashboard
-          </Link>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl px-4 py-8 md:px-6">
-
+    <AppShell
+      title="Settings"
+      subtitle={`System management for ${CLIENT_CONFIG.name}`}
+      maxWidth="max-w-5xl"
+    >
+      <>
         {/* Summary */}
         <div className="mb-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 dark:bg-slate-700 sm:grid-cols-4">
           {summary.map(s => (
@@ -186,7 +169,7 @@ export default function SettingsPage() {
             </Link>
           ))}
         </div>
-      </main>
-    </div>
+      </>
+    </AppShell>
   )
 }

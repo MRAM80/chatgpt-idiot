@@ -322,6 +322,12 @@ function OrdersPageContent() {
     }
   }, [searchParams])
 
+  // Global search from the app shell arrives as ?q=
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (q) setSearch(q)
+  }, [searchParams])
+
   const [orders, setOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
