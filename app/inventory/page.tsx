@@ -171,12 +171,6 @@ export default function InventoryPage() {
     setNoteInput('')
   }
 
-  async function receiveStock(p: Product) {
-    const n = Number(qtyInput)
-    if (!qtyInput.trim() || Number.isNaN(n) || n <= 0) { setPageError('Enter how many arrived.'); return }
-    await applyMovement(p, 'receive', n, noteInput)
-  }
-
   async function correctStock(p: Product) {
     const target = Number(qtyInput)
     if (!qtyInput.trim() || Number.isNaN(target) || target < 0) { setPageError('Enter the counted quantity.'); return }
@@ -383,7 +377,7 @@ export default function InventoryPage() {
                                   <div className="mb-5 flex flex-wrap items-end gap-3">
                                     <div>
                                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
-                                        Quantity
+                                        Counted quantity
                                       </label>
                                       <input
                                         value={qtyInput}
@@ -400,18 +394,10 @@ export default function InventoryPage() {
                                       <input
                                         value={noteInput}
                                         onChange={e => setNoteInput(e.target.value)}
-                                        placeholder="Supplier, invoice number, reason…"
+                                        placeholder="Reason for the correction…"
                                         className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
                                       />
                                     </div>
-                                    <button
-                                      onClick={() => void receiveStock(p)}
-                                      disabled={busyId === p.id}
-                                      className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                                      style={{ background: 'var(--accent)' }}
-                                    >
-                                      Receive stock
-                                    </button>
                                     <button
                                       onClick={() => void correctStock(p)}
                                       disabled={busyId === p.id}
@@ -420,16 +406,21 @@ export default function InventoryPage() {
                                       Set counted total
                                     </button>
                                   </div>
-                                  <p className="mb-4 text-xs leading-relaxed text-slate-500">
-                                    <strong>Receive stock</strong> adds the quantity to what&apos;s on hand.{' '}
-                                    <strong>Set counted total</strong> replaces it with the number you counted.
-                                    <br />
-                                    Got a supplier bill?{' '}
-                                    <Link href="/receiving" className="font-semibold text-[var(--accent)] underline">
-                                      Use Stock In
-                                    </Link>{' '}
-                                    instead — it records the expense and the {CLIENT_CONFIG.taxLabel} at the same time.
-                                  </p>
+
+                                  {/* Stock only enters through Stock In, so every unit on hand
+                                      traces back to a supplier bill. This panel is for counts. */}
+                                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                                    <p className="text-xs leading-relaxed text-amber-900">
+                                      This corrects the count after a physical stocktake — it does <strong>not</strong> create
+                                      a bill or claim {CLIENT_CONFIG.taxLabel}.
+                                      <br />
+                                      Material arriving from a supplier?{' '}
+                                      <Link href="/receiving" className="font-bold underline">
+                                        Use Stock In
+                                      </Link>{' '}
+                                      — it records the expense, the tax, and the stock together.
+                                    </p>
+                                  </div>
 
                                   <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                                     Recent movements
