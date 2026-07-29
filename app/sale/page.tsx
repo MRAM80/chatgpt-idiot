@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AppShell from '@/components/AppShell'
 import { CLIENT_CONFIG } from '@/lib/client-config'
+import { printInvoiceDocument } from '@/lib/invoice-print'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -52,6 +53,15 @@ function fmtMoney(value: number) {
   return `$${value.toFixed(2)}`
 }
 
+/** Materials sell in part loads — show 0.5 as ½ rather than 0.50. */
+function fmtQtyLabel(n: number) {
+  if (Number.isInteger(n)) return String(n)
+  if (n === 0.5) return '½'
+  if (n === 0.25) return '¼'
+  if (n === 0.75) return '¾'
+  return String(n)
+}
+
 function priceItemLabel(item: PriceItem) {
   return item.kind === 'service'
     ? `${item.service_type} — ${item.bin_size}Y`
@@ -59,48 +69,25 @@ function priceItemLabel(item: PriceItem) {
 }
 
 function printReceipt(sale: CompletedSale) {
-  const win = window.open('', '_blank')
-  if (!win) return
-  const rows = sale.lines.map(l => `<tr>
-    <td>${l.description}${l.unit ? ` <span style="color:#94a3b8">(per ${l.unit})</span>` : ''}</td>
-    <td style="text-align:right">${l.quantity}</td>
-    <td style="text-align:right">${fmtMoney(l.rate)}</td>
-    <td style="text-align:right"><strong>${fmtMoney(l.quantity * l.rate)}</strong></td>
-  </tr>`).join('')
-
-  win.document.write(`<html><head><title>${sale.invoice_number}</title>
-  <style>
-    body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#1e293b;max-width:520px}
-    h1{font-size:18px;margin:0 0 2px}
-    .meta{font-size:12px;color:#475569;margin:14px 0 18px;padding:10px 14px;background:#f8fafc;border-radius:6px}
-    table{width:100%;border-collapse:collapse;margin-bottom:8px}
-    th{background:#f1f5f9;text-align:left;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
-    td{padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px}
-    .totals td{border:none;padding:4px 10px}
-    .grand td{border-top:2px solid #e2e8f0;font-size:14px;padding-top:8px}
-    .footer{margin-top:24px;padding-top:10px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:10px;text-align:center}
-    @media print{body{padding:0}}
-  </style></head><body>
-  <h1>${CLIENT_CONFIG.name}</h1>
-  <div style="font-size:16px;font-weight:bold;margin-top:6px">${sale.invoice_number}</div>
-  <div class="meta">
-    Customer: <strong>${sale.customer}</strong><br/>
-    Date: ${sale.issuedAt}<br/>
-    Payment: <strong>${sale.paymentMethod}</strong>
-  </div>
-  <table>
-    <thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <table class="totals">
-    <tr><td style="text-align:right">Subtotal</td><td style="text-align:right;width:110px"><strong>${fmtMoney(sale.subtotal)}</strong></td></tr>
-    <tr><td style="text-align:right">${CLIENT_CONFIG.taxLabel} (${CLIENT_CONFIG.taxRate}%)</td><td style="text-align:right"><strong>${fmtMoney(sale.tax)}</strong></td></tr>
-    <tr class="grand"><td style="text-align:right"><strong>TOTAL</strong></td><td style="text-align:right"><strong>${fmtMoney(sale.total)}</strong></td></tr>
-  </table>
-  <div class="footer">Thank you — ${CLIENT_CONFIG.name}</div>
-  </body></html>`)
-  win.document.close()
-  win.print()
+  printInvoiceDocument({
+    kind: 'Receipt',
+    number: sale.invoice_number,
+    dateLabel: sale.issuedAt,
+    customer: sale.customer,
+    status: sale.paymentMethod === 'On Account' ? 'Due' : 'Paid',
+    paymentMethod: sale.paymentMethod,
+    lines: sale.lines.map(l => ({
+      description: l.description,
+      unit: l.unit,
+      quantity: l.quantity,
+      rate: l.rate,
+      amount: l.quantity * l.rate,
+    })),
+    subtotal: sale.subtotal,
+    taxAmount: sale.tax,
+    total: sale.total,
+    footerNote: sale.paymentMethod === 'On Account' ? 'Charged to account' : 'Paid in full',
+  })
 }
 
 export default function QuickSalePage() {
@@ -116,6 +103,9 @@ export default function QuickSalePage() {
   const [cart, setCart] = useState<CartLine[]>([])
   const [selectedItemId, setSelectedItemId] = useState('')
   const [qty, setQty] = useState('1')
+  const [pickerTab, setPickerTab] = useState<'products' | 'services'>('products')
+  const [itemSearch, setItemSearch] = useState('')
+  const [deliveryFee, setDeliveryFee] = useState('')
 
   const [customCustomer, setCustomCustomer] = useState('')
   const [customerId, setCustomerId] = useState('')
@@ -158,6 +148,13 @@ export default function QuickSalePage() {
     [priceItems]
   )
 
+  const visibleItems = useMemo(() => {
+    const list = pickerTab === 'products' ? products : services
+    const q = itemSearch.trim().toLowerCase()
+    if (!q) return list
+    return list.filter(i => priceItemLabel(i).toLowerCase().includes(q))
+  }, [pickerTab, products, services, itemSearch])
+
   const subtotal = useMemo(() => cart.reduce((s, l) => s + l.quantity * l.rate, 0), [cart])
   const tax = useMemo(() => subtotal * (CLIENT_CONFIG.taxRate / 100), [subtotal])
   const total = subtotal + tax
@@ -183,6 +180,26 @@ export default function QuickSalePage() {
     setSelectedItemId('')
   }
 
+  // Delivery is charged on top of the material — keep it as a real line so it
+  // flows through tax, the invoice, and the printed receipt like anything else.
+  const DELIVERY_KEY = 'delivery-fee'
+
+  function applyDeliveryFee(value: string) {
+    setDeliveryFee(value)
+    const amount = Number(value)
+    setCart(current => {
+      const without = current.filter(l => l.key !== DELIVERY_KEY)
+      if (!value.trim() || Number.isNaN(amount) || amount <= 0) return without
+      return [...without, {
+        key: DELIVERY_KEY,
+        description: 'Delivery',
+        unit: null,
+        quantity: 1,
+        rate: amount,
+      }]
+    })
+  }
+
   function addCustomLine() {
     setCart(current => [...current, {
       key: `custom-${Date.now()}`,
@@ -206,6 +223,9 @@ export default function QuickSalePage() {
     setCustomerId('')
     setCustomCustomer('')
     setPaymentMethod('Cash')
+    setDeliveryFee('')
+    setItemSearch('')
+    setSelectedItemId('')
     setCompleted(null)
     setPageError('')
   }
@@ -379,50 +399,110 @@ export default function QuickSalePage() {
           <div className="space-y-6 lg:col-span-2">
 
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="mb-4 text-base font-bold text-slate-900">Add Items</h2>
+              {/* Materials and bin services are different jobs — keep them apart
+                  so a long material list never buries the bin services. */}
+              <div className="mb-4 flex gap-2">
+                {([
+                  { id: 'products' as const, label: 'Materials & Products', count: products.length },
+                  { id: 'services' as const, label: 'Bin Services', count: services.length },
+                ]).map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setPickerTab(t.id); setSelectedItemId(''); setItemSearch('') }}
+                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                      pickerTab === t.id ? 'text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                    }`}
+                    style={pickerTab === t.id ? { background: 'var(--accent)' } : undefined}
+                  >
+                    {t.label}
+                    <span className={`rounded-full px-1.5 text-xs ${pickerTab === t.id ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
+                      {t.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
               {loading ? (
                 <p className="text-sm text-slate-500">Loading price book…</p>
               ) : priceItems.length === 0 ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                   No prices yet. <Link href="/prices" className="font-bold underline">Set up the Price Book →</Link>
                 </div>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-[1fr_120px_auto]">
-                  <select
-                    value={selectedItemId}
-                    onChange={(e) => setSelectedItemId(e.target.value)}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
-                  >
-                    <option value="">Select an item…</option>
-                    {products.length > 0 && (
-                      <optgroup label="Products & Materials">
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>{priceItemLabel(p)} — {fmtMoney(p.price)}/{p.unit}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {services.length > 0 && (
-                      <optgroup label="Bin Services">
-                        {services.map(s => (
-                          <option key={s.id} value={s.id}>{priceItemLabel(s)} — {fmtMoney(s.price)}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+                <>
                   <input
-                    value={qty}
-                    onChange={(e) => setQty(e.target.value)}
-                    inputMode="decimal"
-                    placeholder="Qty"
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                    value={itemSearch}
+                    onChange={e => setItemSearch(e.target.value)}
+                    placeholder={pickerTab === 'products' ? 'Search materials…' : 'Search services…'}
+                    className="mb-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
                   />
-                  <button
-                    onClick={addSelectedItem}
-                    className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
-                  >
-                    Add
-                  </button>
-                </div>
+
+                  <div className="mb-4 max-h-56 overflow-y-auto rounded-lg ring-1 ring-slate-200">
+                    {visibleItems.length === 0 ? (
+                      <p className="px-4 py-6 text-center text-sm text-slate-500">Nothing matches that search.</p>
+                    ) : (
+                      <ul className="divide-y divide-slate-100">
+                        {visibleItems.map(item => (
+                          <li key={item.id}>
+                            <button
+                              onClick={() => setSelectedItemId(item.id)}
+                              className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition ${
+                                selectedItemId === item.id ? 'bg-[var(--accent-soft)]' : 'bg-white hover:bg-slate-50'
+                              }`}
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-slate-900">
+                                  {priceItemLabel(item)}
+                                </span>
+                                {item.kind === 'product' && item.track_stock && (
+                                  <span className={`text-xs ${Number(item.stock_qty) <= 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                                    {fmtQtyLabel(Number(item.stock_qty))} {item.unit || ''} on hand
+                                  </span>
+                                )}
+                              </span>
+                              <span className="shrink-0 text-sm font-semibold text-slate-700">
+                                {fmtMoney(item.price)}{item.kind === 'product' && item.unit ? `/${item.unit}` : ''}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-[140px_1fr_auto]">
+                    <input
+                      value={qty}
+                      onChange={(e) => setQty(e.target.value)}
+                      inputMode="decimal"
+                      placeholder="Qty"
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                    />
+                    {/* Materials go out in part loads — half and quarter yards are normal */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {['0.25', '0.5', '1', '2', '5'].map(v => (
+                        <button
+                          key={v}
+                          onClick={() => setQty(v)}
+                          className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                            qty === v ? 'text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                          }`}
+                          style={qty === v ? { background: 'var(--accent)' } : undefined}
+                        >
+                          {v === '0.25' ? '¼' : v === '0.5' ? '½' : v}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={addSelectedItem}
+                      disabled={!selectedItemId}
+                      className="rounded-lg px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
+                      style={{ background: 'var(--accent)' }}
+                    >
+                      Add to sale
+                    </button>
+                  </div>
+                </>
               )}
               <button
                 onClick={addCustomLine}
@@ -521,6 +601,29 @@ export default function QuickSalePage() {
                   />
                 </>
               )}
+            </div>
+
+            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+              <h2 className="mb-2 text-base font-bold text-slate-900">Delivery</h2>
+              <p className="mb-3 text-xs text-slate-500">Charging to drop the material off? Add it here.</p>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">$</span>
+                <input
+                  value={deliveryFee}
+                  onChange={e => applyDeliveryFee(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                />
+                {deliveryFee.trim() !== '' && (
+                  <button
+                    onClick={() => applyDeliveryFee('')}
+                    className="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">

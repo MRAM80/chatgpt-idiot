@@ -26,7 +26,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/invoices', label: 'Invoices', icon: 'invoice' },
       { href: '/expenses', label: 'Expenses', icon: 'sale' },
-      { href: '/receiving', label: 'Receive Delivery', icon: 'truck' },
+      { href: '/receiving', label: 'Stock In', icon: 'truck' },
       { href: '/reports', label: 'Reports', icon: 'reports' },
       { href: '/export', label: 'Export to QB', icon: 'arrowRight' },
       { href: '/prices', label: 'Price Book', icon: 'price' },

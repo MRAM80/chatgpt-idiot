@@ -228,7 +228,7 @@ export default function InventoryPage() {
             style={{ background: 'var(--accent)' }}
           >
             <Icon name="truck" className="h-4 w-4" />
-            <span className="hidden sm:inline">Receive Delivery</span>
+            <span className="hidden sm:inline">Stock In</span>
           </Link>
         </>
       }
@@ -426,7 +426,7 @@ export default function InventoryPage() {
                                     <br />
                                     Got a supplier bill?{' '}
                                     <Link href="/receiving" className="font-semibold text-[var(--accent)] underline">
-                                      Use Receive Delivery
+                                      Use Stock In
                                     </Link>{' '}
                                     instead — it records the expense and the {CLIENT_CONFIG.taxLabel} at the same time.
                                   </p>

@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import AppShell from '@/components/AppShell'
 import Icon from '@/components/Icon'
 import { CLIENT_CONFIG } from '@/lib/client-config'
+import { printInvoiceDocument } from '@/lib/invoice-print'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -72,52 +73,26 @@ function isOverdue(inv: Invoice) {
 }
 
 function printInvoiceDoc(inv: Invoice, items: InvoiceItem[]) {
-  const win = window.open('', '_blank')
-  if (!win) return
-  const rows = items.map(i => `<tr>
-    <td>${i.description}${i.unit ? ` <span style="color:#94a3b8">(per ${i.unit})</span>` : ''}</td>
-    <td style="text-align:right">${i.quantity}</td>
-    <td style="text-align:right">${fmtMoney(i.rate)}</td>
-    <td style="text-align:right"><strong>${fmtMoney(i.amount)}</strong></td>
-  </tr>`).join('')
-
-  win.document.write(`<html><head><title>${inv.invoice_number}</title>
-  <style>
-    body{font-family:Arial,sans-serif;font-size:12px;padding:28px;color:#1e293b;max-width:640px}
-    h1{font-size:20px;margin:0}
-    .num{font-size:16px;font-weight:bold;margin-top:8px}
-    .meta{font-size:12px;color:#475569;margin:16px 0 20px;padding:12px 16px;background:#f8fafc;border-radius:6px}
-    table{width:100%;border-collapse:collapse;margin-bottom:8px}
-    th{background:#f1f5f9;text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
-    td{padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:11px}
-    .totals td{border:none;padding:4px 10px}
-    .grand td{border-top:2px solid #e2e8f0;font-size:14px;padding-top:9px}
-    .status{display:inline-block;padding:3px 10px;border-radius:99px;font-size:10px;font-weight:bold;text-transform:uppercase}
-    .footer{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:10px;text-align:center}
-    @media print{body{padding:0}}
-  </style></head><body>
-  <h1>${CLIENT_CONFIG.name}</h1>
-  <div class="num">Invoice ${inv.invoice_number}</div>
-  <div class="meta">
-    Bill to: <strong>${inv.customer_name || '—'}</strong><br/>
-    Date: ${fmtDate(inv.issue_date)}<br/>
-    Status: <span class="status" style="background:${inv.status === 'paid' ? '#d1fae5;color:#047857' : '#fef3c7;color:#b45309'}">${inv.status}</span>
-    ${inv.payment_method ? ` &nbsp;|&nbsp; Payment: <strong>${inv.payment_method}</strong>` : ''}
-  </div>
-  <table>
-    <thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="4" style="color:#94a3b8">No line items</td></tr>'}</tbody>
-  </table>
-  <table class="totals">
-    <tr><td style="text-align:right">Subtotal</td><td style="text-align:right;width:120px"><strong>${fmtMoney(inv.subtotal)}</strong></td></tr>
-    <tr><td style="text-align:right">${CLIENT_CONFIG.taxLabel} (${inv.tax_rate}%)</td><td style="text-align:right"><strong>${fmtMoney(inv.tax_amount)}</strong></td></tr>
-    <tr class="grand"><td style="text-align:right"><strong>TOTAL</strong></td><td style="text-align:right"><strong>${fmtMoney(inv.total)}</strong></td></tr>
-  </table>
-  ${inv.notes ? `<div style="margin-top:16px;font-size:11px;color:#475569"><strong>Notes:</strong> ${inv.notes}</div>` : ''}
-  <div class="footer">${CLIENT_CONFIG.name} · Generated ${new Date().toISOString().slice(0, 10)}</div>
-  </body></html>`)
-  win.document.close()
-  win.print()
+  printInvoiceDocument({
+    kind: inv.kind === 'counter' ? 'Receipt' : 'Invoice',
+    number: inv.invoice_number,
+    dateLabel: fmtDate(inv.issue_date),
+    customer: inv.customer_name || '—',
+    status: inv.status === 'paid' ? 'Paid' : inv.status === 'void' ? 'Void' : 'Due',
+    paymentMethod: inv.payment_method,
+    notes: inv.notes,
+    lines: items.map(i => ({
+      description: i.description,
+      unit: i.unit,
+      quantity: Number(i.quantity),
+      rate: Number(i.rate),
+      amount: Number(i.amount),
+    })),
+    subtotal: Number(inv.subtotal),
+    taxAmount: Number(inv.tax_amount),
+    total: Number(inv.total),
+    footerNote: inv.status === 'paid' ? 'Paid in full' : null,
+  })
 }
 
 export default function InvoicesPage() {

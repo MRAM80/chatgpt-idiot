@@ -40,7 +40,11 @@ type Completed = {
   tax: number
   total: number
   stockUpdated: number
+  /** Products that came in, so the sale price can be set straight after. */
+  received: { id: string; name: string; unit: string | null; cost: number; price: number }[]
 }
+
+const NEW_PRODUCT_UNITS = ['yard', 'each', 'bag', 'load', 'tonne', 'hour'] as const
 
 const PAYMENT_METHODS = ['On Account', 'Credit Card', 'Debit', 'Cheque', 'Cash', 'E-transfer'] as const
 
@@ -75,6 +79,17 @@ export default function ReceivingPage() {
   const [selectedProductId, setSelectedProductId] = useState('')
   const [qty, setQty] = useState('1')
   const [cost, setCost] = useState('')
+
+  // Creating a product that isn't in the price book yet
+  const [showNewProduct, setShowNewProduct] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newUnit, setNewUnit] = useState<string>('yard')
+  const [creatingProduct, setCreatingProduct] = useState(false)
+
+  // Sale prices set on the confirmation screen
+  const [priceEdits, setPriceEdits] = useState<Record<string, string>>({})
+  const [savingPrices, setSavingPrices] = useState(false)
+  const [pricesSaved, setPricesSaved] = useState(false)
 
   useEffect(() => {
     if (!roleLoading && role !== null && !can(role, 'canViewReports')) {
@@ -135,6 +150,31 @@ export default function ReceivingPage() {
     setSelectedProductId('')
     setQty('1')
     setCost('')
+  }
+
+  // Stock In is the entrance for new materials too — create it here, price it later
+  async function createProduct() {
+    setPageError('')
+    const name = newName.trim()
+    if (!name) { setPageError('Give the new material a name.'); return }
+    if (products.some(p => (p.name || '').toLowerCase() === name.toLowerCase())) {
+      setPageError(`"${name}" is already in the price book.`)
+      return
+    }
+    setCreatingProduct(true)
+    const { data, error } = await supabase
+      .from('price_book')
+      .insert([{ kind: 'product', name, unit: newUnit, price: 0, track_stock: true }])
+      .select('id,name,unit,price,track_stock,stock_qty')
+      .single()
+    setCreatingProduct(false)
+    if (error || !data) { setPageError(error?.message || 'Could not add the material.'); return }
+
+    const created = data as Product
+    setProducts(cur => [...cur, created].sort((a, b) => (a.name || '').localeCompare(b.name || '')))
+    setSelectedProductId(created.id)
+    setNewName('')
+    setShowNewProduct(false)
   }
 
   function addChargeLine() {
@@ -240,6 +280,21 @@ export default function ReceivingPage() {
       return
     }
 
+    // Hand the received products to the confirmation screen so their selling
+    // price can be set right away — that's the waterfall from cost to price.
+    const received = stockLines.map(line => {
+      const product = products.find(p => p.id === line.productId)
+      return {
+        id: line.productId,
+        name: line.description,
+        unit: line.unit,
+        cost: line.unitCost,
+        price: Number(product?.price || 0),
+      }
+    })
+    setPriceEdits(Object.fromEntries(received.map(r => [r.id, r.price > 0 ? String(r.price) : ''])))
+    setPricesSaved(false)
+
     setCompleted({
       reference: reference.trim() || '(no bill number)',
       supplier: supplier.trim(),
@@ -248,49 +303,154 @@ export default function ReceivingPage() {
       tax,
       total,
       stockUpdated: stockLines.length,
+      received,
     })
+  }
+
+  async function saveSalePrices() {
+    setPageError('')
+    if (!completed) return
+    const updates = completed.received
+      .map(r => ({ id: r.id, price: Number(priceEdits[r.id]) }))
+      .filter(u => priceEdits[u.id]?.trim() !== '' && !Number.isNaN(u.price) && u.price >= 0)
+
+    if (updates.length === 0) { setPageError('Enter at least one selling price.'); return }
+
+    setSavingPrices(true)
+    for (const u of updates) {
+      const { error } = await supabase
+        .from('price_book')
+        .update({ price: u.price, updated_at: new Date().toISOString() })
+        .eq('id', u.id)
+      if (error) { setPageError(error.message); setSavingPrices(false); return }
+    }
+    setSavingPrices(false)
+    setPricesSaved(true)
+    setProducts(cur => cur.map(p => {
+      const u = updates.find(x => x.id === p.id)
+      return u ? { ...p, price: u.price } : p
+    }))
   }
 
   // ── Confirmation ────────────────────────────────────────────────────────────
   if (completed) {
     return (
-      <AppShell title="Receive Delivery" subtitle="Supplier bill and stock, recorded together" maxWidth="max-w-2xl">
-        <div className="rounded-xl bg-white p-8 text-center ring-1 ring-slate-200">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-            <Icon name="check" className="h-8 w-8 text-emerald-600" strokeWidth={2.2} />
+      <AppShell title="Stock In" subtitle="Supplier bill and stock, recorded together" maxWidth="max-w-3xl">
+        <>
+          <div className="rounded-xl bg-white p-8 text-center ring-1 ring-slate-200">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+              <Icon name="check" className="h-8 w-8 text-emerald-600" strokeWidth={2.2} />
+            </div>
+            <h1 className="text-2xl font-semibold text-slate-900">Stock received</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {completed.supplier} · {completed.reference}
+            </p>
+
+            <div className="mx-auto mt-6 max-w-sm space-y-2 rounded-xl bg-slate-50 p-5 text-left ring-1 ring-slate-200">
+              <div className="flex justify-between text-sm text-slate-600">
+                <span>Bill total</span>
+                <span className="font-semibold text-slate-900">{fmtMoney(completed.total)}</span>
+              </div>
+              <div className="flex justify-between text-sm text-slate-600">
+                <span>{CLIENT_CONFIG.taxLabel} recoverable</span>
+                <span className="font-semibold text-blue-600">{fmtMoney(completed.tax)}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200 pt-2 text-sm text-slate-600">
+                <span>Materials stocked</span>
+                <span className="font-semibold text-emerald-700">{completed.stockUpdated}</span>
+              </div>
+            </div>
           </div>
-          <h1 className="text-2xl font-semibold text-slate-900">Delivery recorded</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {completed.supplier} · {completed.reference}
-          </p>
 
-          <div className="mx-auto mt-6 max-w-sm space-y-2 rounded-xl bg-slate-50 p-5 text-left ring-1 ring-slate-200">
-            <div className="flex justify-between text-sm text-slate-600">
-              <span>Bill total</span>
-              <span className="font-semibold text-slate-900">{fmtMoney(completed.total)}</span>
-            </div>
-            <div className="flex justify-between text-sm text-slate-600">
-              <span>{CLIENT_CONFIG.taxLabel} recoverable</span>
-              <span className="font-semibold text-blue-600">{fmtMoney(completed.tax)}</span>
-            </div>
-            <div className="flex justify-between border-t border-slate-200 pt-2 text-sm text-slate-600">
-              <span>Products stocked</span>
-              <span className="font-semibold text-emerald-700">{completed.stockUpdated}</span>
-            </div>
-          </div>
+          {/* Step 2 of the waterfall: cost is known, now set what you sell it for */}
+          {completed.received.length > 0 && (
+            <div className="mt-6 overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+              <div className="border-b border-slate-200 px-6 py-4">
+                <h2 className="text-base font-semibold text-slate-900">Set your selling prices</h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  You know what it cost — set what you charge. This is what the counter and invoices will use.
+                </p>
+              </div>
 
-          <p className="mx-auto mt-5 max-w-sm text-xs leading-relaxed text-slate-500">
-            This bill now counts as an expense on your {CLIENT_CONFIG.taxLabel} return, and the stock is on hand
-            ready to sell.
-          </p>
+              {pricesSaved && (
+                <div className="border-b border-emerald-200 bg-emerald-50 px-6 py-3 text-sm text-emerald-800">
+                  ✓ Selling prices updated.
+                </div>
+              )}
 
-          <div className="mt-7 flex flex-wrap justify-center gap-3">
+              <table className="w-full divide-y divide-slate-100">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Material</th>
+                    <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">You paid</th>
+                    <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">You charge</th>
+                    <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Margin</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {completed.received.map(r => {
+                    const entered = Number(priceEdits[r.id])
+                    const hasPrice = priceEdits[r.id]?.trim() !== '' && !Number.isNaN(entered)
+                    const margin = hasPrice && r.cost > 0 ? ((entered - r.cost) / r.cost) * 100 : null
+                    return (
+                      <tr key={r.id}>
+                        <td className="px-6 py-3">
+                          <div className="text-sm font-semibold text-slate-900">{r.name}</div>
+                          <div className="text-xs text-slate-500">per {r.unit || 'each'}</div>
+                        </td>
+                        <td className="px-6 py-3 text-right text-sm text-slate-600 whitespace-nowrap">
+                          {fmtMoney(r.cost)}
+                        </td>
+                        <td className="px-6 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-slate-400">$</span>
+                            <input
+                              value={priceEdits[r.id] ?? ''}
+                              onChange={e => { setPriceEdits(p => ({ ...p, [r.id]: e.target.value })); setPricesSaved(false) }}
+                              inputMode="decimal"
+                              placeholder="0.00"
+                              className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm text-slate-900 outline-none placeholder:text-slate-300 focus:border-slate-400"
+                            />
+                          </div>
+                        </td>
+                        <td className="px-6 py-3 text-right text-sm whitespace-nowrap">
+                          {margin === null ? (
+                            <span className="text-slate-300">—</span>
+                          ) : (
+                            <span className={margin >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-600'}>
+                              {margin >= 0 ? '+' : ''}{margin.toFixed(0)}%
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+
+              <div className="border-t border-slate-200 px-6 py-4">
+                <button
+                  onClick={() => void saveSalePrices()}
+                  disabled={savingPrices}
+                  className="rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                  style={{ background: 'var(--accent)' }}
+                >
+                  {savingPrices ? 'Saving…' : 'Save selling prices'}
+                </button>
+                <p className="mt-2 text-xs text-slate-500">
+                  Leave a price blank to keep what&apos;s already in the price book.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button
               onClick={resetAll}
               className="rounded-lg px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
               style={{ background: 'var(--accent)' }}
             >
-              Record another
+              Receive another
             </button>
             <Link href="/inventory" className="rounded-lg px-6 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50">
               View Inventory
@@ -299,7 +459,7 @@ export default function ReceivingPage() {
               View Expenses
             </Link>
           </div>
-        </div>
+        </>
       </AppShell>
     )
   }
@@ -307,8 +467,8 @@ export default function ReceivingPage() {
   // ── Entry ───────────────────────────────────────────────────────────────────
   return (
     <AppShell
-      title="Receive Delivery"
-      subtitle="Enter the supplier bill once — it records the expense and puts the stock on hand"
+      title="Stock In"
+      subtitle="Materials arriving from a supplier — enter the bill once and it stocks, expenses, and claims the tax"
       maxWidth="max-w-6xl"
     >
       <>
@@ -409,14 +569,60 @@ export default function ReceivingPage() {
                   </button>
                 </div>
               )}
+              {/* New material — Stock In is where materials first enter the system */}
+              {showNewProduct ? (
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">New material</p>
+                  <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto_auto]">
+                    <input
+                      value={newName}
+                      onChange={e => setNewName(e.target.value)}
+                      placeholder="e.g. Screened Topsoil"
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                    />
+                    <select
+                      value={newUnit}
+                      onChange={e => setNewUnit(e.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+                    >
+                      {NEW_PRODUCT_UNITS.map(u => <option key={u} value={u}>per {u}</option>)}
+                    </select>
+                    <button
+                      onClick={() => void createProduct()}
+                      disabled={creatingProduct}
+                      className="rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                      style={{ background: 'var(--accent)' }}
+                    >
+                      {creatingProduct ? 'Adding…' : 'Add material'}
+                    </button>
+                    <button
+                      onClick={() => { setShowNewProduct(false); setNewName('') }}
+                      className="rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Selling price gets set after the delivery is recorded.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowNewProduct(true)}
+                  className="mt-3 mr-4 text-xs font-semibold text-[var(--accent)] underline"
+                >
+                  + New material (not in the price book yet)
+                </button>
+              )}
+
               <button
                 onClick={addChargeLine}
                 className="mt-3 text-xs font-semibold text-slate-500 underline hover:text-slate-800"
               >
-                + Add a charge that isn&apos;t stock (delivery fee, fuel surcharge)
+                + Add a charge that isn&apos;t stock (freight, fuel surcharge)
               </button>
               <p className="mt-2 text-xs text-slate-400">
-                Cost each is what <em>you</em> paid, not your selling price.
+                Cost each is what <em>you</em> paid, not your selling price. Fractions are fine — enter 0.5 for half a yard.
               </p>
             </div>
 
