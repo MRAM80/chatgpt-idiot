@@ -19,6 +19,8 @@ type PriceItem = {
   name: string | null
   unit: string | null
   price: number
+  track_stock?: boolean
+  stock_qty?: number
 }
 
 type CartLine = {
@@ -27,6 +29,8 @@ type CartLine = {
   unit: string | null
   quantity: number
   rate: number
+  /** Set when the line came from the price book — lets a sale reduce stock. */
+  priceItemId?: string
 }
 
 type Customer = { id: string; name: string | null }
@@ -131,7 +135,7 @@ export default function QuickSalePage() {
       if (!user) { router.push('/login'); return }
       const [priceRes, custRes] = await Promise.all([
         supabase.from('price_book')
-          .select('id,kind,service_type,bin_size,name,unit,price')
+          .select('id,kind,service_type,bin_size,name,unit,price,track_stock,stock_qty')
           .is('customer_id', null),
         supabase.from('customers').select('id,name').order('name'),
       ])
@@ -173,6 +177,7 @@ export default function QuickSalePage() {
       unit: item.unit,
       quantity,
       rate: Number(item.price),
+      priceItemId: item.id,
     }])
     setQty('1')
     setSelectedItemId('')
@@ -256,6 +261,37 @@ export default function QuickSalePage() {
       setPageError(`Sale ${inv.invoice_number} saved, but the line items failed: ${itemsError.message}`)
       setSaving(false)
       return
+    }
+
+    // Reduce stock for tracked products. Done after the invoice is safely
+    // saved — a stock hiccup must never lose the sale, so failures here are
+    // surfaced as a warning rather than rolling anything back.
+    const stockLines = cart.filter(l => {
+      if (!l.priceItemId) return false
+      const item = priceItems.find(p => p.id === l.priceItemId)
+      return item?.kind === 'product' && item?.track_stock
+    })
+
+    if (stockLines.length > 0) {
+      const stockErrors: string[] = []
+      for (const line of stockLines) {
+        const { error: rpcError } = await supabase.rpc('adjust_stock', {
+          p_id: line.priceItemId,
+          p_delta: -line.quantity,
+        })
+        if (rpcError) { stockErrors.push(line.description); continue }
+        await supabase.from('stock_movements').insert([{
+          price_book_id: line.priceItemId,
+          kind: 'sale',
+          quantity: -line.quantity,
+          note: inv.invoice_number,
+          invoice_id: inv.id,
+          created_by: user?.id || null,
+        }])
+      }
+      if (stockErrors.length > 0) {
+        setPageError(`Sale ${inv.invoice_number} completed, but stock was not updated for: ${stockErrors.join(', ')}. Correct it in Inventory.`)
+      }
     }
 
     setCompleted({

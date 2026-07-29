@@ -152,6 +152,49 @@ create policy "invoice_items_update" on invoice_items for update to authenticate
 create policy "invoice_items_delete" on invoice_items for delete to authenticated using (true);
 ```
 
+Retail inventory (added 2026-07-29 — stock lives on `price_book` products; `adjust_stock` is a function so concurrent tills can't clobber each other's read-modify-write):
+
+```sql
+alter table price_book add column if not exists track_stock boolean not null default false;
+alter table price_book add column if not exists stock_qty numeric(10,2) not null default 0;
+alter table price_book add column if not exists low_stock_at numeric(10,2);
+
+create table if not exists stock_movements (
+  id uuid primary key default gen_random_uuid(),
+  price_book_id uuid not null references price_book(id) on delete cascade,
+  movement_date date not null default current_date,
+  kind text not null check (kind in ('receive','sale','adjust','return')),
+  quantity numeric(10,2) not null,
+  note text,
+  invoice_id uuid references invoices(id) on delete set null,
+  created_by uuid,
+  created_at timestamptz not null default now()
+);
+alter table stock_movements enable row level security;
+drop policy if exists "stock_movements_select" on stock_movements;
+drop policy if exists "stock_movements_insert" on stock_movements;
+drop policy if exists "stock_movements_update" on stock_movements;
+drop policy if exists "stock_movements_delete" on stock_movements;
+create policy "stock_movements_select" on stock_movements for select to authenticated using (true);
+create policy "stock_movements_insert" on stock_movements for insert to authenticated with check (true);
+create policy "stock_movements_update" on stock_movements for update to authenticated using (true) with check (true);
+create policy "stock_movements_delete" on stock_movements for delete to authenticated using (true);
+
+-- Atomic increment/decrement; returns the new quantity
+create or replace function adjust_stock(p_id uuid, p_delta numeric)
+returns numeric
+language sql
+security invoker
+as $$
+  update price_book
+     set stock_qty = stock_qty + p_delta,
+         updated_at = now()
+   where id = p_id
+  returning stock_qty;
+$$;
+grant execute on function adjust_stock(uuid, numeric) to authenticated;
+```
+
 `expenses` table (added 2026-07-28, stage 5 of invoicing — supplier bills feed the HST return's input tax credits):
 
 ```sql

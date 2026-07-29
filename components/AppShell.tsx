@@ -36,6 +36,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/customers', label: 'Customers', icon: 'customers' },
       { href: '/bins', label: 'Bins', icon: 'bins' },
+      { href: '/inventory', label: 'Inventory', icon: 'sale' },
       { href: '/drivers', label: 'Drivers & Fleet', icon: 'truck' },
       { href: '/dump-sites', label: 'Disposal Sites', icon: 'location' },
       { href: '/users', label: 'Team', icon: 'team' },
