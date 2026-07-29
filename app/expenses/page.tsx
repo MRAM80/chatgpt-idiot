@@ -21,6 +21,7 @@ type Expense = {
   tax_amount: number
   total: number
   payment_method: string | null
+  reference: string | null
   notes: string | null
 }
 
@@ -73,6 +74,7 @@ export default function ExpensesPage() {
   const [subtotalInput, setSubtotalInput] = useState('')
   const [taxInput, setTaxInput] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<string>('Credit Card')
+  const [referenceInput, setReferenceInput] = useState('')
 
   // Filters
   const [search, setSearch] = useState('')
@@ -91,7 +93,7 @@ export default function ExpensesPage() {
     if (!user) { router.push('/login'); return }
     const { data, error } = await supabase
       .from('expenses')
-      .select('id,expense_date,supplier,category,description,subtotal,tax_amount,total,payment_method,notes')
+      .select('id,expense_date,supplier,category,description,subtotal,tax_amount,total,payment_method,reference,notes')
       .order('expense_date', { ascending: false })
       .limit(500)
     if (error) { setPageError(error.message); setLoading(false); return }
@@ -120,6 +122,7 @@ export default function ExpensesPage() {
     setSubtotalInput('')
     setTaxInput('')
     setPaymentMethod('Credit Card')
+    setReferenceInput('')
   }
 
   function startEdit(e: Expense) {
@@ -131,6 +134,7 @@ export default function ExpensesPage() {
     setSubtotalInput(String(e.subtotal))
     setTaxInput(String(e.tax_amount))
     setPaymentMethod(e.payment_method || 'Credit Card')
+    setReferenceInput(e.reference || '')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -150,6 +154,7 @@ export default function ExpensesPage() {
     const payload = {
       expense_date: date,
       supplier: supplier.trim() || null,
+      reference: referenceInput.trim() || null,
       category,
       description: description.trim() || null,
       subtotal: Number(subtotal.toFixed(2)),
@@ -243,6 +248,15 @@ export default function ExpensesPage() {
                 value={supplier}
                 onChange={e => setSupplier(e.target.value)}
                 placeholder="e.g. Petro-Canada"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">Bill number</label>
+              <input
+                value={referenceInput}
+                onChange={e => setReferenceInput(e.target.value)}
+                placeholder="Optional"
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
               />
             </div>
@@ -388,7 +402,14 @@ export default function ExpensesPage() {
                     <tr key={e.id} className="hover:bg-slate-50/80">
                       <td className="px-4 py-3 text-sm text-slate-700 whitespace-nowrap">{fmtDate(e.expense_date)}</td>
                       <td className="px-4 py-3 text-sm">
-                        <div className="font-semibold text-slate-900">{e.supplier || '—'}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-slate-900">{e.supplier || '—'}</span>
+                          {e.reference && (
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-500">
+                              {e.reference}
+                            </span>
+                          )}
+                        </div>
                         {e.description && <div className="mt-0.5 text-xs text-slate-500">{e.description}</div>}
                       </td>
                       <td className="px-4 py-3 text-xs whitespace-nowrap">

@@ -8,6 +8,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AppShell from '@/components/AppShell'
 import Icon from '@/components/Icon'
+import { CLIENT_CONFIG } from '@/lib/client-config'
 import { useRole } from '@/hooks/useRole'
 import { can } from '@/lib/roles'
 
@@ -213,13 +214,23 @@ export default function InventoryPage() {
       title="Inventory"
       subtitle="Stock counts for products sold at the counter"
       actions={
-        <Link
-          href="/prices"
-          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
-        >
-          <Icon name="price" className="h-4 w-4" />
-          <span className="hidden sm:inline">Price Book</span>
-        </Link>
+        <>
+          <Link
+            href="/prices"
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
+          >
+            <Icon name="price" className="h-4 w-4" />
+            <span className="hidden sm:inline">Price Book</span>
+          </Link>
+          <Link
+            href="/receiving"
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            style={{ background: 'var(--accent)' }}
+          >
+            <Icon name="truck" className="h-4 w-4" />
+            <span className="hidden sm:inline">Receive Delivery</span>
+          </Link>
+        </>
       }
     >
       <>
@@ -409,9 +420,15 @@ export default function InventoryPage() {
                                       Set counted total
                                     </button>
                                   </div>
-                                  <p className="mb-4 text-xs text-slate-500">
+                                  <p className="mb-4 text-xs leading-relaxed text-slate-500">
                                     <strong>Receive stock</strong> adds the quantity to what&apos;s on hand.{' '}
                                     <strong>Set counted total</strong> replaces it with the number you counted.
+                                    <br />
+                                    Got a supplier bill?{' '}
+                                    <Link href="/receiving" className="font-semibold text-[var(--accent)] underline">
+                                      Use Receive Delivery
+                                    </Link>{' '}
+                                    instead — it records the expense and the {CLIENT_CONFIG.taxLabel} at the same time.
                                   </p>
 
                                   <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">

@@ -180,6 +180,10 @@ create policy "stock_movements_insert" on stock_movements for insert to authenti
 create policy "stock_movements_update" on stock_movements for update to authenticated using (true) with check (true);
 create policy "stock_movements_delete" on stock_movements for delete to authenticated using (true);
 
+-- Receiving a delivery links the supplier bill to the stock it brought in
+alter table expenses add column if not exists reference text;
+alter table stock_movements add column if not exists expense_id uuid references expenses(id) on delete set null;
+
 -- Atomic increment/decrement; returns the new quantity
 create or replace function adjust_stock(p_id uuid, p_delta numeric)
 returns numeric
