@@ -27,6 +27,7 @@ const NAV: NavGroup[] = [
       { href: '/invoices', label: 'Invoices', icon: 'invoice' },
       { href: '/expenses', label: 'Expenses', icon: 'sale' },
       { href: '/reports', label: 'Reports', icon: 'reports' },
+      { href: '/export', label: 'Export to QB', icon: 'arrowRight' },
       { href: '/prices', label: 'Price Book', icon: 'price' },
     ],
   },
