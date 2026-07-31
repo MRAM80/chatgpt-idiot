@@ -152,6 +152,41 @@ create policy "invoice_items_update" on invoice_items for update to authenticate
 create policy "invoice_items_delete" on invoice_items for delete to authenticated using (true);
 ```
 
+`order_items` (added 2026-07-30 — orders carry material and charges alongside the bin service, so one order covers a whole trip). The bin service itself is NOT a line: it stays as `order.order_type` + `bin_size` and is priced from the price book at billing time.
+
+```sql
+create table if not exists order_items (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references "order"(id) on delete cascade,
+  price_book_id uuid references price_book(id) on delete set null,
+  kind text not null default 'product' check (kind in ('product','charge')),
+  description text not null,
+  unit text,
+  quantity numeric(10,2) not null default 1,
+  rate numeric(10,2) not null default 0,
+  amount numeric(10,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists order_items_order_id_idx on order_items(order_id);
+
+alter table order_items enable row level security;
+drop policy if exists "order_items_select" on order_items;
+drop policy if exists "order_items_insert" on order_items;
+drop policy if exists "order_items_update" on order_items;
+drop policy if exists "order_items_delete" on order_items;
+create policy "order_items_select" on order_items for select to authenticated using (true);
+create policy "order_items_insert" on order_items for insert to authenticated with check (true);
+create policy "order_items_update" on order_items for update to authenticated using (true) with check (true);
+create policy "order_items_delete" on order_items for delete to authenticated using (true);
+
+-- Which invoice settled this order, and whether it was paid when placed
+alter table "order" add column if not exists invoice_id uuid references invoices(id) on delete set null;
+alter table "order" add column if not exists prepaid boolean not null default false;
+
+-- Stock movements can be caused by an order, not just a counter invoice
+alter table stock_movements add column if not exists order_id uuid references "order"(id) on delete set null;
+```
+
 Retail inventory (added 2026-07-29 — stock lives on `price_book` products; `adjust_stock` is a function so concurrent tills can't clobber each other's read-modify-write):
 
 ```sql

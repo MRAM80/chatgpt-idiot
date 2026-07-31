@@ -31,7 +31,32 @@ type FormState = {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
+const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN', 'MATERIAL DELIVERY'] as const
+
+/** Bulk measures are scooped, so part loads are normal; countable things aren't. */
+const BULK_UNITS = ['yard', 'yards', 'yd', 'cubic yard', 'tonne', 'ton', 'load', 'm3', 'hour']
+const isBulkUnit = (u: string | null | undefined) => BULK_UNITS.includes((u || '').toLowerCase().trim())
+
+export type NOMPriceItem = {
+  id: string
+  kind: 'service' | 'product'
+  service_type: string | null
+  name: string | null
+  unit: string | null
+  price: number
+  track_stock?: boolean
+  stock_qty?: number
+}
+
+type OrderLine = {
+  key: string
+  priceItemId: string
+  kind: 'product' | 'charge'
+  description: string
+  unit: string | null
+  quantity: number
+  rate: number
+}
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
 
@@ -120,6 +145,21 @@ export default function NewOrderModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Material and charges carried by this order — the bin service itself stays
+  // on the order record and is priced at billing time.
+  const [priceItems, setPriceItems] = useState<NOMPriceItem[]>([])
+  const [lines, setLines] = useState<OrderLine[]>([])
+  const [lineSearch, setLineSearch] = useState('')
+  const [prepaid, setPrepaid] = useState(false)
+
+  useEffect(() => {
+    void supabase
+      .from('price_book')
+      .select('id,kind,service_type,name,unit,price,track_stock,stock_qty')
+      .is('customer_id', null)
+      .then(({ data }) => { if (data) setPriceItems(data as NOMPriceItem[]) })
+  }, [])
+
   useEffect(() => {
     if (pastOrdersProp) return // parent provided orders, skip fetch
     void supabase
@@ -185,6 +225,90 @@ export default function NewOrderModal({
   }, [bins, pastOrders, form.pickup_address])
 
   const isMultiStep = form.order_type === 'EXCHANGE' || form.order_type === 'REMOVAL' || form.order_type === 'DUMP RETURN'
+  const isMaterialOrder = form.order_type === 'MATERIAL DELIVERY'
+  /** A bin job is already going to that address, so material rides along free. */
+  const isBinService = !isMaterialOrder
+
+  const materialItems = useMemo(
+    () => priceItems
+      .filter(i => i.kind === 'product')
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [priceItems]
+  )
+
+  const deliveryCharge = useMemo(
+    () => priceItems.find(i =>
+      i.kind === 'service' && !i.service_type && (i.name || '').toLowerCase().includes('delivery')
+    ) || null,
+    [priceItems]
+  )
+
+  const lineMatches = useMemo(() => {
+    const q = lineSearch.trim().toLowerCase()
+    if (!q) return []
+    return materialItems.filter(i => (i.name || '').toLowerCase().includes(q)).slice(0, 6)
+  }, [materialItems, lineSearch])
+
+  const linesTotal = useMemo(() => lines.reduce((s, l) => s + l.quantity * l.rate, 0), [lines])
+  const hasMaterial = lines.some(l => l.kind === 'product')
+  const deliveryOnOrder = lines.some(l => l.kind === 'charge' && l.priceItemId === deliveryCharge?.id)
+
+  function addMaterialLine(item: NOMPriceItem) {
+    setError('')
+    setLines(cur => {
+      const existing = cur.find(l => l.priceItemId === item.id)
+      const step = isBulkUnit(item.unit) ? 0.25 : 1
+      if (existing) {
+        return cur.map(l => l.priceItemId === item.id
+          ? { ...l, quantity: Number((l.quantity + step).toFixed(2)) }
+          : l)
+      }
+      return [...cur, {
+        key: `${item.id}-${Date.now()}`,
+        priceItemId: item.id,
+        kind: 'product' as const,
+        description: item.name || 'Material',
+        unit: item.unit,
+        quantity: 1,
+        rate: Number(item.price),
+      }]
+    })
+    setLineSearch('')
+  }
+
+  function toggleDeliveryCharge() {
+    if (!deliveryCharge) return
+    setLines(cur => {
+      if (cur.some(l => l.priceItemId === deliveryCharge.id)) {
+        return cur.filter(l => l.priceItemId !== deliveryCharge.id)
+      }
+      return [...cur, {
+        key: `delivery-${Date.now()}`,
+        priceItemId: deliveryCharge.id,
+        kind: 'charge' as const,
+        description: deliveryCharge.name || 'Delivery',
+        unit: null,
+        quantity: 1,
+        rate: Number(deliveryCharge.price),
+      }]
+    })
+  }
+
+  function updateLineQty(key: string, raw: string) {
+    const n = Number(raw)
+    setLines(cur => cur.map(l => (l.key === key ? { ...l, quantity: Number.isNaN(n) ? 0 : n } : l)))
+  }
+
+  function removeLine(key: string) {
+    setLines(cur => cur.filter(l => l.key !== key))
+  }
+
+  // A bin job covers its own trip, so drop any delivery charge if the type changes
+  useEffect(() => {
+    if (isBinService && deliveryOnOrder && deliveryCharge) {
+      setLines(cur => cur.filter(l => l.priceItemId !== deliveryCharge.id))
+    }
+  }, [isBinService, deliveryOnOrder, deliveryCharge])
   const jobSiteExistingBins = useMemo(() => (isMultiStep ? binsAtJobSite : []), [binsAtJobSite, isMultiStep])
 
   const selectedExistingBin = useMemo(
@@ -290,6 +414,10 @@ export default function NewOrderModal({
     if (!form.scheduled_date) { setError('Date is required.'); return }
     if (CLIENT_CONFIG.requireBin && isMultiStep && !form.old_bin_id) { setError(`${form.order_type} requires selecting the bin at this job site.`); return }
     if (isMultiStep && !form.dump_site_id) { setError('Please select a dump site.'); return }
+    if (isMaterialOrder && !hasMaterial) { setError('Add the material being delivered.'); return }
+    const badQty = lines.find(l => !isBulkUnit(l.unit) && !Number.isInteger(l.quantity))
+    if (badQty) { setError(`${badQty.description} is sold by the ${badQty.unit || 'unit'} — use a whole number.`); return }
+    if (lines.some(l => l.quantity <= 0)) { setError('Every line needs a quantity greater than zero.'); return }
 
     setSaving(true)
     try {
@@ -321,8 +449,52 @@ export default function NewOrderModal({
         workflow_step: isMultiStep ? 'PICKUP' : 'MAIN',
       }
 
-      const { error: insertErr } = await supabase.from('order').insert(payload)
-      if (insertErr) throw new Error(insertErr.message)
+      const { data: created, error: insertErr } = await supabase
+        .from('order')
+        .insert({ ...payload, prepaid })
+        .select('id,ticket_number')
+        .single()
+      if (insertErr || !created) throw new Error(insertErr?.message || 'Failed to create order.')
+
+      const orderRow = created as { id: string; ticket_number: string }
+
+      if (lines.length > 0) {
+        const { error: linesErr } = await supabase.from('order_items').insert(
+          lines.map(l => ({
+            order_id: orderRow.id,
+            price_book_id: l.priceItemId || null,
+            kind: l.kind,
+            description: l.description,
+            unit: l.unit,
+            quantity: l.quantity,
+            rate: Number(l.rate.toFixed(2)),
+            amount: Number((l.quantity * l.rate).toFixed(2)),
+          }))
+        )
+        if (linesErr) throw new Error(linesErr.message)
+
+        // Material is committed the moment the order is written — it must not be
+        // sold twice while the order waits on the board. Cancelling gives it back.
+        const { data: { user } } = await supabase.auth.getUser()
+        for (const line of lines.filter(l => l.kind === 'product')) {
+          const item = priceItems.find(p => p.id === line.priceItemId)
+          if (!item?.track_stock) continue
+          const { error: rpcErr } = await supabase.rpc('adjust_stock', {
+            p_id: line.priceItemId,
+            p_delta: -line.quantity,
+          })
+          if (rpcErr) continue
+          await supabase.from('stock_movements').insert([{
+            price_book_id: line.priceItemId,
+            kind: 'sale',
+            quantity: -line.quantity,
+            note: `Order ${orderRow.ticket_number}`,
+            order_id: orderRow.id,
+            created_by: user?.id || null,
+          }])
+        }
+      }
+
       if (form.driver_id) await syncDriverStatuses(form.driver_id)
       onCreated()
     } catch (e) {
@@ -563,6 +735,119 @@ export default function NewOrderModal({
                     <option key={d.id} value={d.id}>{d.name || 'Unnamed Driver'}</option>
                   ))}
               </select>
+            </div>
+
+            {/* ── Material and charges on this order ─────────────────────── */}
+            <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <label className="text-sm font-medium text-slate-700">
+                  Material on this order {isMaterialOrder && <span className="text-rose-500">*</span>}
+                </label>
+                {linesTotal > 0 && (
+                  <span className="text-sm font-bold text-slate-900">${linesTotal.toFixed(2)}</span>
+                )}
+              </div>
+              <p className="mb-3 text-xs text-slate-500">
+                {isBinService
+                  ? 'Material dropped on the same trip as the bin — no delivery charge, we’re already going there.'
+                  : 'What the truck is delivering. Stock is held as soon as the order is saved.'}
+              </p>
+
+              <input
+                value={lineSearch}
+                onChange={(e) => setLineSearch(e.target.value)}
+                placeholder="Search material to add…"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+              />
+
+              {lineSearch.trim() !== '' && (
+                lineMatches.length === 0 ? (
+                  <p className="mt-2 text-xs text-slate-500">Nothing matches that.</p>
+                ) : (
+                  <ul className="mt-2 divide-y divide-slate-100 overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+                    {lineMatches.map(item => (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => addMaterialLine(item)}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                        >
+                          <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">{item.name}</span>
+                          <span className="shrink-0 text-slate-600">
+                            ${Number(item.price).toFixed(2)}{item.unit ? ` / ${item.unit}` : ''}
+                          </span>
+                          {item.track_stock && (
+                            <span className={`w-12 shrink-0 rounded px-1.5 py-0.5 text-center text-xs font-bold ${
+                              Number(item.stock_qty) <= 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {Number(item.stock_qty)}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              )}
+
+              {lines.length > 0 && (
+                <ul className="mt-3 space-y-2">
+                  {lines.map(l => (
+                    <li key={l.key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">{l.description}</span>
+                      <input
+                        value={String(l.quantity)}
+                        onChange={(e) => updateLineQty(l.key, e.target.value)}
+                        inputMode="decimal"
+                        className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-center text-sm outline-none focus:border-slate-400"
+                      />
+                      {l.unit && <span className="text-xs text-slate-400">{l.unit}</span>}
+                      <span className="w-20 text-right text-sm font-bold text-slate-900">
+                        ${(l.quantity * l.rate).toFixed(2)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeLine(l.key)}
+                        className="rounded px-1.5 text-xs font-bold text-slate-300 hover:text-rose-600"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Delivery only applies to a standalone material trip */}
+              {isMaterialOrder && hasMaterial && deliveryCharge && (
+                <button
+                  type="button"
+                  onClick={toggleDeliveryCharge}
+                  className={`mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                    deliveryOnOrder ? 'text-white' : 'text-slate-700 ring-1 ring-slate-300 hover:bg-white'
+                  }`}
+                  style={deliveryOnOrder ? { background: 'var(--accent)' } : undefined}
+                >
+                  {deliveryOnOrder
+                    ? `✓ Delivery added — $${Number(deliveryCharge.price).toFixed(2)}`
+                    : `Add delivery — $${Number(deliveryCharge.price).toFixed(2)}`}
+                </button>
+              )}
+
+              {isBinService && hasMaterial && (
+                <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  No delivery charge — the bin service covers this trip.
+                </p>
+              )}
+
+              <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={prepaid}
+                  onChange={(e) => setPrepaid(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Customer paid when placing this order
+              </label>
             </div>
 
             <div className="md:col-span-2">
