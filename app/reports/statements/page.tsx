@@ -114,9 +114,13 @@ function exportStatementCSV(rows: Order[], driverMap: Record<string, string>, fi
   downloadCSV([headers, ...data], filename)
 }
 
-function exportInvoiceCSV(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string, prices: PriceMap = {}) {
+function exportInvoiceCSV(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string, prices: PriceMap = {}, materials: { description: string; unit: string | null; quantity: number; rate: number; amount: number }[] = []) {
   const lines = buildInvoiceLines(cycles, prices)
-  const totals = computeInvoiceTotals(lines)
+  const baseTotals = computeInvoiceTotals(lines)
+  const materialsSubtotal = materials.reduce((s, m) => s + Number(m.amount || 0), 0)
+  const subtotal = baseTotals.subtotal + materialsSubtotal
+  const taxAmount = subtotal * (CLIENT_CONFIG.taxRate / 100)
+  const totals = { ...baseTotals, subtotal, tax: taxAmount, total: subtotal + taxAmount }
   const summary: (string | number)[][] = [
     [`INVOICE SUMMARY — ${customerName} — ${dateFrom} to ${dateTo}`],
     ['Service', 'Bin Size', 'Qty', 'Rate', 'Amount'],
@@ -127,6 +131,9 @@ function exportInvoiceCSV(cycles: BillingCycle[], driverMap: Record<string, stri
       l.rate != null ? l.rate.toFixed(2) : 'NO PRICE SET',
       l.amount != null ? l.amount.toFixed(2) : 'NO PRICE SET',
     ] as (string | number)[]),
+    ...(materials.length > 0
+      ? ([['MATERIAL & CHARGES'], ...materials.map(m => [m.description, m.unit || '', m.quantity, m.rate.toFixed(2), m.amount.toFixed(2)])] as (string | number)[][])
+      : []),
     ['', '', '', 'Subtotal', totals.subtotal.toFixed(2)],
     ['', '', '', `${CLIENT_CONFIG.taxLabel} (${CLIENT_CONFIG.taxRate}%)`, totals.tax.toFixed(2)],
     ['', '', '', 'TOTAL', totals.total.toFixed(2)],
@@ -237,11 +244,21 @@ function fmtMoney(value: number | null) {
   return `$${value.toFixed(2)}`
 }
 
-function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string, prices: PriceMap = {}) {
+function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>, customerName: string, dateFrom: string, dateTo: string, prices: PriceMap = {}, materials: { description: string; unit: string | null; quantity: number; rate: number; amount: number }[] = []) {
   const win = window.open('', '_blank')
   if (!win) return
   const lines = buildInvoiceLines(cycles, prices)
-  const totals = computeInvoiceTotals(lines)
+  const baseTotals = computeInvoiceTotals(lines)
+  const materialsSubtotal = materials.reduce((s, m) => s + Number(m.amount || 0), 0)
+  const subtotal = baseTotals.subtotal + materialsSubtotal
+  const taxAmount = subtotal * (CLIENT_CONFIG.taxRate / 100)
+  const totals = { ...baseTotals, subtotal, tax: taxAmount, total: subtotal + taxAmount }
+  const materialRows = materials.map(m => `<tr>
+      <td>${m.description}</td>
+      <td style="text-align:right">${m.quantity}${m.unit ? ' ' + m.unit : ''}</td>
+      <td style="text-align:right">${fmtMoney(m.rate)}</td>
+      <td style="text-align:right"><strong>${fmtMoney(m.amount)}</strong></td>
+    </tr>`).join('')
   const summaryRows = lines
     .map(l => `<tr>
       <td>${l.order_type}</td>
@@ -276,6 +293,8 @@ function printInvoice(cycles: BillingCycle[], driverMap: Record<string, string>,
      </div>` : ''}
      <h2>Invoice Lines — by Service &amp; Bin Size</h2>
      <table style="width:520px"><thead><tr><th>Service</th><th>Bin Size</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead><tbody>${summaryRows}${totalsRows}</tbody></table>
+     ${materialRows ? `<h2>Material &amp; Charges Delivered</h2>
+     <table style="width:520px"><thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead><tbody>${materialRows}</tbody></table>` : ''}
      <h2>Billable Events</h2>
      <table><thead><tr><th>Ticket</th><th>Service</th><th>Delivery Date</th><th>Completion Date</th><th>Days on Site</th><th>Bin</th><th>Address</th><th>Status</th><th>Driver</th></tr></thead><tbody>${tableRows}</tbody></table>`
   ))
@@ -587,6 +606,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   const [customerName, setCustomerName] = useState('')
   const [hasRun, setHasRun] = useState(false)
   const [prices, setPrices] = useState<PriceMap>({})
+  const [materialLines, setMaterialLines] = useState<{ description: string; unit: string | null; quantity: number; rate: number; amount: number }[]>([])
   const [creatingInvoice, setCreatingInvoice] = useState(false)
   const [createdInvoiceNumber, setCreatedInvoiceNumber] = useState('')
   const [invoiceError, setInvoiceError] = useState('')
@@ -625,6 +645,31 @@ function InvoiceTab({ customers, drivers, driverMap }: {
       else basePrices[key] = Number(row.price)
     }
     setPrices({ ...basePrices, ...customerPrices })
+
+    // Material and charges carried by this customer's orders in the period —
+    // these ride on the same invoice as the bin work.
+    const { data: orderRows } = await supabase
+      .from('order')
+      .select('id,status,scheduled_date,order_items(description,unit,quantity,rate,amount,kind)')
+      .eq('customer_id', customerId)
+      .neq('status', 'cancelled')
+      .gte('scheduled_date', dateFrom)
+      .lte('scheduled_date', dateTo)
+
+    type OrderWithItems = { order_items?: { description: string; unit: string | null; quantity: number; rate: number; amount: number; kind: string }[] | null }
+    const collected: { description: string; unit: string | null; quantity: number; rate: number; amount: number }[] = []
+    for (const row of (orderRows as OrderWithItems[]) || []) {
+      for (const it of row.order_items || []) {
+        collected.push({
+          description: it.description,
+          unit: it.unit,
+          quantity: Number(it.quantity),
+          rate: Number(it.rate),
+          amount: Number(it.amount),
+        })
+      }
+    }
+    setMaterialLines(collected)
 
     // 1. Fetch billing trigger orders in range (exclude cancelled)
     const { data: billingOrders } = await supabase
@@ -755,7 +800,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   async function createAccountInvoice() {
     setInvoiceError('')
     const billable = invoiceLines.filter(l => l.rate != null && l.amount != null)
-    if (billable.length === 0) {
+    if (billable.length === 0 && materialLines.length === 0) {
       setInvoiceError('No priced lines to invoice — set rates in the Price Book first.')
       return
     }
@@ -769,10 +814,10 @@ function InvoiceTab({ customers, drivers, driverMap }: {
         kind: 'account',
         customer_id: customerId || null,
         customer_name: customerName,
-        subtotal: Number(totals.subtotal.toFixed(2)),
+        subtotal: Number(grand.subtotal.toFixed(2)),
         tax_rate: CLIENT_CONFIG.taxRate,
-        tax_amount: Number(totals.tax.toFixed(2)),
-        total: Number(totals.total.toFixed(2)),
+        tax_amount: Number(grand.tax.toFixed(2)),
+        total: Number(grand.total.toFixed(2)),
         status: 'sent',
         notes: `Billing period ${dateFrom} to ${dateTo} · ${sortedCycles.length} completed job(s)`,
         created_by: user?.id || null,
@@ -788,14 +833,24 @@ function InvoiceTab({ customers, drivers, driverMap }: {
 
     const inv = invoice as { id: string; invoice_number: string }
     const { error: itemsError } = await supabase.from('invoice_items').insert(
-      billable.map(l => ({
-        invoice_id: inv.id,
-        description: `${l.order_type} — ${fmtBinSize(l.bin_size)}`,
-        unit: null,
-        quantity: l.count,
-        rate: Number((l.rate as number).toFixed(2)),
-        amount: Number((l.amount as number).toFixed(2)),
-      }))
+      [
+        ...billable.map(l => ({
+          invoice_id: inv.id,
+          description: `${l.order_type} — ${fmtBinSize(l.bin_size)}`,
+          unit: null,
+          quantity: l.count,
+          rate: Number((l.rate as number).toFixed(2)),
+          amount: Number((l.amount as number).toFixed(2)),
+        })),
+        ...materialLines.map(m => ({
+          invoice_id: inv.id,
+          description: m.description,
+          unit: m.unit,
+          quantity: m.quantity,
+          rate: Number(m.rate.toFixed(2)),
+          amount: Number(m.amount.toFixed(2)),
+        })),
+      ]
     )
 
     if (itemsError) {
@@ -811,6 +866,18 @@ function InvoiceTab({ customers, drivers, driverMap }: {
   // Invoice lines: qty per service type × bin size (each combo priced differently)
   const invoiceLines = useMemo(() => buildInvoiceLines(sortedCycles, prices), [sortedCycles, prices])
   const totals = useMemo(() => computeInvoiceTotals(invoiceLines), [invoiceLines])
+
+  const materialsSubtotal = useMemo(
+    () => materialLines.reduce((s, l) => s + Number(l.amount || 0), 0),
+    [materialLines]
+  )
+
+  /** Bin work plus anything the trucks carried, taxed together. */
+  const grand = useMemo(() => {
+    const subtotal = totals.subtotal + materialsSubtotal
+    const tax = subtotal * (CLIENT_CONFIG.taxRate / 100)
+    return { subtotal, tax, total: subtotal + tax }
+  }, [totals.subtotal, materialsSubtotal])
 
   const avgDays = useMemo(() => {
     const withDays = sortedCycles.filter(c => c.days_on_site != null)
@@ -903,7 +970,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
               <div className="mt-1 text-xs font-semibold text-slate-500">Max Days on Site</div>
             </div>
             <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-emerald-300 text-center">
-              <div className="text-2xl font-black text-emerald-700">{fmtMoney(totals.total)}</div>
+              <div className="text-2xl font-black text-emerald-700">{fmtMoney(grand.total)}</div>
               <div className="mt-1 text-xs font-semibold text-slate-500">Total Due (incl. {CLIENT_CONFIG.taxLabel})</div>
             </div>
           </div>
@@ -953,20 +1020,39 @@ function InvoiceTab({ customers, drivers, driverMap }: {
                     </tr>
                   ))}
                 </tbody>
+                {materialLines.length > 0 && (
+                  <tbody className="divide-y divide-slate-200 border-t border-slate-200">
+                    <tr className="bg-slate-50/60">
+                      <td colSpan={5} className="px-6 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Material &amp; charges delivered
+                      </td>
+                    </tr>
+                    {materialLines.map((m, i) => (
+                      <tr key={`mat-${i}`}>
+                        <td className="px-6 py-3 text-sm font-medium text-slate-800" colSpan={2}>{m.description}</td>
+                        <td className="px-6 py-3 text-right text-sm text-slate-700 whitespace-nowrap">
+                          {m.quantity}{m.unit ? ` ${m.unit}` : ''}
+                        </td>
+                        <td className="px-6 py-3 text-right text-sm text-slate-700 whitespace-nowrap">{fmtMoney(m.rate)}</td>
+                        <td className="px-6 py-3 text-right text-sm font-black text-slate-900 whitespace-nowrap">{fmtMoney(m.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                )}
                 <tfoot className="border-t-2 border-slate-200 bg-slate-50">
                   <tr>
                     <td colSpan={4} className="px-6 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Subtotal</td>
-                    <td className="px-6 py-2.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap">{fmtMoney(totals.subtotal)}</td>
+                    <td className="px-6 py-2.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap">{fmtMoney(grand.subtotal)}</td>
                   </tr>
                   <tr>
                     <td colSpan={4} className="px-6 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                       {CLIENT_CONFIG.taxLabel} ({CLIENT_CONFIG.taxRate}%)
                     </td>
-                    <td className="px-6 py-2.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap">{fmtMoney(totals.tax)}</td>
+                    <td className="px-6 py-2.5 text-right text-sm font-bold text-slate-900 whitespace-nowrap">{fmtMoney(grand.tax)}</td>
                   </tr>
                   <tr className="border-t border-slate-300">
                     <td colSpan={4} className="px-6 py-3.5 text-right text-sm font-black uppercase tracking-wide text-slate-900">Total Due</td>
-                    <td className="px-6 py-3.5 text-right text-lg font-black text-emerald-700 whitespace-nowrap">{fmtMoney(totals.total)}</td>
+                    <td className="px-6 py-3.5 text-right text-lg font-black text-emerald-700 whitespace-nowrap">{fmtMoney(grand.total)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -976,7 +1062,7 @@ function InvoiceTab({ customers, drivers, driverMap }: {
           {/* Invoice created / error banner */}
           {createdInvoiceNumber && (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
-              ✓ Invoice <strong>{createdInvoiceNumber}</strong> created for {customerName} — {fmtMoney(totals.total)} including {CLIENT_CONFIG.taxLabel}.{' '}
+              ✓ Invoice <strong>{createdInvoiceNumber}</strong> created for {customerName} — {fmtMoney(grand.total)} including {CLIENT_CONFIG.taxLabel}.{' '}
               <Link href="/invoices" className="font-bold underline hover:text-emerald-900">Open the invoice register →</Link>
             </div>
           )}
@@ -991,12 +1077,12 @@ function InvoiceTab({ customers, drivers, driverMap }: {
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
               {sortedCycles.length > 0 && <>
-                <button onClick={()=>exportInvoiceCSV(sortedCycles,driverMap,customerName,dateFrom,dateTo,prices)}
+                <button onClick={()=>exportInvoiceCSV(sortedCycles,driverMap,customerName,dateFrom,dateTo,prices,materialLines)}
                   className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 transition">Export CSV</button>
-                <button onClick={()=>printInvoice(sortedCycles,driverMap,customerName,dateFrom,dateTo,prices)}
+                <button onClick={()=>printInvoice(sortedCycles,driverMap,customerName,dateFrom,dateTo,prices,materialLines)}
                   className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition">Print Invoice PDF</button>
                 {!createdInvoiceNumber && (
-                  <button onClick={()=>void createAccountInvoice()} disabled={creatingInvoice || totals.subtotal <= 0}
+                  <button onClick={()=>void createAccountInvoice()} disabled={creatingInvoice || grand.subtotal <= 0}
                     className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-40 transition">
                     {creatingInvoice ? 'Creating…' : 'Create Invoice'}
                   </button>

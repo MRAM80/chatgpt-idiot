@@ -1027,6 +1027,48 @@ function OrdersPageContent() {
     await setBinStatus(binId, 'in_use', location ?? undefined)
   }
 
+  /**
+   * Material is held against stock the moment an order is written, so a
+   * cancelled order has to give it back. Guarded by an existing 'return'
+   * movement so cancelling twice can't credit the stock twice.
+   */
+  async function releaseOrderStock(order: Order) {
+    const { data: items } = await supabase
+      .from('order_items')
+      .select('price_book_id,description,quantity')
+      .eq('order_id', order.id)
+      .eq('kind', 'product')
+
+    const lines = (items as { price_book_id: string | null; description: string; quantity: number }[]) || []
+    if (lines.length === 0) return
+
+    const { data: alreadyReturned } = await supabase
+      .from('stock_movements')
+      .select('id')
+      .eq('order_id', order.id)
+      .eq('kind', 'return')
+      .limit(1)
+    if (alreadyReturned && alreadyReturned.length > 0) return
+
+    const { data: { user } } = await supabase.auth.getUser()
+    for (const line of lines) {
+      if (!line.price_book_id) continue
+      const { error } = await supabase.rpc('adjust_stock', {
+        p_id: line.price_book_id,
+        p_delta: Number(line.quantity),
+      })
+      if (error) continue
+      await supabase.from('stock_movements').insert([{
+        price_book_id: line.price_book_id,
+        kind: 'return',
+        quantity: Number(line.quantity),
+        note: `Cancelled ${order.ticket_number || 'order'}`,
+        order_id: order.id,
+        created_by: user?.id || null,
+      }])
+    }
+  }
+
   async function validateSelectedAvailableBin(
     selectedBinId: string,
     expectedSize: string,
@@ -1232,6 +1274,11 @@ function OrdersPageContent() {
       if (editingOrder) {
         const { error } = await supabase.from(TABLE_NAME).update(payload).eq('id', editingOrder.id)
         if (error) throw new Error(error.message)
+
+        // Cancelling through the edit form must release held material too
+        if (payload.status === 'cancelled' && editingOrder.status !== 'cancelled') {
+          await releaseOrderStock(editingOrder)
+        }
 
         if (previousDriverId && previousDriverId !== payload.driver_id) {
           await syncDriverStatuses(previousDriverId)
@@ -1574,6 +1621,9 @@ function OrdersPageContent() {
         }
 
         if (value === 'cancelled') {
+          // Give the held material back before touching bins
+          if (order.status !== 'cancelled') await releaseOrderStock(order)
+
           if (order.order_type === 'DELIVERY' && order.bin_id) {
             await releaseBin(order.bin_id)
           }

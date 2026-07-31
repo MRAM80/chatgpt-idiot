@@ -62,6 +62,7 @@ type Order = {
   bins?: OrderBinRelation[] | null
   old_bin?: OrderBinRelation[] | null
   dump_site?: { id: string; name: string | null; notes: string | null }[] | null
+  order_items?: { description: string; quantity: number; unit: string | null; kind: string }[] | null
 }
 
 type QueuedAction = {
@@ -700,7 +701,8 @@ export default function DriverPage() {
         parent_order_id,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
         old_bin:old_bin_id ( id, bin_number, bin_size, status, location ),
-        dump_site:dump_site_id ( id, name, notes )
+        dump_site:dump_site_id ( id, name, notes ),
+        order_items ( description, quantity, unit, kind )
       `
       )
       .eq('driver_id', driver.id)
@@ -765,7 +767,8 @@ export default function DriverPage() {
         parent_order_id,
         bins:bin_id ( id, bin_number, bin_size, status, location ),
         old_bin:old_bin_id ( id, bin_number, bin_size, status, location ),
-        dump_site:dump_site_id ( id, name, notes )
+        dump_site:dump_site_id ( id, name, notes ),
+        order_items ( description, quantity, unit, kind )
       `
       )
       .eq('driver_id', resolvedDriver.id)
@@ -1643,6 +1646,28 @@ export default function DriverPage() {
                         )}
                         <div className="mt-1 text-sm text-slate-500 truncate">{displayValue(stopAddress)}</div>
                       </div>
+
+                      {/* Material going out on this stop */}
+                      {(order.order_items || []).filter(i => i.kind === 'product').length > 0 && (
+                        <div className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-700">
+                            Material to load
+                          </p>
+                          <ul className="space-y-1">
+                            {(order.order_items || []).filter(i => i.kind === 'product').map((m, i) => {
+                              const q = Number(m.quantity)
+                              const qty = Number.isInteger(q) ? String(q) : q === 0.5 ? '½' : q === 0.25 ? '¼' : String(q)
+                              return (
+                                <li key={i} className="flex items-baseline gap-2 text-base font-bold text-emerald-900">
+                                  <span className="tabular-nums">{qty}</span>
+                                  <span className="text-sm font-semibold">{m.unit || ''}</span>
+                                  <span className="font-semibold">{m.description}</span>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </div>
+                      )}
 
                       {/* Bin # and Dump Site — equal-width columns */}
                       <div className="shrink-0 grid gap-3" style={{ gridTemplateColumns: hasDumpSite ? '1fr 1fr' : '1fr' }}>

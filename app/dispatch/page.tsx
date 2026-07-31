@@ -72,6 +72,7 @@ type Order = {
   workflow_step?: string | null
   parent_order_id?: string | null
   dump_site_address?: string | null
+  order_items?: { description: string; quantity: number; unit: string | null; kind: string }[] | null
 }
 
 type BoardColumn = {
@@ -209,6 +210,20 @@ function DetailItem({
       <div className="mt-2 text-sm text-slate-900">{displayValue(value)}</div>
     </div>
   )
+}
+
+
+/** Material riding along on this order — shown to dispatch and the driver. */
+function materialSummary(order: Order) {
+  const items = (order.order_items || []).filter((i) => i.kind === 'product')
+  if (items.length === 0) return null
+  return items
+    .map((i) => {
+      const q = Number(i.quantity)
+      const qty = Number.isInteger(q) ? String(q) : q === 0.5 ? '½' : q === 0.25 ? '¼' : String(q)
+      return `${qty}${i.unit ? ' ' + i.unit : ''} ${i.description}`
+    })
+    .join(', ')
 }
 
 function reorderIds(orderIds: string[], movingId: string, beforeId?: string | null) {
@@ -372,7 +387,7 @@ export default function DispatchBoardPage() {
 
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_number,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,driver_notes,delivery_photo_url,created_at,updated_at,completed_by,completed_at')
+      .select('id,ticket_number,customer_name,pickup_address,service_address,service_time,workflow_step,parent_order_id,dump_site_address,service_window,bin_id,old_bin_id,bin_number,bin_size,bin_type,order_type,scheduled_date,driver_id,route_position,status,notes,driver_notes,delivery_photo_url,created_at,updated_at,completed_by,completed_at,order_items(description,quantity,unit,kind)')
       .not('status', 'in', '("cancelled","completed")')
       .order('scheduled_date', { ascending: true })
       .order('created_at', { ascending: true })
@@ -1240,6 +1255,11 @@ export default function DispatchBoardPage() {
                               </span>
                             )}
                           </div>
+                          {materialSummary(order) && (
+                            <div className="mt-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-800">
+                              📦 {materialSummary(order)}
+                            </div>
+                          )}
 
                           <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                             <select
@@ -1397,6 +1417,11 @@ export default function DispatchBoardPage() {
                                       </div>
                                       {order.order_type && (
                                         <div className="text-[9px] font-semibold text-slate-400 mt-0.5">{order.order_type}{order.bin_size ? ` · ${order.bin_size}yd` : ''}</div>
+                                      )}
+                                      {materialSummary(order) && (
+                                        <div className="mt-0.5 truncate text-[9px] font-semibold text-emerald-700">
+                                          📦 {materialSummary(order)}
+                                        </div>
                                       )}
                                       {getOrderDayKey(order) && getOrderDayKey(order) < todayKey && (
                                         <div className="text-[9px] font-bold text-rose-600 mt-0.5">Overdue · {formatBoardDayLabel(getOrderDayKey(order))}</div>
