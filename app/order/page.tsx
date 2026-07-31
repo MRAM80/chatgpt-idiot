@@ -91,6 +91,7 @@ type Order = {
   old_bin_id: string | null
   dump_site_id?: string | null
   dump_site_address?: string | null
+  prepaid?: boolean | null
   bin_size: string | null
   bin_type: string | null
   order_type: string | null
@@ -123,7 +124,34 @@ const ORDER_STATUSES = [
   'cancelled',
 ] as const
 
-const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
+const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN', 'MATERIAL DELIVERY'] as const
+
+/** Bulk measures are scooped, so part loads are normal; countable things aren't. */
+const BULK_UNITS = ['yard', 'yards', 'yd', 'cubic yard', 'tonne', 'ton', 'load', 'm3', 'hour']
+const isBulkUnit = (u: string | null | undefined) => BULK_UNITS.includes((u || '').toLowerCase().trim())
+
+type PriceItemRow = {
+  id: string
+  kind: 'service' | 'product'
+  service_type: string | null
+  bin_size: string | null
+  name: string | null
+  unit: string | null
+  price: number
+  track_stock?: boolean
+  stock_qty?: number
+}
+
+type OrderLine = {
+  key: string
+  id?: string
+  priceItemId: string
+  kind: 'product' | 'charge'
+  description: string
+  unit: string | null
+  quantity: number
+  rate: number
+}
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
 const MATERIAL_TYPES = ['Garbage', 'Recycling', 'Mixed', 'Clean Fill'] as const
 const ACTIVE_BIN_ORDER_STATUSES = ['unassigned', 'assigned', 'in_progress'] as const
@@ -351,6 +379,13 @@ function OrdersPageContent() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
+  // Material and charges carried by the order being created/edited
+  const [priceItems, setPriceItems] = useState<PriceItemRow[]>([])
+  const [orderLines, setOrderLines] = useState<OrderLine[]>([])
+  const [originalLines, setOriginalLines] = useState<OrderLine[]>([])
+  const [lineSearch, setLineSearch] = useState('')
+  const [prepaid, setPrepaid] = useState(false)
+
   const [newAddrDetails, setNewAddrDetails] = useState({ unit: '', city: '', postal_code: '' })
   const addressInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -550,6 +585,214 @@ function OrdersPageContent() {
       is_active: true,
     } as Profile : null)
     setIsAdmin(canDelete)
+  }
+
+  useEffect(() => {
+    void supabase
+      .from('price_book')
+      .select('id,kind,service_type,bin_size,name,unit,price,track_stock,stock_qty')
+      .is('customer_id', null)
+      .then(({ data }) => { if (data) setPriceItems(data as PriceItemRow[]) })
+  }, [])
+
+  async function loadOrderLines(orderId: string) {
+    const { data } = await supabase
+      .from('order_items')
+      .select('id,price_book_id,kind,description,unit,quantity,rate')
+      .eq('order_id', orderId)
+    const rows = (data as { id: string; price_book_id: string | null; kind: string; description: string; unit: string | null; quantity: number; rate: number }[]) || []
+    const mapped: OrderLine[] = rows.map(r => ({
+      key: r.id,
+      id: r.id,
+      priceItemId: r.price_book_id || '',
+      kind: r.kind === 'charge' ? 'charge' : 'product',
+      description: r.description,
+      unit: r.unit,
+      quantity: Number(r.quantity),
+      rate: Number(r.rate),
+    }))
+    setOrderLines(mapped)
+    setOriginalLines(mapped)
+  }
+
+
+  // ── Order material lines ────────────────────────────────────────────────────
+  const materialItems = useMemo(
+    () => priceItems.filter(i => i.kind === 'product').sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [priceItems]
+  )
+
+  const deliveryCharge = useMemo(
+    () => priceItems.find(i =>
+      i.kind === 'service' && !i.service_type && (i.name || '').toLowerCase().includes('delivery')
+    ) || null,
+    [priceItems]
+  )
+
+  const lineMatches = useMemo(() => {
+    const q = lineSearch.trim().toLowerCase()
+    if (!q) return []
+    return materialItems.filter(i => (i.name || '').toLowerCase().includes(q)).slice(0, 6)
+  }, [materialItems, lineSearch])
+
+  const isMaterialOrder = form.order_type === 'MATERIAL DELIVERY'
+  const linesTotal = useMemo(() => orderLines.reduce((s, l) => s + l.quantity * l.rate, 0), [orderLines])
+  const hasMaterialLine = orderLines.some(l => l.kind === 'product')
+  const deliveryOnOrder = orderLines.some(l => l.priceItemId === deliveryCharge?.id)
+
+  function addOrderLine(item: PriceItemRow) {
+    setOrderLines(cur => {
+      const existing = cur.find(l => l.priceItemId === item.id)
+      const step = isBulkUnit(item.unit) ? 0.25 : 1
+      if (existing) {
+        return cur.map(l => l.priceItemId === item.id
+          ? { ...l, quantity: Number((l.quantity + step).toFixed(2)) }
+          : l)
+      }
+      return [...cur, {
+        key: `new-${item.id}-${Date.now()}`,
+        priceItemId: item.id,
+        kind: 'product' as const,
+        description: item.name || 'Material',
+        unit: item.unit,
+        quantity: 1,
+        rate: Number(item.price),
+      }]
+    })
+    setLineSearch('')
+  }
+
+  function toggleOrderDelivery() {
+    if (!deliveryCharge) return
+    setOrderLines(cur => cur.some(l => l.priceItemId === deliveryCharge.id)
+      ? cur.filter(l => l.priceItemId !== deliveryCharge.id)
+      : [...cur, {
+          key: `new-delivery-${Date.now()}`,
+          priceItemId: deliveryCharge.id,
+          kind: 'charge' as const,
+          description: deliveryCharge.name || 'Delivery',
+          unit: null,
+          quantity: 1,
+          rate: Number(deliveryCharge.price),
+        }])
+  }
+
+  /**
+   * Writes the order's lines and moves stock by the difference only, so
+   * editing 8 yards to 10 takes 2 more rather than double-counting.
+   */
+  async function syncOrderLines(orderId: string, ticket: string | null) {
+    const { data: { user } } = await supabase.auth.getUser()
+
+    await supabase.from('order_items').delete().eq('order_id', orderId)
+    if (orderLines.length > 0) {
+      const { error } = await supabase.from('order_items').insert(
+        orderLines.map(l => ({
+          order_id: orderId,
+          price_book_id: l.priceItemId || null,
+          kind: l.kind,
+          description: l.description,
+          unit: l.unit,
+          quantity: l.quantity,
+          rate: Number(l.rate.toFixed(2)),
+          amount: Number((l.quantity * l.rate).toFixed(2)),
+        }))
+      )
+      if (error) throw new Error(error.message)
+    }
+
+    const before = new Map<string, number>()
+    originalLines.filter(l => l.kind === 'product').forEach(l => {
+      before.set(l.priceItemId, (before.get(l.priceItemId) || 0) + l.quantity)
+    })
+    const after = new Map<string, number>()
+    orderLines.filter(l => l.kind === 'product').forEach(l => {
+      after.set(l.priceItemId, (after.get(l.priceItemId) || 0) + l.quantity)
+    })
+
+    const touched = new Set([...before.keys(), ...after.keys()])
+    for (const priceId of touched) {
+      if (!priceId) continue
+      const item = priceItems.find(p => p.id === priceId)
+      if (!item?.track_stock) continue
+      const delta = (before.get(priceId) || 0) - (after.get(priceId) || 0)
+      if (delta === 0) continue
+      const { error } = await supabase.rpc('adjust_stock', { p_id: priceId, p_delta: delta })
+      if (error) continue
+      await supabase.from('stock_movements').insert([{
+        price_book_id: priceId,
+        kind: delta < 0 ? 'sale' : 'return',
+        quantity: delta,
+        note: `Order ${ticket || orderId.slice(0, 8)}`,
+        order_id: orderId,
+        created_by: user?.id || null,
+      }])
+    }
+
+    setOriginalLines(orderLines)
+  }
+
+
+  /**
+   * A prepaid order is settled the moment it's written, so it gets its own
+   * invoice immediately rather than waiting for the monthly statement run.
+   * The bin service is priced from the price book; material comes off the
+   * order's own lines.
+   */
+  async function createPrepaidInvoice(orderId: string, ticket: string | null, payload: Record<string, unknown>) {
+    const { data: { user } } = await supabase.auth.getUser()
+
+    const serviceType = String(payload.order_type || '')
+    const binSize = payload.bin_size ? String(payload.bin_size) : ''
+    const serviceRate = priceItems.find(
+      i => i.kind === 'service' && i.service_type === serviceType && String(i.bin_size ?? '') === binSize
+    )?.price
+
+    const lines: { description: string; unit: string | null; quantity: number; rate: number; amount: number }[] = []
+    if (serviceType !== 'MATERIAL DELIVERY' && typeof serviceRate === 'number') {
+      lines.push({
+        description: `${serviceType}${binSize ? ` — ${binSize}Y` : ''}`,
+        unit: null, quantity: 1, rate: Number(serviceRate), amount: Number(serviceRate),
+      })
+    }
+    for (const l of orderLines) {
+      lines.push({
+        description: l.description,
+        unit: l.unit,
+        quantity: l.quantity,
+        rate: Number(l.rate.toFixed(2)),
+        amount: Number((l.quantity * l.rate).toFixed(2)),
+      })
+    }
+    if (lines.length === 0) return
+
+    const subtotal = lines.reduce((sum, l) => sum + l.amount, 0)
+    const taxAmount = subtotal * (CLIENT_CONFIG.taxRate / 100)
+
+    const { data: invoice, error } = await supabase
+      .from('invoices')
+      .insert([{
+        kind: 'counter',
+        customer_id: (payload.customer_id as string) || null,
+        customer_name: (payload.customer_name as string) || 'Walk-in customer',
+        subtotal: Number(subtotal.toFixed(2)),
+        tax_rate: CLIENT_CONFIG.taxRate,
+        tax_amount: Number(taxAmount.toFixed(2)),
+        total: Number((subtotal + taxAmount).toFixed(2)),
+        status: 'paid',
+        notes: ticket ? `Paid at order — ${ticket}` : 'Paid at order',
+        created_by: user?.id || null,
+      }])
+      .select('id')
+      .single()
+
+    if (error || !invoice) return
+
+    const inv = invoice as { id: string }
+    await supabase.from('invoice_items').insert(
+      lines.map(l => ({ invoice_id: inv.id, ...l }))
+    )
+    await supabase.from(TABLE_NAME).update({ invoice_id: inv.id }).eq('id', orderId)
   }
 
   async function refreshAll() {
@@ -838,6 +1081,11 @@ function OrdersPageContent() {
       dump_site_id: order.dump_site_id || '',
       notes: order.notes || '',
     })
+    setOrderLines([])
+    setOriginalLines([])
+    setLineSearch('')
+    setPrepaid(Boolean(order.prepaid))
+    void loadOrderLines(order.id)
   }
 
   useEffect(() => {
@@ -1278,6 +1526,9 @@ function OrdersPageContent() {
         // Cancelling through the edit form must release held material too
         if (payload.status === 'cancelled' && editingOrder.status !== 'cancelled') {
           await releaseOrderStock(editingOrder)
+          setOriginalLines([])
+        } else {
+          await syncOrderLines(editingOrder.id, editingOrder.ticket_number)
         }
 
         if (previousDriverId && previousDriverId !== payload.driver_id) {
@@ -1343,10 +1594,23 @@ function OrdersPageContent() {
       const insertPayload = {
         ...payload,
         ticket_number: generateTicketNumber(),
+        prepaid,
       }
 
-      const { error } = await supabase.from(TABLE_NAME).insert([insertPayload])
-      if (error) throw new Error(error.message)
+      const { data: createdRow, error } = await supabase
+        .from(TABLE_NAME)
+        .insert([insertPayload])
+        .select('id,ticket_number')
+        .single()
+      if (error || !createdRow) throw new Error(error?.message || 'Failed to create order.')
+
+      const newOrder = createdRow as { id: string; ticket_number: string | null }
+      if (orderLines.length > 0) {
+        await syncOrderLines(newOrder.id, newOrder.ticket_number)
+      }
+      if (prepaid) {
+        await createPrepaidInvoice(newOrder.id, newOrder.ticket_number, insertPayload)
+      }
 
       if (isEmbedded) {
         window.parent?.postMessage({ type: 'order-created' }, '*')
@@ -2292,6 +2556,128 @@ function OrdersPageContent() {
                   <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                     Bins found at this Job Site: <span className="font-semibold">{jobSiteExistingBins.length}</span>
                   </div>
+                )}
+
+                {!isReadOnlyModal && (
+                  <>
+                {/* ── Material on this order ─────────────────────────── */}
+                <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                  <div className="mb-1 flex items-baseline justify-between gap-3">
+                    <label className="text-sm font-medium text-slate-700">
+                      Material on this order {isMaterialOrder && <span className="text-rose-500">*</span>}
+                    </label>
+                    {linesTotal > 0 && (
+                      <span className="text-sm font-bold text-slate-900">${linesTotal.toFixed(2)}</span>
+                    )}
+                  </div>
+                  <p className="mb-3 text-xs text-slate-500">
+                    {isMaterialOrder
+                      ? 'What the truck is delivering. Stock is held as soon as the order is saved.'
+                      : 'Material dropped on the same trip as the bin — no delivery charge, we\u2019re already going there.'}
+                  </p>
+
+                  <input
+                    value={lineSearch}
+                    onChange={(e) => setLineSearch(e.target.value)}
+                    placeholder="Search material to add\u2026"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-400"
+                  />
+
+                  {lineSearch.trim() !== '' && (
+                    lineMatches.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-500">Nothing matches that.</p>
+                    ) : (
+                      <ul className="mt-2 divide-y divide-slate-100 overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+                        {lineMatches.map((item) => (
+                          <li key={item.id}>
+                            <button
+                              type="button"
+                              onClick={() => addOrderLine(item)}
+                              className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                            >
+                              <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">{item.name}</span>
+                              <span className="shrink-0 text-slate-600">
+                                ${Number(item.price).toFixed(2)}{item.unit ? ` / ${item.unit}` : ''}
+                              </span>
+                              {item.track_stock && (
+                                <span className={`w-12 shrink-0 rounded px-1.5 py-0.5 text-center text-xs font-bold ${
+                                  Number(item.stock_qty) <= 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {Number(item.stock_qty)}
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  )}
+
+                  {orderLines.length > 0 && (
+                    <ul className="mt-3 space-y-2">
+                      {orderLines.map((l) => (
+                        <li key={l.key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">{l.description}</span>
+                          <input
+                            value={String(l.quantity)}
+                            onChange={(e) => {
+                              const n = Number(e.target.value)
+                              setOrderLines((cur) => cur.map((x) => (x.key === l.key ? { ...x, quantity: Number.isNaN(n) ? 0 : n } : x)))
+                            }}
+                            inputMode="decimal"
+                            className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-center text-sm outline-none focus:border-slate-400"
+                          />
+                          {l.unit && <span className="text-xs text-slate-400">{l.unit}</span>}
+                          <span className="w-20 text-right text-sm font-bold text-slate-900">
+                            ${(l.quantity * l.rate).toFixed(2)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setOrderLines((cur) => cur.filter((x) => x.key !== l.key))}
+                            className="rounded px-1.5 text-xs font-bold text-slate-300 hover:text-rose-600"
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {isMaterialOrder && hasMaterialLine && deliveryCharge && (
+                    <button
+                      type="button"
+                      onClick={toggleOrderDelivery}
+                      className={`mt-3 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                        deliveryOnOrder ? 'text-white' : 'text-slate-700 ring-1 ring-slate-300 hover:bg-white'
+                      }`}
+                      style={deliveryOnOrder ? { background: 'var(--accent)' } : undefined}
+                    >
+                      {deliveryOnOrder
+                        ? `\u2713 Delivery added \u2014 $${Number(deliveryCharge.price).toFixed(2)}`
+                        : `Add delivery \u2014 $${Number(deliveryCharge.price).toFixed(2)}`}
+                    </button>
+                  )}
+
+                  {!isMaterialOrder && hasMaterialLine && (
+                    <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                      No delivery charge \u2014 the bin service covers this trip.
+                    </p>
+                  )}
+
+                  {!editingOrder && (
+                    <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={prepaid}
+                        onChange={(e) => setPrepaid(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Customer paid when placing this order
+                    </label>
+                  )}
+                </div>
+
+                  </>
                 )}
 
                 {isReadOnlyModal ? (
