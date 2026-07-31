@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AppShell from '@/components/AppShell'
+import Icon from '@/components/Icon'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import { printInvoiceDocument } from '@/lib/invoice-print'
 import { useRole } from '@/hooks/useRole'
@@ -49,17 +50,36 @@ type CompletedSale = {
 
 const PAYMENT_METHODS = ['Cash', 'Debit', 'Credit Card', 'Cheque', 'E-transfer', 'On Account'] as const
 
-function fmtMoney(value: number) {
-  return `$${value.toFixed(2)}`
+/**
+ * Bulk materials are scooped, so part loads are normal — half a yard of soil.
+ * Everything else is a countable thing: you can't sell half a shovel.
+ */
+export const BULK_UNITS = ['yard', 'yards', 'yd', 'cubic yard', 'tonne', 'ton', 'load', 'm3', 'hour']
+
+function isBulkUnit(unit: string | null | undefined) {
+  return BULK_UNITS.includes((unit || '').toLowerCase().trim())
 }
 
-/** Materials sell in part loads — show 0.5 as ½ rather than 0.50. */
+/** How much one tap of +/- moves the quantity. */
+function stepFor(unit: string | null | undefined) {
+  return isBulkUnit(unit) ? 0.25 : 1
+}
+
+function fmtMoney(value: number) {
+  return `$${Number(value || 0).toFixed(2)}`
+}
+
+/** 0.5 reads better as ½ for bulk material. */
 function fmtQtyLabel(n: number) {
-  if (Number.isInteger(n)) return String(n)
-  if (n === 0.5) return '½'
-  if (n === 0.25) return '¼'
-  if (n === 0.75) return '¾'
-  return String(n)
+  const v = Number(n)
+  if (Number.isInteger(v)) return String(v)
+  if (v === 0.25) return '¼'
+  if (v === 0.5) return '½'
+  if (v === 0.75) return '¾'
+  if (v === 1.25) return '1¼'
+  if (v === 1.5) return '1½'
+  if (v === 1.75) return '1¾'
+  return String(v)
 }
 
 function priceItemLabel(item: PriceItem) {
@@ -101,11 +121,8 @@ export default function QuickSalePage() {
   const [pageError, setPageError] = useState('')
 
   const [cart, setCart] = useState<CartLine[]>([])
-  const [selectedItemId, setSelectedItemId] = useState('')
-  const [qty, setQty] = useState('1')
   const [pickerTab, setPickerTab] = useState<'products' | 'services'>('products')
   const [itemSearch, setItemSearch] = useState('')
-  const [deliveryFee, setDeliveryFee] = useState('')
 
   const [customCustomer, setCustomCustomer] = useState('')
   const [customerId, setCustomerId] = useState('')
@@ -137,15 +154,27 @@ export default function QuickSalePage() {
     void load()
   }, [])
 
-  const products = useMemo(
-    () => priceItems.filter(i => i.kind === 'product').sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+  /** The delivery charge is set up once in the Price Book and reused here. */
+  const deliveryItem = useMemo(
+    () => priceItems.find(i => (i.name || '').toLowerCase().includes('delivery')) || null,
     [priceItems]
   )
+
+  const products = useMemo(
+    () => priceItems
+      .filter(i => i.kind === 'product' && i.id !== deliveryItem?.id)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [priceItems, deliveryItem]
+  )
+
   const services = useMemo(
-    () => priceItems.filter(i => i.kind === 'service').sort((a, b) =>
-      (a.service_type || '').localeCompare(b.service_type || '') || (Number(a.bin_size) || 0) - (Number(b.bin_size) || 0)
-    ),
-    [priceItems]
+    () => priceItems
+      .filter(i => i.kind === 'service' && i.id !== deliveryItem?.id)
+      .sort((a, b) =>
+        (a.service_type || '').localeCompare(b.service_type || '') ||
+        (Number(a.bin_size) || 0) - (Number(b.bin_size) || 0)
+      ),
+    [priceItems, deliveryItem]
   )
 
   const visibleItems = useMemo(() => {
@@ -159,43 +188,62 @@ export default function QuickSalePage() {
   const tax = useMemo(() => subtotal * (CLIENT_CONFIG.taxRate / 100), [subtotal])
   const total = subtotal + tax
 
-  function addSelectedItem() {
+  const deliveryInCart = cart.some(l => l.priceItemId && l.priceItemId === deliveryItem?.id)
+
+  /** One tap adds the item; tapping again bumps the quantity by its unit step. */
+  function addItem(item: PriceItem) {
     setPageError('')
-    const item = priceItems.find(i => i.id === selectedItemId)
-    if (!item) { setPageError('Pick an item to add.'); return }
-    const quantity = Number(qty)
-    if (!qty.trim() || Number.isNaN(quantity) || quantity <= 0) {
-      setPageError('Enter a quantity greater than zero.')
-      return
-    }
-    setCart(current => [...current, {
-      key: `${item.id}-${Date.now()}`,
-      description: priceItemLabel(item),
-      unit: item.unit,
-      quantity,
-      rate: Number(item.price),
-      priceItemId: item.id,
-    }])
-    setQty('1')
-    setSelectedItemId('')
+    setCart(current => {
+      const existing = current.find(l => l.priceItemId === item.id)
+      if (existing) {
+        const step = stepFor(item.unit)
+        return current.map(l =>
+          l.priceItemId === item.id
+            ? { ...l, quantity: Number((l.quantity + step).toFixed(2)) }
+            : l
+        )
+      }
+      return [...current, {
+        key: `${item.id}-${Date.now()}`,
+        description: priceItemLabel(item),
+        unit: item.unit,
+        quantity: 1,
+        rate: Number(item.price),
+        priceItemId: item.id,
+      }]
+    })
   }
 
-  // Delivery is charged on top of the material — keep it as a real line so it
-  // flows through tax, the invoice, and the printed receipt like anything else.
-  const DELIVERY_KEY = 'delivery-fee'
+  function changeQty(key: string, direction: 1 | -1) {
+    setCart(current => current.map(l => {
+      if (l.key !== key) return l
+      const step = stepFor(l.unit)
+      const next = Number((l.quantity + direction * step).toFixed(2))
+      return { ...l, quantity: Math.max(step, next) }
+    }))
+  }
 
-  function applyDeliveryFee(value: string) {
-    setDeliveryFee(value)
-    const amount = Number(value)
+  function setQtyDirect(key: string, raw: string) {
+    const n = Number(raw)
+    setCart(current => current.map(l =>
+      l.key === key ? { ...l, quantity: Number.isNaN(n) ? 0 : n } : l
+    ))
+  }
+
+  function toggleDelivery() {
+    setPageError('')
+    if (!deliveryItem) return
     setCart(current => {
-      const without = current.filter(l => l.key !== DELIVERY_KEY)
-      if (!value.trim() || Number.isNaN(amount) || amount <= 0) return without
-      return [...without, {
-        key: DELIVERY_KEY,
-        description: 'Delivery',
+      if (current.some(l => l.priceItemId === deliveryItem.id)) {
+        return current.filter(l => l.priceItemId !== deliveryItem.id)
+      }
+      return [...current, {
+        key: `delivery-${Date.now()}`,
+        description: deliveryItem.name || 'Delivery',
         unit: null,
         quantity: 1,
-        rate: amount,
+        rate: Number(deliveryItem.price),
+        priceItemId: deliveryItem.id,
       }]
     })
   }
@@ -223,9 +271,7 @@ export default function QuickSalePage() {
     setCustomerId('')
     setCustomCustomer('')
     setPaymentMethod('Cash')
-    setDeliveryFee('')
     setItemSearch('')
-    setSelectedItemId('')
     setCompleted(null)
     setPageError('')
   }
@@ -235,6 +281,13 @@ export default function QuickSalePage() {
     if (cart.length === 0) { setPageError('Add at least one item to the sale.'); return }
     if (cart.some(l => !l.description.trim())) { setPageError('Every line needs a description.'); return }
     if (cart.some(l => l.quantity <= 0)) { setPageError('Every line needs a quantity greater than zero.'); return }
+
+    // Countable things can't be sold in parts — catch it before it reaches an invoice
+    const fractional = cart.find(l => !isBulkUnit(l.unit) && !Number.isInteger(l.quantity))
+    if (fractional) {
+      setPageError(`${fractional.description} is sold by the ${fractional.unit || 'unit'} — use a whole number.`)
+      return
+    }
 
     const chosenCustomer = customers.find(c => c.id === customerId)
     const customerLabel = chosenCustomer?.name || customCustomer.trim() || 'Walk-in customer'
@@ -327,80 +380,73 @@ export default function QuickSalePage() {
     setSaving(false)
   }
 
-  // ── Completed view ──────────────────────────────────────────────────────────
+  // ── Completed ───────────────────────────────────────────────────────────────
   if (completed) {
     return (
-      <AppShell title="Quick Sale" subtitle="Counter sales — materials, products, and services" maxWidth="max-w-2xl">
+      <AppShell title="Quick Sale" subtitle="Counter sales — materials and products" maxWidth="max-w-2xl">
         <div className="rounded-xl bg-white p-8 text-center ring-1 ring-slate-200">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-              <svg className="h-8 w-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-              </svg>
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+            <Icon name="check" className="h-8 w-8 text-emerald-600" strokeWidth={2.2} />
+          </div>
+          <h1 className="text-2xl font-semibold text-slate-900">Sale complete</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {completed.invoice_number} · {completed.customer} · {completed.paymentMethod}
+          </p>
+
+          <div className="mx-auto mt-6 max-w-xs rounded-xl bg-slate-50 p-5 ring-1 ring-slate-200">
+            <div className="flex justify-between text-sm text-slate-600">
+              <span>Subtotal</span><span className="font-semibold text-slate-900">{fmtMoney(completed.subtotal)}</span>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">Sale complete</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              {completed.invoice_number} · {completed.customer} · {completed.paymentMethod}
-            </p>
-            <div className="mx-auto mt-6 max-w-xs rounded-2xl bg-slate-50 p-5 ring-1 ring-slate-200">
-              <div className="flex justify-between text-sm text-slate-600">
-                <span>Subtotal</span><span className="font-semibold text-slate-900">{fmtMoney(completed.subtotal)}</span>
-              </div>
-              <div className="mt-1.5 flex justify-between text-sm text-slate-600">
-                <span>{CLIENT_CONFIG.taxLabel} ({CLIENT_CONFIG.taxRate}%)</span>
-                <span className="font-semibold text-slate-900">{fmtMoney(completed.tax)}</span>
-              </div>
-              <div className="mt-3 flex justify-between border-t border-slate-300 pt-3 text-base">
-                <span className="font-black text-slate-900">TOTAL</span>
-                <span className="font-black text-emerald-700">{fmtMoney(completed.total)}</span>
-              </div>
+            <div className="mt-1.5 flex justify-between text-sm text-slate-600">
+              <span>{CLIENT_CONFIG.taxLabel} ({CLIENT_CONFIG.taxRate}%)</span>
+              <span className="font-semibold text-slate-900">{fmtMoney(completed.tax)}</span>
             </div>
-            <div className="mt-7 flex flex-wrap justify-center gap-3">
-              <button
-                onClick={() => printReceipt(completed)}
-                className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-bold text-white transition hover:opacity-90"
-              >
-                Print Receipt
-              </button>
-              <button
-                onClick={resetSale}
-                className="rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white transition hover:bg-emerald-500"
-              >
-                New Sale
-              </button>
-              <Link
-                href="/invoices"
-                className="rounded-2xl border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-              >
-                View Invoices
-              </Link>
+            <div className="mt-3 flex justify-between border-t border-slate-300 pt-3 text-base">
+              <span className="font-black text-slate-900">TOTAL</span>
+              <span className="font-black text-emerald-700">{fmtMoney(completed.total)}</span>
             </div>
+          </div>
+
+          <div className="mt-7 flex flex-wrap justify-center gap-3">
+            <button
+              onClick={() => printReceipt(completed)}
+              className="rounded-lg bg-slate-900 px-6 py-3 text-sm font-bold text-white transition hover:opacity-90"
+            >
+              Print Receipt
+            </button>
+            <button
+              onClick={resetSale}
+              className="rounded-lg px-6 py-3 text-sm font-bold text-white transition hover:opacity-90"
+              style={{ background: 'var(--accent)' }}
+            >
+              New Sale
+            </button>
+            <Link href="/invoices" className="rounded-lg px-6 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50">
+              View Invoices
+            </Link>
+          </div>
         </div>
       </AppShell>
     )
   }
 
-  // ── Sale entry ──────────────────────────────────────────────────────────────
+  // ── Till ────────────────────────────────────────────────────────────────────
   return (
     <AppShell
       title="Quick Sale"
-      subtitle="Counter sales — materials, products, and services"
+      subtitle="Counter sales — tap an item to add it, tap again for more"
       maxWidth="max-w-6xl"
     >
       <>
         {pageError ? (
-          <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {pageError}
-          </div>
+          <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{pageError}</div>
         ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-5">
 
-          {/* ── Left: item entry + cart ─────────────────────────────────── */}
-          <div className="space-y-6 lg:col-span-2">
-
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              {/* Materials and bin services are different jobs — keep them apart
-                  so a long material list never buries the bin services. */}
+          {/* Picker */}
+          <div className="lg:col-span-3">
+            <div className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
               <div className="mb-4 flex gap-2">
                 {([
                   { id: 'products' as const, label: 'Materials & Products', count: products.length },
@@ -408,7 +454,7 @@ export default function QuickSalePage() {
                 ]).map(t => (
                   <button
                     key={t.id}
-                    onClick={() => { setPickerTab(t.id); setSelectedItemId(''); setItemSearch('') }}
+                    onClick={() => { setPickerTab(t.id); setItemSearch('') }}
                     className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
                       pickerTab === t.id ? 'text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
                     }`}
@@ -422,8 +468,18 @@ export default function QuickSalePage() {
                 ))}
               </div>
 
+              {/* Bin work is billed off the completed job, not rung up here */}
+              {pickerTab === 'services' && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+                  Bin services are normally charged <strong>when the bin is picked up</strong> — those bill
+                  automatically from the completed job in{' '}
+                  <Link href="/reports/statements" className="font-bold underline">Statements &amp; Invoices</Link>.
+                  Only use this tab to take payment at the counter.
+                </div>
+              )}
+
               {loading ? (
-                <p className="text-sm text-slate-500">Loading price book…</p>
+                <p className="py-8 text-center text-sm text-slate-500">Loading price book…</p>
               ) : priceItems.length === 0 ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                   No prices yet. <Link href="/prices" className="font-bold underline">Set up the Price Book →</Link>
@@ -433,222 +489,225 @@ export default function QuickSalePage() {
                   <input
                     value={itemSearch}
                     onChange={e => setItemSearch(e.target.value)}
-                    placeholder={pickerTab === 'products' ? 'Search materials…' : 'Search services…'}
-                    className="mb-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                    placeholder={pickerTab === 'products' ? 'Search materials and products…' : 'Search services…'}
+                    className="mb-4 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
                   />
 
-                  <div className="mb-4 max-h-56 overflow-y-auto rounded-lg ring-1 ring-slate-200">
-                    {visibleItems.length === 0 ? (
-                      <p className="px-4 py-6 text-center text-sm text-slate-500">Nothing matches that search.</p>
-                    ) : (
-                      <ul className="divide-y divide-slate-100">
-                        {visibleItems.map(item => (
-                          <li key={item.id}>
-                            <button
-                              onClick={() => setSelectedItemId(item.id)}
-                              className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition ${
-                                selectedItemId === item.id ? 'bg-[var(--accent-soft)]' : 'bg-white hover:bg-slate-50'
-                              }`}
-                            >
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm font-semibold text-slate-900">
-                                  {priceItemLabel(item)}
-                                </span>
+                  {visibleItems.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-slate-500">Nothing matches that search.</p>
+                  ) : (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {visibleItems.map(item => {
+                        const inCart = cart.find(l => l.priceItemId === item.id)
+                        const out = item.kind === 'product' && item.track_stock && Number(item.stock_qty) <= 0
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => addItem(item)}
+                            className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition ${
+                              inCart
+                                ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                                : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                            }`}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold text-slate-900">
+                                {priceItemLabel(item)}
+                              </span>
+                              <span className="mt-0.5 block text-xs text-slate-500">
+                                {fmtMoney(item.price)}{item.unit ? ` / ${item.unit}` : ''}
                                 {item.kind === 'product' && item.track_stock && (
-                                  <span className={`text-xs ${Number(item.stock_qty) <= 0 ? 'text-rose-600' : 'text-slate-500'}`}>
-                                    {fmtQtyLabel(Number(item.stock_qty))} {item.unit || ''} on hand
+                                  <span className={out ? 'ml-2 font-semibold text-rose-600' : 'ml-2'}>
+                                    · {fmtQtyLabel(Number(item.stock_qty))} on hand
                                   </span>
                                 )}
                               </span>
-                              <span className="shrink-0 text-sm font-semibold text-slate-700">
-                                {fmtMoney(item.price)}{item.kind === 'product' && item.unit ? `/${item.unit}` : ''}
+                            </span>
+                            {inCart ? (
+                              <span
+                                className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full px-2 text-xs font-bold text-white"
+                                style={{ background: 'var(--accent)' }}
+                              >
+                                {fmtQtyLabel(inCart.quantity)}
                               </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-[140px_1fr_auto]">
-                    <input
-                      value={qty}
-                      onChange={(e) => setQty(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="Qty"
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                    />
-                    {/* Materials go out in part loads — half and quarter yards are normal */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {['0.25', '0.5', '1', '2', '5'].map(v => (
-                        <button
-                          key={v}
-                          onClick={() => setQty(v)}
-                          className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
-                            qty === v ? 'text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
-                          }`}
-                          style={qty === v ? { background: 'var(--accent)' } : undefined}
-                        >
-                          {v === '0.25' ? '¼' : v === '0.5' ? '½' : v}
-                        </button>
-                      ))}
+                            ) : (
+                              <Icon name="plus" className="h-4 w-4 shrink-0 text-slate-300" />
+                            )}
+                          </button>
+                        )
+                      })}
                     </div>
-                    <button
-                      onClick={addSelectedItem}
-                      disabled={!selectedItemId}
-                      className="rounded-lg px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40"
-                      style={{ background: 'var(--accent)' }}
-                    >
-                      Add to sale
-                    </button>
-                  </div>
+                  )}
                 </>
               )}
+
               <button
                 onClick={addCustomLine}
-                className="mt-3 text-xs font-semibold text-slate-500 underline hover:text-slate-800"
+                className="mt-4 text-xs font-semibold text-slate-500 underline hover:text-slate-800"
               >
                 + Add a custom line (not in the price book)
               </button>
             </div>
+          </div>
 
-            <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
-              <div className="border-b border-slate-200 px-6 py-4">
-                <h2 className="text-base font-bold text-slate-900">Sale Items</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Quantity and rate stay editable — adjust for discounts before completing</p>
+          {/* Cart + payment */}
+          <div className="space-y-4 lg:col-span-2">
+
+            <div className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+              <div className="border-b border-slate-200 px-5 py-3.5">
+                <h2 className="text-base font-semibold text-slate-900">This sale</h2>
               </div>
               {cart.length === 0 ? (
-                <div className="p-10 text-center text-sm text-slate-500">No items yet — add the first one above.</div>
+                <p className="px-5 py-10 text-center text-sm text-slate-500">
+                  Tap an item to start.
+                </p>
               ) : (
-                <table className="w-full divide-y divide-slate-200">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Description</th>
-                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Qty</th>
-                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Rate</th>
-                      <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Amount</th>
-                      <th className="px-4 py-3"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {cart.map(line => (
-                      <tr key={line.key}>
-                        <td className="px-4 py-2.5">
-                          <input
-                            value={line.description}
-                            onChange={(e) => updateLine(line.key, { description: e.target.value })}
-                            placeholder="Item description"
-                            className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-sm font-semibold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400 hover:border-slate-200 focus:border-slate-400 focus:bg-white"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <input
-                            value={String(line.quantity)}
-                            onChange={(e) => updateLine(line.key, { quantity: Number(e.target.value) || 0 })}
-                            inputMode="decimal"
-                            className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm text-slate-900 outline-none focus:border-slate-400"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <input
-                            value={String(line.rate)}
-                            onChange={(e) => updateLine(line.key, { rate: Number(e.target.value) || 0 })}
-                            inputMode="decimal"
-                            className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-right text-sm text-slate-900 outline-none focus:border-slate-400"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-sm font-black text-slate-900 whitespace-nowrap">
-                          {fmtMoney(line.quantity * line.rate)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
+                <ul className="divide-y divide-slate-100">
+                  {cart.map(l => {
+                    const bulk = isBulkUnit(l.unit)
+                    return (
+                      <li key={l.key} className="px-5 py-3">
+                        <div className="flex items-start justify-between gap-2">
+                          {l.priceItemId ? (
+                            <span className="min-w-0 flex-1 text-sm font-semibold text-slate-900">{l.description}</span>
+                          ) : (
+                            <input
+                              value={l.description}
+                              onChange={e => updateLine(l.key, { description: e.target.value })}
+                              placeholder="Description"
+                              className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400 focus:border-slate-400"
+                            />
+                          )}
                           <button
-                            onClick={() => removeLine(line.key)}
-                            className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                            onClick={() => removeLine(l.key)}
+                            className="shrink-0 rounded px-1.5 text-xs font-bold text-slate-300 hover:text-rose-600"
                           >
                             ✕
                           </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => changeQty(l.key, -1)}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                            >
+                              −
+                            </button>
+                            <input
+                              value={String(l.quantity)}
+                              onChange={e => setQtyDirect(l.key, e.target.value)}
+                              inputMode="decimal"
+                              className="w-14 rounded-lg border border-slate-200 px-1 py-1 text-center text-sm text-slate-900 outline-none focus:border-slate-400"
+                            />
+                            <button
+                              onClick={() => changeQty(l.key, 1)}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                            >
+                              +
+                            </button>
+                            {l.unit && <span className="ml-1 text-xs text-slate-400">{l.unit}</span>}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={String(l.rate)}
+                              onChange={e => updateLine(l.key, { rate: Number(e.target.value) || 0 })}
+                              inputMode="decimal"
+                              className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm text-slate-900 outline-none focus:border-slate-400"
+                            />
+                            <span className="w-20 text-right text-sm font-black text-slate-900">
+                              {fmtMoney(l.quantity * l.rate)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {!bulk && !Number.isInteger(l.quantity) && (
+                          <p className="mt-1.5 text-xs font-medium text-rose-600">
+                            Sold by the {l.unit || 'unit'} — whole numbers only.
+                          </p>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
               )}
             </div>
-          </div>
 
-          {/* ── Right: customer, payment, totals ────────────────────────── */}
-          <div className="space-y-6">
+            {/* Delivery — amount comes from the Price Book */}
+            <div className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
+              <h2 className="mb-1 text-base font-semibold text-slate-900">Delivery</h2>
+              {deliveryItem ? (
+                <>
+                  <p className="mb-3 text-xs text-slate-500">
+                    Set up in the Price Book as <strong>{deliveryItem.name}</strong>.
+                  </p>
+                  <button
+                    onClick={toggleDelivery}
+                    className={`w-full rounded-lg px-4 py-3 text-sm font-semibold transition ${
+                      deliveryInCart ? 'text-white' : 'text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50'
+                    }`}
+                    style={deliveryInCart ? { background: 'var(--accent)' } : undefined}
+                  >
+                    {deliveryInCart
+                      ? `✓ Delivery added — ${fmtMoney(deliveryItem.price)}`
+                      : `Add delivery — ${fmtMoney(deliveryItem.price)}`}
+                  </button>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Change the amount on the line if this trip is different.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs leading-relaxed text-slate-500">
+                  No delivery charge set up yet. Add a product called <strong>Delivery</strong> in the{' '}
+                  <Link href="/prices" className="font-semibold underline">Price Book</Link> and it will appear
+                  here as a one-tap button.
+                </p>
+              )}
+            </div>
 
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="mb-4 text-base font-bold text-slate-900">Customer</h2>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Existing customer</label>
+            <div className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
+              <h2 className="mb-3 text-base font-semibold text-slate-900">Customer</h2>
               <select
                 value={customerId}
                 onChange={(e) => { setCustomerId(e.target.value); if (e.target.value) setCustomCustomer('') }}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
               >
                 <option value="">Walk-in (no account)</option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               {!customerId && (
-                <>
-                  <label className="mb-1.5 mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">Name on receipt (optional)</label>
-                  <input
-                    value={customCustomer}
-                    onChange={(e) => setCustomCustomer(e.target.value)}
-                    placeholder="Walk-in customer"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                  />
-                </>
+                <input
+                  value={customCustomer}
+                  onChange={(e) => setCustomCustomer(e.target.value)}
+                  placeholder="Name on receipt (optional)"
+                  className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                />
               )}
             </div>
 
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="mb-2 text-base font-bold text-slate-900">Delivery</h2>
-              <p className="mb-3 text-xs text-slate-500">Charging to drop the material off? Add it here.</p>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400">$</span>
-                <input
-                  value={deliveryFee}
-                  onChange={e => applyDeliveryFee(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                />
-                {deliveryFee.trim() !== '' && (
-                  <button
-                    onClick={() => applyDeliveryFee('')}
-                    className="shrink-0 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <h2 className="mb-4 text-base font-bold text-slate-900">Payment</h2>
+            <div className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
+              <h2 className="mb-3 text-base font-semibold text-slate-900">Payment</h2>
               <div className="grid grid-cols-2 gap-2">
                 {PAYMENT_METHODS.map(m => (
                   <button
                     key={m}
                     onClick={() => setPaymentMethod(m)}
-                    className={`rounded-xl px-3 py-2.5 text-xs font-bold transition ${
-                      paymentMethod === m
-                        ? 'bg-slate-900 text-white'
-                        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${
+                      paymentMethod === m ? 'text-white' : 'text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
                     }`}
+                    style={paymentMethod === m ? { background: 'var(--accent)' } : undefined}
                   >
                     {m}
                   </button>
                 ))}
               </div>
               {paymentMethod === 'On Account' && (
-                <p className="mt-3 text-xs text-amber-700">Saved as unpaid — it will show as outstanding on the customer's account.</p>
+                <p className="mt-3 text-xs text-amber-700">Saved as unpaid — shows as outstanding on the account.</p>
               )}
             </div>
 
-            <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+            <div className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
               <div className="flex justify-between text-sm text-slate-600">
                 <span>Subtotal</span><span className="font-semibold text-slate-900">{fmtMoney(subtotal)}</span>
               </div>
@@ -663,14 +722,15 @@ export default function QuickSalePage() {
               <button
                 onClick={() => void completeSale()}
                 disabled={saving || cart.length === 0}
-                className="mt-5 w-full rounded-2xl bg-emerald-600 px-6 py-4 text-base font-black text-white transition hover:bg-emerald-500 disabled:opacity-40"
+                className="mt-5 w-full rounded-lg px-6 py-4 text-base font-black text-white transition hover:opacity-90 disabled:opacity-40"
+                style={{ background: 'var(--accent)' }}
               >
                 {saving ? 'Saving…' : 'Complete Sale'}
               </button>
               {cart.length > 0 && (
                 <button
                   onClick={resetSale}
-                  className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-6 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  className="mt-2 w-full rounded-lg px-6 py-2.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
                 >
                   Clear Sale
                 </button>

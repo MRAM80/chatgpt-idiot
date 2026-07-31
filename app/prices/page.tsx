@@ -24,7 +24,13 @@ type PriceItem = {
 
 const ORDER_TYPES = ['DELIVERY', 'EXCHANGE', 'REMOVAL', 'DUMP RETURN'] as const
 const BIN_SIZES = ['6', '8', '10', '12', '14', '15', '20', '30', '40'] as const
-const UNITS = ['each', 'yard', 'bag', 'load', 'hour'] as const
+/**
+ * Units decide whether part quantities are allowed at the till: bulk measures
+ * are scooped so half a yard is normal, countable things are whole only.
+ */
+const COUNTABLE_UNITS = ['each', 'bag', 'box', 'pallet'] as const
+const BULK_UNITS = ['yard', 'tonne', 'load', 'hour'] as const
+const UNITS = [...COUNTABLE_UNITS, ...BULK_UNITS] as const
 
 function fmtPrice(value: number) {
   return `$${Number(value).toFixed(2)}`
@@ -325,7 +331,12 @@ export default function PricesPage() {
                 onChange={(e) => setProdUnit(e.target.value)}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400"
               >
-                {UNITS.map((u) => <option key={u} value={u}>per {u}</option>)}
+                <optgroup label="Counted whole (each, bag…)">
+                  {COUNTABLE_UNITS.map((u) => <option key={u} value={u}>per {u}</option>)}
+                </optgroup>
+                <optgroup label="Bulk — part quantities allowed">
+                  {BULK_UNITS.map((u) => <option key={u} value={u}>per {u}</option>)}
+                </optgroup>
               </select>
               <input
                 value={prodPrice}
