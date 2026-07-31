@@ -19,6 +19,7 @@ const NAV: NavGroup[] = [
       { href: '/dispatch', label: 'Dispatch', icon: 'dispatch' },
       { href: '/order', label: 'Orders', icon: 'orders' },
       { href: '/sale', label: 'Quick Sale', icon: 'sale' },
+      { href: '/services', label: 'Bin Services', icon: 'bins' },
     ],
   },
   {

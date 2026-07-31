@@ -59,6 +59,12 @@ export default function PricesPage() {
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [savingProduct, setSavingProduct] = useState(false)
 
+  // Named charges — delivery fee and the like. Services, but not bin services.
+  const [chargeName, setChargeName] = useState('')
+  const [chargePrice, setChargePrice] = useState('')
+  const [editingChargeId, setEditingChargeId] = useState<string | null>(null)
+  const [savingCharge, setSavingCharge] = useState(false)
+
   useEffect(() => {
     if (!roleLoading && role !== null && !can(role, 'canViewReports')) {
       router.push(role === 'driver' ? '/driver' : '/dispatch')
@@ -79,13 +85,22 @@ export default function PricesPage() {
 
   useEffect(() => { void loadItems() }, [])
 
+  // Bin services are keyed by type + size; named services (delivery fee,
+  // environmental fee) are charges that aren't tied to a bin.
   const services = useMemo(
     () => items
-      .filter((i) => i.kind === 'service')
+      .filter((i) => i.kind === 'service' && i.service_type)
       .sort((a, b) =>
         (a.service_type || '').localeCompare(b.service_type || '') ||
         (Number(a.bin_size) || 0) - (Number(b.bin_size) || 0)
       ),
+    [items]
+  )
+
+  const charges = useMemo(
+    () => items
+      .filter((i) => i.kind === 'service' && !i.service_type && i.name)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
     [items]
   )
 
@@ -192,16 +207,65 @@ export default function PricesPage() {
     await loadItems()
   }
 
+  // ── Named charges ───────────────────────────────────────────────────────────
+  function startEditCharge(item: PriceItem) {
+    setEditingChargeId(item.id)
+    setChargeName(item.name || '')
+    setChargePrice(String(item.price))
+  }
+
+  function resetChargeForm() {
+    setEditingChargeId(null)
+    setChargeName('')
+    setChargePrice('')
+  }
+
+  async function saveCharge() {
+    setPageError('')
+    const price = Number(chargePrice)
+    if (!chargeName.trim()) { setPageError('Enter a name for the charge.'); return }
+    if (!chargePrice.trim() || Number.isNaN(price) || price < 0) {
+      setPageError('Enter a valid amount for the charge.')
+      return
+    }
+
+    const duplicate = charges.find(
+      (c) => (c.name || '').toLowerCase() === chargeName.trim().toLowerCase() && c.id !== editingChargeId
+    )
+    if (duplicate) {
+      setPageError(`"${chargeName.trim()}" already exists (${fmtPrice(duplicate.price)}) — edit that line instead.`)
+      return
+    }
+
+    setSavingCharge(true)
+    if (editingChargeId) {
+      const { error } = await supabase
+        .from('price_book')
+        .update({ name: chargeName.trim(), price, updated_at: new Date().toISOString() })
+        .eq('id', editingChargeId)
+      if (error) { setPageError(error.message); setSavingCharge(false); return }
+    } else {
+      const { error } = await supabase
+        .from('price_book')
+        .insert([{ kind: 'service', name: chargeName.trim(), price }])
+      if (error) { setPageError(error.message); setSavingCharge(false); return }
+    }
+    setSavingCharge(false)
+    resetChargeForm()
+    await loadItems()
+  }
+
   async function deleteItem(item: PriceItem) {
-    const label = item.kind === 'service'
+    const label = item.kind === 'service' && item.service_type
       ? `${item.service_type} ${item.bin_size}Y`
-      : item.name || 'this product'
+      : item.name || 'this item'
     if (!window.confirm(`Delete the price for ${label}?`)) return
     setPageError('')
     const { error } = await supabase.from('price_book').delete().eq('id', item.id)
     if (error) { setPageError(error.message); return }
     if (editingServiceId === item.id) resetServiceForm()
     if (editingProductId === item.id) resetProductForm()
+    if (editingChargeId === item.id) resetChargeForm()
     await loadItems()
   }
 
@@ -390,6 +454,93 @@ export default function PricesPage() {
                     <td className="px-6 py-3 text-right whitespace-nowrap">
                       <button
                         onClick={() => startEditProduct(item)}
+                        className="mr-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => void deleteItem(item)}
+                        className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* ── Other Charges ────────────────────────────────────────────────── */}
+        <div className="mt-6 overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="text-lg font-bold text-slate-900">Other Charges</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Named services that aren&apos;t tied to a bin — a delivery fee for material, an
+              environmental fee. Add one called <strong>Delivery</strong> and it becomes a one-tap
+              button on Quick Sale.
+            </p>
+          </div>
+
+          <div className="border-b border-slate-100 bg-slate-50/60 px-6 py-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                value={chargeName}
+                onChange={(e) => setChargeName(e.target.value)}
+                placeholder="Charge name (e.g. Delivery)"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+              />
+              <input
+                value={chargePrice}
+                onChange={(e) => setChargePrice(e.target.value)}
+                placeholder="Amount (e.g. 85.00)"
+                inputMode="decimal"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void saveCharge()}
+                  disabled={savingCharge}
+                  className="flex-1 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {savingCharge ? 'Saving…' : editingChargeId ? 'Save Changes' : 'Add Charge'}
+                </button>
+                {editingChargeId && (
+                  <button
+                    onClick={resetChargeForm}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="p-10 text-center text-sm text-slate-500">Loading charges…</div>
+          ) : charges.length === 0 ? (
+            <div className="p-10 text-center text-sm text-slate-500">
+              No other charges yet — add a <strong>Delivery</strong> charge to enable it at the till.
+            </div>
+          ) : (
+            <table className="w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">Charge</th>
+                  <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Amount</th>
+                  <th className="px-6 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {charges.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/80">
+                    <td className="px-6 py-3 text-sm font-semibold text-slate-900">{item.name}</td>
+                    <td className="px-6 py-3 text-right text-sm font-bold text-slate-900">{fmtPrice(item.price)}</td>
+                    <td className="px-6 py-3 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => startEditCharge(item)}
                         className="mr-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                       >
                         Edit
