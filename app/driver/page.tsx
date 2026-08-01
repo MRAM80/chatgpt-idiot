@@ -1597,7 +1597,9 @@ export default function DriverPage() {
                     {/* ── Stop bar ─────────────────────────────────────────── */}
                     <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50">
                       <span className="text-xs font-semibold text-slate-500">Stop {order.route_position || index + 1}</span>
-                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
+                      {order.bin_size != null && String(order.bin_size).trim() !== '' && (
+                        <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.bin_size)} yd</span>
+                      )}
                       <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700">{displayValue(order.order_type)}</span>
                       {(order.service_window || order.service_time) && (
                         <span className="ml-auto text-xs font-medium text-slate-500">

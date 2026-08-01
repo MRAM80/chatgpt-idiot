@@ -25,9 +25,10 @@ const NAV: NavGroup[] = [
     label: 'Business',
     items: [
       { href: '/invoices', label: 'Invoices', icon: 'invoice' },
+      { href: '/reports', label: 'Reports', icon: 'reports' },
+      { href: '/reports/tax', label: `${CLIENT_CONFIG.taxLabel} Return`, icon: 'chart' },
       { href: '/expenses', label: 'Expenses', icon: 'sale' },
       { href: '/receiving', label: 'Stock In', icon: 'truck' },
-      { href: '/reports', label: 'Reports', icon: 'reports' },
       { href: '/export', label: 'Export to QB', icon: 'arrowRight' },
       { href: '/prices', label: 'Price Book', icon: 'price' },
     ],
@@ -46,9 +47,23 @@ const NAV: NavGroup[] = [
   },
 ]
 
+const NAV_HREFS = NAV.flatMap(group => group.items.map(item => item.href))
+
+function matchesRoute(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+/**
+ * Longest match wins. `/reports` and `/reports/tax` are both nav items, so a
+ * plain prefix test would light up two rows at once on the tax page.
+ */
 function isActive(pathname: string, href: string) {
   if (href === '/dashboard') return pathname === '/dashboard'
-  return pathname === href || pathname.startsWith(`${href}/`)
+  if (!matchesRoute(pathname, href)) return false
+
+  return !NAV_HREFS.some(
+    other => other.length > href.length && matchesRoute(pathname, other)
+  )
 }
 
 /**

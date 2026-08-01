@@ -385,6 +385,7 @@ function OrdersPageContent() {
   const [originalLines, setOriginalLines] = useState<OrderLine[]>([])
   const [lineSearch, setLineSearch] = useState('')
   const [prepaid, setPrepaid] = useState(false)
+  const [linesLoading, setLinesLoading] = useState(false)
 
   const [newAddrDetails, setNewAddrDetails] = useState({ unit: '', city: '', postal_code: '' })
   const addressInputRef = useRef<HTMLInputElement | null>(null)
@@ -596,23 +597,27 @@ function OrdersPageContent() {
   }, [])
 
   async function loadOrderLines(orderId: string) {
-    const { data } = await supabase
-      .from('order_items')
-      .select('id,price_book_id,kind,description,unit,quantity,rate')
-      .eq('order_id', orderId)
-    const rows = (data as { id: string; price_book_id: string | null; kind: string; description: string; unit: string | null; quantity: number; rate: number }[]) || []
-    const mapped: OrderLine[] = rows.map(r => ({
-      key: r.id,
-      id: r.id,
-      priceItemId: r.price_book_id || '',
-      kind: r.kind === 'charge' ? 'charge' : 'product',
-      description: r.description,
-      unit: r.unit,
-      quantity: Number(r.quantity),
-      rate: Number(r.rate),
-    }))
-    setOrderLines(mapped)
-    setOriginalLines(mapped)
+    try {
+      const { data } = await supabase
+        .from('order_items')
+        .select('id,price_book_id,kind,description,unit,quantity,rate')
+        .eq('order_id', orderId)
+      const rows = (data as { id: string; price_book_id: string | null; kind: string; description: string; unit: string | null; quantity: number; rate: number }[]) || []
+      const mapped: OrderLine[] = rows.map(r => ({
+        key: r.id,
+        id: r.id,
+        priceItemId: r.price_book_id || '',
+        kind: r.kind === 'charge' ? 'charge' : 'product',
+        description: r.description,
+        unit: r.unit,
+        quantity: Number(r.quantity),
+        rate: Number(r.rate),
+      }))
+      setOrderLines(mapped)
+      setOriginalLines(mapped)
+    } finally {
+      setLinesLoading(false)
+    }
   }
 
 
@@ -1046,12 +1051,28 @@ function OrdersPageContent() {
     return currentUser.full_name || currentUser.email || 'System'
   }
 
+  /**
+   * Material, its stock baseline and the prepaid flag all belong to one order.
+   * Every path that opens or closes the modal must clear them, or the next
+   * order inherits lines it never held stock for — and a stale prepaid flag
+   * mints an invoice nobody asked for.
+   */
+  function resetLineState() {
+    setOrderLines([])
+    setOriginalLines([])
+    setLineSearch('')
+    setPrepaid(false)
+    setLinesLoading(false)
+  }
+
   function openCreateModal() {
     setEditingOrder(null)
     setForm({
       ...emptyForm,
       scheduled_date: generateQuickDate(0),
     })
+    resetLineState()
+    setNewAddrDetails({ unit: '', city: '', postal_code: '' })
     setShowCreateModal(true)
     setPageError('')
   }
@@ -1081,10 +1102,11 @@ function OrdersPageContent() {
       dump_site_id: order.dump_site_id || '',
       notes: order.notes || '',
     })
-    setOrderLines([])
-    setOriginalLines([])
-    setLineSearch('')
+    resetLineState()
     setPrepaid(Boolean(order.prepaid))
+    // Saving before these land would delete every order_items row and re-insert
+    // an empty set, returning no stock — so Save stays disabled until they do.
+    setLinesLoading(true)
     void loadOrderLines(order.id)
   }
 
@@ -1100,6 +1122,7 @@ function OrdersPageContent() {
     setEditingOrder(null)
     setShowCreateModal(false)
     setForm(emptyForm)
+    resetLineState()
     setNewAddrDetails({ unit: '', city: '', postal_code: '' })
     setPageError('')
 
@@ -1390,8 +1413,9 @@ function OrdersPageContent() {
       service_address: jobSiteAddress,
       service_time: form.service_time || null,
       service_window: null,
-      bin_size: form.bin_size || null,
-      bin_type: form.bin_type || null,
+      // A material delivery carries no bin, so it must not claim a size or type
+      bin_size: orderType === 'MATERIAL DELIVERY' ? null : form.bin_size || null,
+      bin_type: orderType === 'MATERIAL DELIVERY' ? null : form.bin_type || null,
       order_type: orderType,
       driver_id: isEditing ? form.driver_id || null : null,
       scheduled_date: form.scheduled_date || null,
@@ -1475,12 +1499,26 @@ function OrdersPageContent() {
       }
     }
 
+    if (orderType === 'MATERIAL DELIVERY') {
+      // No bin changes hands — the trip exists only to drop the order's material.
+      return {
+        payload: { ...basePayload, bin_id: null, old_bin_id: null },
+        assignedBinId: null,
+        releasedBinId: null,
+      }
+    }
+
     throw new Error('Invalid order type.')
   }
 
   async function handleCreateOrUpdate() {
     if (isReadOnlyModal) {
       closeModal()
+      return
+    }
+
+    if (linesLoading) {
+      setPageError('Still loading this order’s material — one moment.')
       return
     }
 
@@ -1503,6 +1541,15 @@ function OrdersPageContent() {
 
       if (!form.scheduled_date) {
         throw new Error('Delivery date is required.')
+      }
+
+      if (form.order_type === 'MATERIAL DELIVERY' && !hasMaterialLine) {
+        throw new Error('A material delivery needs at least one material line.')
+      }
+
+      const fractional = orderLines.find((l) => !isBulkUnit(l.unit) && !Number.isInteger(l.quantity))
+      if (fractional) {
+        throw new Error(`${fractional.description} is sold by the ${fractional.unit || 'unit'} — use a whole number.`)
       }
 
       const previousDriverId = editingOrder?.driver_id || null
@@ -2229,8 +2276,12 @@ function OrdersPageContent() {
                     <ReadOnlyField label="Order Type" value={form.order_type || '—'} />
                     <ReadOnlyField label="Date" value={formatDate(form.scheduled_date)} />
                     <ReadOnlyField label="Time" value={formatServiceTime(form.service_time)} />
-                    <ReadOnlyField label="Bin Size" value={form.bin_size ? `${form.bin_size} Yard` : '—'} />
-                    <ReadOnlyField label="Material / Bin" value={form.bin_type || '—'} />
+                    {!isMaterialOrder && (
+                      <>
+                        <ReadOnlyField label="Bin Size" value={form.bin_size ? `${form.bin_size} Yard` : '—'} />
+                        <ReadOnlyField label="Material / Bin" value={form.bin_type || '—'} />
+                      </>
+                    )}
                     <ReadOnlyField
                       label="Driver"
                       value={form.driver_id ? drivers.find((d) => d.id === form.driver_id)?.name || 'Assigned' : 'Unassigned'}
@@ -2377,35 +2428,39 @@ function OrdersPageContent() {
                       </select>
                     </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
-                      <select
-                        value={form.bin_size}
-                        onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '', old_bin_id: '' }))}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      >
-                        {BIN_SIZES.map((size) => (
-                          <option key={size} value={size}>
-                            {size} Yard
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {!isMaterialOrder && (
+                      <>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">Bin Size</label>
+                          <select
+                            value={form.bin_size}
+                            onChange={(e) => setForm((prev) => ({ ...prev, bin_size: e.target.value, bin_id: '', old_bin_id: '' }))}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                          >
+                            {BIN_SIZES.map((size) => (
+                              <option key={size} value={size}>
+                                {size} Yard
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin</label>
-                      <select
-                        value={form.bin_type}
-                        onChange={(e) => setForm((prev) => ({ ...prev, bin_type: e.target.value }))}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
-                      >
-                        {MATERIAL_TYPES.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">Material / Bin</label>
+                          <select
+                            value={form.bin_type}
+                            onChange={(e) => setForm((prev) => ({ ...prev, bin_type: e.target.value }))}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400"
+                          >
+                            {MATERIAL_TYPES.map((type) => (
+                              <option key={type} value={type}>
+                                {type}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
 
@@ -2616,28 +2671,35 @@ function OrdersPageContent() {
                   {orderLines.length > 0 && (
                     <ul className="mt-3 space-y-2">
                       {orderLines.map((l) => (
-                        <li key={l.key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
-                          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">{l.description}</span>
-                          <input
-                            value={String(l.quantity)}
-                            onChange={(e) => {
-                              const n = Number(e.target.value)
-                              setOrderLines((cur) => cur.map((x) => (x.key === l.key ? { ...x, quantity: Number.isNaN(n) ? 0 : n } : x)))
-                            }}
-                            inputMode="decimal"
-                            className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-center text-sm outline-none focus:border-slate-400"
-                          />
-                          {l.unit && <span className="text-xs text-slate-400">{l.unit}</span>}
-                          <span className="w-20 text-right text-sm font-bold text-slate-900">
-                            ${(l.quantity * l.rate).toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setOrderLines((cur) => cur.filter((x) => x.key !== l.key))}
-                            className="rounded px-1.5 text-xs font-bold text-slate-300 hover:text-rose-600"
-                          >
-                            ✕
-                          </button>
+                        <li key={l.key} className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                          <div className="flex items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">{l.description}</span>
+                            <input
+                              value={String(l.quantity)}
+                              onChange={(e) => {
+                                const n = Number(e.target.value)
+                                setOrderLines((cur) => cur.map((x) => (x.key === l.key ? { ...x, quantity: Number.isNaN(n) ? 0 : n } : x)))
+                              }}
+                              inputMode="decimal"
+                              className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-center text-sm outline-none focus:border-slate-400"
+                            />
+                            {l.unit && <span className="text-xs text-slate-400">{l.unit}</span>}
+                            <span className="w-20 text-right text-sm font-bold text-slate-900">
+                              ${(l.quantity * l.rate).toFixed(2)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOrderLines((cur) => cur.filter((x) => x.key !== l.key))}
+                              className="rounded px-1.5 text-xs font-bold text-slate-300 hover:text-rose-600"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {!isBulkUnit(l.unit) && !Number.isInteger(l.quantity) && (
+                            <p className="mt-1 text-xs font-medium text-rose-600">
+                              Sold by the {l.unit || 'unit'} — whole numbers only.
+                            </p>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -2751,10 +2813,10 @@ function OrdersPageContent() {
                 {!isReadOnlyModal && (
                   <button
                     onClick={handleCreateOrUpdate}
-                    disabled={saving}
+                    disabled={saving || linesLoading}
                     className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
                   >
-                    {saving ? 'Saving...' : editingOrder ? 'Save Changes' : 'Create Order'}
+                    {saving ? 'Saving...' : linesLoading ? 'Loading material...' : editingOrder ? 'Save Changes' : 'Create Order'}
                   </button>
                 )}
               </div>
