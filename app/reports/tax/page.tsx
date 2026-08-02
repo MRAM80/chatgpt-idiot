@@ -52,11 +52,12 @@ export default function TaxReportPage() {
     setLoading(true)
     setPageError('')
 
-    // Void invoices never count toward tax collected
+    // Neither a void nor a draft invoice counts toward tax collected — a draft
+    // has not been issued to anyone, so CRA is not owed tax on it yet.
     const [invRes, expRes] = await Promise.all([
       supabase.from('invoices')
         .select('issue_date,subtotal,tax_amount,total,status')
-        .neq('status', 'void')
+        .not('status', 'in', '("void","draft")')
         .gte('issue_date', dateFrom)
         .lte('issue_date', dateTo),
       supabase.from('expenses')

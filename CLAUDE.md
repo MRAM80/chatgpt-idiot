@@ -329,10 +329,14 @@ the rest come from the audit pass and are worth re-checking before acting on the
 
 **P1 — billing integrity**
 
-5. **Double-billing.** The Invoice Report ignores `order.invoice_id` and `order.prepaid`, so a prepaid
-   order's service and material are billed again on the next account statement.
-6. **Re-running a statement creates a duplicate invoice** — nothing marks orders as billed.
-7. **Draft invoices count as tax collected** — the HST return and export exclude only `void`.
+5. ~~**Double-billing.**~~ **Fixed 2026-08-01.** `loadAccountBilling` (`lib/billing.ts`) filters both
+   order passes on `.is('invoice_id', null)` and `.eq('prepaid', false)`, so a prepaid order that
+   already settled itself can never be re-billed.
+6. ~~**Re-running a statement creates a duplicate invoice.**~~ **Fixed 2026-08-01.** Issuing an account
+   invoice stamps `order.invoice_id` on every order it covers, and a stamp failure is reported loudly
+   with instructions to void — silence there would resurrect the bug.
+7. ~~**Draft invoices count as tax collected.**~~ **Fixed 2026-08-01.** `/reports/tax` and `/export`
+   now filter `.not('status','in','("void","draft")')`. A draft is unissued, so no tax is owed on it.
 8. **`releaseOrderStock` ignores `track_stock`**, inflating stock for untracked products on cancel; and
    its double-credit guard misfires after any downward quantity edit, so held stock is never returned.
 9. **`createPrepaidInvoice` fails silently** — on error the order is saved `prepaid = true` with no
@@ -360,6 +364,20 @@ the rest come from the audit pass and are worth re-checking before acting on the
     `handleCreateOrUpdate` now runs the same check as `Till.tsx`
     (`"<description> is sold by the <unit> — use a whole number."`), and a fractional countable line
     shows *"Sold by the &lt;unit&gt; — whole numbers only."* inline, matching the till.
+21. ~~**Material was billed at $0 when its rate was null.**~~ **Fixed 2026-08-01.** The account run did
+    `rate: Number(it.rate)`, and `Number(null)` is `0` — so an order line the order page deliberately
+    left unpriced was billed free, silently, while the service lines went out of their way to flag the
+    same case. Material now keeps `null` and is flagged and excluded like everything else.
+22. ~~**BR Garden Center could not be invoiced at all.**~~ **Fixed 2026-08-01.** `BILLING_TYPES` covers
+    only REMOVAL/EXCHANGE/DUMP RETURN, so a material-only tenant produced zero billing events — and the
+    old Invoice Report gated its entire action bar, Create Invoice included, on
+    `sortedCycles.length > 0`. Money sat in the material lines with no way to bill it. The builder now
+    gates on "is there anything priced at all", so material alone is invoiceable.
+    `BILLING_TYPES` itself is unchanged — a MATERIAL DELIVERY has no bin service to price.
+23. **Still open: the statement print path does not use `lib/invoice-print.ts`.**
+    `printStatement`/`printLayout` in `app/reports/statements/page.tsx` interpolate customer name,
+    address and driver notes into HTML **with no escaping**. That page is now activity-only (no money),
+    but the injection is real. Route it through `printInvoiceDocument`, which escapes.
 
 ---
 
@@ -507,6 +525,12 @@ create policy "order_items_delete" on order_items for delete to authenticated us
 -- Which invoice settled this order, and whether it was paid when placed
 alter table "order" add column if not exists invoice_id uuid references invoices(id) on delete set null;
 alter table "order" add column if not exists prepaid boolean not null default false;
+
+-- ⚠ PENDING 2026-08-01 — run in BOTH projects. When the money actually arrived,
+-- as opposed to when the invoice was raised. The code tolerates its absence
+-- (app/invoices/page.tsx falls back to a select and an update without it), so
+-- deploy order does not matter — but no payment date is recorded until it runs.
+alter table invoices add column if not exists paid_at date;
 
 -- Stock movements can be caused by an order, not just a counter invoice
 alter table stock_movements add column if not exists order_id uuid references "order"(id) on delete set null;

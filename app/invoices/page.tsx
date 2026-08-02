@@ -3,11 +3,12 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Fragment, Suspense, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AppShell from '@/components/AppShell'
 import Icon from '@/components/Icon'
+import AccountInvoiceBuilder from '@/components/AccountInvoiceBuilder'
 import { CLIENT_CONFIG } from '@/lib/client-config'
 import { printInvoiceDocument } from '@/lib/invoice-print'
 import { useRole } from '@/hooks/useRole'
@@ -26,6 +27,7 @@ type Invoice = {
   total: number
   status: 'draft' | 'sent' | 'paid' | 'void'
   payment_method: string | null
+  paid_at: string | null
   notes: string | null
 }
 
@@ -95,10 +97,16 @@ function printInvoiceDoc(inv: Invoice, items: InvoiceItem[]) {
   })
 }
 
-export default function InvoicesPage() {
+type Tab = 'register' | 'new'
+
+function InvoicesPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = useMemo(() => createClient(), [])
   const { role, loading: roleLoading } = useRole()
+
+  const [tab, setTab] = useState<Tab>(searchParams.get('tab') === 'new' ? 'new' : 'register')
+  const [customers, setCustomers] = useState<{ id: string; name: string | null }[]>([])
 
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [itemsByInvoice, setItemsByInvoice] = useState<Record<string, InvoiceItem[]>>({})
@@ -119,21 +127,54 @@ export default function InvoicesPage() {
     }
   }, [roleLoading, role])
 
+  const BASE_COLUMNS =
+    'id,invoice_number,kind,customer_id,customer_name,issue_date,subtotal,tax_rate,tax_amount,total,status,payment_method,notes'
+
   async function loadInvoices() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
-    const { data, error } = await supabase
-      .from('invoices')
-      .select('id,invoice_number,kind,customer_id,customer_name,issue_date,subtotal,tax_rate,tax_amount,total,status,payment_method,notes')
-      .order('issue_date', { ascending: false })
-      .order('invoice_number', { ascending: false })
-      .limit(500)
+
+    function query(columns: string) {
+      return supabase
+        .from('invoices')
+        .select(columns)
+        .order('issue_date', { ascending: false })
+        .order('invoice_number', { ascending: false })
+        .limit(500)
+    }
+
+    let { data, error } = await query(`${BASE_COLUMNS},paid_at`)
+
+    // Survive running ahead of the paid_at migration — without this the whole
+    // register goes blank on a project where the column isn't there yet.
+    if (error && /paid_at/i.test(error.message)) {
+      ;({ data, error } = await query(BASE_COLUMNS))
+    }
+
     if (error) { setPageError(error.message); setLoading(false); return }
-    setInvoices((data as Invoice[]) || [])
+    setInvoices((data as unknown as Invoice[]) || [])
     setLoading(false)
   }
 
   useEffect(() => { void loadInvoices() }, [])
+
+  // Customers for the New Invoice tab — active accounts only
+  useEffect(() => {
+    async function loadCustomers() {
+      const { data } = await supabase
+        .from('customers')
+        .select('id,name')
+        .eq('status', 'active')
+        .order('name')
+      setCustomers((data as { id: string; name: string | null }[]) || [])
+    }
+    void loadCustomers()
+  }, [supabase])
+
+  function switchTab(next: Tab) {
+    setTab(next)
+    router.replace(next === 'register' ? '/invoices' : `/invoices?tab=${next}`)
+  }
 
   async function toggleExpand(inv: Invoice) {
     if (expandedId === inv.id) { setExpandedId(null); return }
@@ -159,19 +200,53 @@ export default function InvoicesPage() {
     return items
   }
 
+  /**
+   * `paid_at` records when the money actually arrived — the invoice date is
+   * when it was billed, which is rarely the same day. Marking anything other
+   * than paid clears it, so an un-done payment doesn't leave a stale date.
+   */
   async function setStatus(inv: Invoice, status: Invoice['status']) {
     setPageError('')
     setBusyId(inv.id)
-    const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() }
-    const { error } = await supabase.from('invoices').update(patch).eq('id', inv.id)
+    const paidAt = status === 'paid' ? new Date().toISOString().slice(0, 10) : null
+    const stamped = new Date().toISOString()
+
+    let { error } = await supabase
+      .from('invoices')
+      .update({ status, paid_at: paidAt, updated_at: stamped })
+      .eq('id', inv.id)
+
+    // `paid_at` ships ahead of its migration. Until that SQL is run the column
+    // isn't there, and marking an invoice paid must not fail because of it —
+    // the status change is the part that matters.
+    const columnMissing = error && /paid_at/i.test(error.message)
+    if (columnMissing) {
+      ;({ error } = await supabase
+        .from('invoices')
+        .update({ status, updated_at: stamped })
+        .eq('id', inv.id))
+    }
+
     setBusyId(null)
     if (error) { setPageError(error.message); return }
-    setInvoices(current => current.map(i => (i.id === inv.id ? { ...i, status } : i)))
+    setInvoices(current => current.map(i => (
+      i.id === inv.id ? { ...i, status, paid_at: columnMissing ? i.paid_at : paidAt } : i
+    )))
   }
 
   async function voidInvoice(inv: Invoice) {
     if (!window.confirm(`Void invoice ${inv.invoice_number}? It stays on record but is excluded from totals.`)) return
     await setStatus(inv, 'void')
+  }
+
+  /**
+   * Restores a voided invoice. It comes back as a draft rather than to its old
+   * status — nothing records what that was, and guessing "paid" would invent a
+   * payment. Re-mark it from there.
+   */
+  async function unvoidInvoice(inv: Invoice) {
+    if (!window.confirm(`Restore invoice ${inv.invoice_number}? It comes back as a draft and counts toward totals again once issued.`)) return
+    await setStatus(inv, 'draft')
   }
 
   async function printOne(inv: Invoice) {
@@ -231,8 +306,33 @@ export default function InvoicesPage() {
       }
     >
       <>
+        {/* Tabs — everything about an invoice lives on this one page */}
+        <div className="mb-6 flex gap-1 border-b border-slate-200">
+          {([
+            { id: 'register' as const, label: 'Register', icon: 'invoice' as const },
+            { id: 'new' as const, label: 'New Invoice', icon: 'plus' as const },
+          ]).map(t => (
+            <button
+              key={t.id}
+              onClick={() => switchTab(t.id)}
+              className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm transition ${
+                tab === t.id
+                  ? 'font-semibold text-slate-900'
+                  : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
+              }`}
+              style={tab === t.id ? { borderColor: 'var(--accent)' } : undefined}
+            >
+              <Icon name={t.icon} className="h-4 w-4" />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'new' && <AccountInvoiceBuilder customers={customers} />}
+
+        {tab === 'register' && <>
         {/* KPI strip */}
-        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 dark:bg-slate-700 lg:grid-cols-5">
+        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-200 lg:grid-cols-5">
           {[
             { label: 'Invoiced', value: fmtMoney(stats.invoiced), tone: 'text-slate-900' },
             { label: 'Paid', value: fmtMoney(stats.paid), tone: 'text-emerald-600' },
@@ -387,7 +487,15 @@ export default function InvoicesPage() {
                           >
                             Print
                           </button>
-                          {inv.status !== 'void' && (
+                          {inv.status === 'void' ? (
+                            <button
+                              onClick={() => void unvoidInvoice(inv)}
+                              disabled={busyId === inv.id}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              Restore
+                            </button>
+                          ) : (
                             <button
                               onClick={() => void voidInvoice(inv)}
                               disabled={busyId === inv.id}
@@ -435,6 +543,17 @@ export default function InvoicesPage() {
                                     <td colSpan={3} className="text-right text-xs text-slate-500">{CLIENT_CONFIG.taxLabel} ({inv.tax_rate}%)</td>
                                     <td className="text-right text-xs font-bold text-slate-900">{fmtMoney(inv.tax_amount)}</td>
                                   </tr>
+                                  <tr>
+                                    <td colSpan={3} className="pt-1 text-right text-xs font-semibold text-slate-700">Total</td>
+                                    <td className="pt-1 text-right text-xs font-bold text-slate-900">{fmtMoney(inv.total)}</td>
+                                  </tr>
+                                  {inv.paid_at && (
+                                    <tr>
+                                      <td colSpan={4} className="pt-2 text-right text-xs text-emerald-700">
+                                        Paid {fmtDate(inv.paid_at)}
+                                      </td>
+                                    </tr>
+                                  )}
                                 </tbody>
                               </table>
                             )}
@@ -448,7 +567,16 @@ export default function InvoicesPage() {
             </div>
           )}
         </div>
+        </>}
       </>
     </AppShell>
+  )
+}
+
+export default function InvoicesPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading…</div>}>
+      <InvoicesPageContent />
+    </Suspense>
   )
 }

@@ -141,7 +141,9 @@ export default function ExportPage() {
     const invPromise = includeInvoices
       ? supabase.from('invoices')
           .select('id,invoice_number,customer_name,issue_date,subtotal,tax_amount,total,status,notes')
-          .neq('status', 'void')
+          // drafts are unissued — exporting them to QuickBooks would book
+          // revenue the customer has never been billed for
+          .not('status', 'in', '("void","draft")')
           .gte('issue_date', dateFrom)
           .lte('issue_date', dateTo)
           .order('issue_date')

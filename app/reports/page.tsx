@@ -14,8 +14,8 @@ import { can } from '@/lib/roles'
 const CARDS: { href: string; title: string; description: string; icon: IconName }[] = [
   {
     href: '/reports/statements',
-    title: 'Statements & Invoices',
-    description: 'Customer statements by order type and date range, priced billing cycles, and printable invoices.',
+    title: 'Account Statement',
+    description: 'What a customer’s jobs looked like over a date range — activity, not money. Billing lives under Invoices.',
     icon: 'reports',
   },
   {
